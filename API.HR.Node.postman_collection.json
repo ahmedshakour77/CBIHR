@@ -1,0 +1,777 @@
+{
+	"info": {
+		"_postman_id": "a583d8e0-827c-4a25-9c98-1e4a68297b41",
+		"name": "API.HR.Node Enterprise API",
+		"description": "Complete Postman collection for API.HR.Node - ASP.NET Core HR Management API including Authentication, Employees, Contact Lookups, Profile Photos, Statistics, and Data Import.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{bearerToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.accessToken) {",
+									"        pm.collectionVariables.set(\"bearerToken\", jsonData.accessToken);",
+									"    }",
+									"    if (jsonData.refreshToken) {",
+									"        pm.collectionVariables.set(\"refreshToken\", jsonData.refreshToken);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"deviceModel\": \"Samsung Galaxy S24 Ultra\",\n  \"operatingSystem\": \"Android 14\",\n  \"appVersion\": \"1.0.4\",\n  \"deviceId\": \"b1a2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticates user credentials and sets {{bearerToken}} and {{refreshToken}} collection variables automatically."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"refresh"
+							]
+						},
+						"description": "Refreshes an expired JWT Bearer token using a valid refreshToken."
+					},
+					"response": []
+				},
+				{
+					"name": "Microsoft Mobile Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.accessToken) {",
+									"        pm.collectionVariables.set(\"bearerToken\", jsonData.accessToken);",
+									"    }",
+									"    if (jsonData.refreshToken) {",
+									"        pm.collectionVariables.set(\"refreshToken\", jsonData.refreshToken);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"idToken\": \"{{msIdToken}}\",\n  \"email\": \"ahmed.shakour@cbi.iq\",\n  \"deviceInfo\": {\n    \"platform\": \"Android\",\n    \"model\": \"SM-S918B\",\n    \"manufacturer\": \"samsung\",\n    \"brand\": \"samsung\",\n    \"osVersion\": \"14\",\n    \"sdkInt\": 34,\n    \"buildId\": \"UP1A.231005.007\",\n    \"isPhysicalDevice\": true,\n    \"hardware\": \"qcom\",\n    \"appVersion\": \"1.0.4\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/microsoft-login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"microsoft-login"
+							]
+						},
+						"description": "Authenticates a mobile user via Microsoft OAuth ID Token / Email exchange with optional device metadata, and issues API Bearer and Refresh tokens."
+					},
+					"response": []
+				},
+				{
+					"name": "Passkey - Registration Options",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"deviceName\": \"Samsung S24 Biometric (Fingerprint)\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/passkey/register/options",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"passkey",
+								"register",
+								"options"
+							]
+						},
+						"description": "Generates WebAuthn / FIDO2 Passkey creation options and challenge for an authenticated employee account."
+					},
+					"response": []
+				},
+				{
+					"name": "Passkey - Registration Complete",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"optionsJson\": \"{}\",\n  \"attestationResponseJson\": \"{}\",\n  \"deviceName\": \"Samsung S24 Biometric\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/passkey/register/complete",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"passkey",
+								"register",
+								"complete"
+							]
+						},
+						"description": "Submits FIDO2 attestation response to bind and save public key credential."
+					},
+					"response": []
+				},
+				{
+					"name": "Passkey - Login Options",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"employeeID\": \"1001\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/passkey/login/options",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"passkey",
+								"login",
+								"options"
+							]
+						},
+						"description": "Generates WebAuthn assertion challenge options for passwordless biometric login."
+					},
+					"response": []
+				},
+				{
+					"name": "Passkey - Biometric Login Complete",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.accessToken) {",
+									"        pm.collectionVariables.set(\"bearerToken\", jsonData.accessToken);",
+									"    }",
+									"    if (jsonData.refreshToken) {",
+									"        pm.collectionVariables.set(\"refreshToken\", jsonData.refreshToken);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"optionsJson\": \"{}\",\n  \"assertionResponseJson\": \"{}\",\n  \"deviceInfo\": {\n    \"platform\": \"Android\",\n    \"model\": \"SM-S918B\",\n    \"manufacturer\": \"samsung\",\n    \"brand\": \"samsung\",\n    \"osVersion\": \"14\",\n    \"sdkInt\": 34,\n    \"buildId\": \"UP1A.231005.007\",\n    \"isPhysicalDevice\": true,\n    \"hardware\": \"qcom\",\n    \"appVersion\": \"1.0.4\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/passkey/login/complete",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"passkey",
+								"login",
+								"complete"
+							]
+						},
+						"description": "Verifies WebAuthn assertion signature and issues JWT Bearer token upon successful biometric validation."
+					},
+					"response": []
+				},
+				{
+					"name": "Passkey - Get My Passkeys",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/passkey/my-passkeys",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"passkey",
+								"my-passkeys"
+							]
+						},
+						"description": "Gets all active registered Passkeys for current employee account."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Employees",
+			"item": [
+				{
+					"name": "Get Current Authenticated Employee (/api/employees/me)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"me"
+							]
+						},
+						"description": "Gets the full employee profile bound to the currently authenticated user account using the Bearer token."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Employees (Paginated)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees?page=1&pageSize=50&search=&formation=&status=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "50"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "formation",
+									"value": ""
+								},
+								{
+									"key": "status",
+									"value": ""
+								}
+							]
+						},
+						"description": "Gets a paginated list of employees with optional filters for search, formation, and status."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Employee by Contact (Query Params)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/by-contact?email={{email}}&phone={{phone}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"by-contact"
+							],
+							"query": [
+								{
+									"key": "email",
+									"value": "{{email}}",
+									"description": "Search by employee email address"
+								},
+								{
+									"key": "phone",
+									"value": "{{phone}}",
+									"description": "Search by employee phone number"
+								},
+								{
+									"key": "contact",
+									"value": "",
+									"description": "Unified contact search parameter (email or phone)",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Looks up the employee record bound to an email address or phone number using URL query parameters."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Employee by Contact (JSON Body)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{email}}\",\n  \"phone\": \"{{phone}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/by-contact",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"by-contact"
+							]
+						},
+						"description": "Looks up the employee record bound to an email address or phone number using a JSON body."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Employee by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/{{employeeId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"{{employeeId}}"
+							]
+						},
+						"description": "Gets an employee by their unique Employee ID string (e.g. EMP1001)."
+					},
+					"response": []
+				},
+				{
+					"name": "Import Employees (JSON)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"mode\": \"upsert\",\n  \"createMissingLookups\": true,\n  \"employees\": [\n    {\n      \"employeeID\": \"EMP1001\",\n      \"name\": \"أحمد محمود\",\n      \"formation\": \"التشكيل الأول\",\n      \"jobTitle\": \"مهندس داتا\",\n      \"employeeStatus\": \"مستمر\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/import/json",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"import",
+								"json"
+							]
+						},
+						"description": "Imports or updates bulk employee records via JSON (supports insert or upsert mode)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Employee Profile Photos",
+			"item": [
+				{
+					"name": "Get Full Profile Photo",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/{{employeeId}}/profile-photo",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"{{employeeId}}",
+								"profile-photo"
+							]
+						},
+						"description": "Gets the active full-size profile photo for an employee."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Profile Photo Thumbnail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/{{employeeId}}/profile-photo/thumbnail",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"{{employeeId}}",
+								"profile-photo",
+								"thumbnail"
+							]
+						},
+						"description": "Gets the 150x150 thumbnail of an employee's active profile photo."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Profile Photo Metadata",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/{{employeeId}}/profile-photo/metadata",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"{{employeeId}}",
+								"profile-photo",
+								"metadata"
+							]
+						},
+						"description": "Gets metadata (version, content type, SHA256, dimensions) for an employee's active profile photo."
+					},
+					"response": []
+				},
+				{
+					"name": "Upload or Replace Profile Photo",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/{{employeeId}}/profile-photo",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"{{employeeId}}",
+								"profile-photo"
+							]
+						},
+						"description": "Uploads or replaces an employee profile photo using multipart/form-data."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Profile Photo",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/{{employeeId}}/profile-photo",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"{{employeeId}}",
+								"profile-photo"
+							]
+						},
+						"description": "Soft-deletes/Deactivates the active profile photo for an employee."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Statistics & Dashboard",
+			"item": [
+				{
+					"name": "Get Statistics Overview",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/statistics",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"statistics"
+							]
+						},
+						"description": "Gets total employee count plus breakdown statistics across all dimensions for dashboard display."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Statistics by Dimension",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/employees/statistics/{{dimension}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"employees",
+								"statistics",
+								"{{dimension}}"
+							]
+						},
+						"description": "Gets employee breakdown statistics by specific dimension (e.g. formation, jobTitle, grade, status, age)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Appreciation Letters",
+			"item": [
+				{
+					"name": "Import Appreciation Letters (JSON)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"mode\": \"upsert\",\n  \"createMissingLookups\": true,\n  \"letters\": [\n    {\n      \"employeeID\": \"EMP1001\",\n      \"type\": \"كتاب شكر وتقدير\",\n      \"letterNumber\": \"12345\",\n      \"letterDate\": \"2026-01-10\",\n      \"issuedBy\": \"Office of the Minister\"\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appreciation-letters/import/json",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appreciation-letters",
+								"import",
+								"json"
+							]
+						},
+						"description": "Imports or updates appreciation letters for employees."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5058",
+			"type": "string",
+			"description": "Base URL of the API server"
+		},
+		{
+			"key": "username",
+			"value": "systemadmin",
+			"type": "string",
+			"description": "Username or Email for login"
+		},
+		{
+			"key": "password",
+			"value": "",
+			"type": "string",
+			"description": "Password for login"
+		},
+		{
+			"key": "bearerToken",
+			"value": "",
+			"type": "string",
+			"description": "JWT Bearer Token automatically set upon Login"
+		},
+		{
+			"key": "refreshToken",
+			"value": "",
+			"type": "string",
+			"description": "Refresh Token automatically set upon Login"
+		},
+		{
+			"key": "employeeId",
+			"value": "1001",
+			"type": "string",
+			"description": "Sample Employee ID for testing endpoints"
+		},
+		{
+			"key": "email",
+			"value": "systemadmin@hr.node",
+			"type": "string",
+			"description": "Sample email for contact lookup endpoint"
+		},
+		{
+			"key": "phone",
+			"value": "+19995551234",
+			"type": "string",
+			"description": "Sample phone number for contact lookup endpoint"
+		},
+		{
+			"key": "contact",
+			"value": "systemadmin@hr.node",
+			"type": "string",
+			"description": "Unified contact search parameter"
+		},
+		{
+			"key": "dimension",
+			"value": "formation",
+			"type": "string",
+			"description": "Statistics dimension (e.g., formation, jobTitle, status, age)"
+		}
+	]
+}

@@ -1,0 +1,99 @@
+﻿@page "/Account/Manage/GenerateRecoveryCodes"
+
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+@inject ILogger<GenerateRecoveryCodes> Logger
+
+<PageTitle>رموز الاسترداد | منظومة الموارد البشرية</PageTitle>
+
+@if (recoveryCodes is not null)
+{
+    <ShowRecoveryCodes RecoveryCodes="recoveryCodes.ToArray()" StatusMessage="@message" />
+}
+else
+{
+    <div class="hr-stack-sm">
+        <section class="hr-card">
+            <div class="hr-card-head">
+                <div class="hr-idcell">
+                    <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true">
+                        <Icon Name="key" Size="sm" />
+                    </span>
+                    <div class="hr-idcell-text">
+                        <h2 class="hr-h2">توليد رموز استرداد جديدة</h2>
+                        <p class="hr-meta" style="margin-block-start:.25rem">تُلغى الرموز السابقة فور التوليد</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hr-card-body">
+                <div class="hr-alert hr-alert-warn">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                    <div>
+                        <p class="hr-alert-title">احفظ الرموز في مكان آمن</p>
+                        <p style="margin-block-start:.25rem">
+                            إن فقدت جهازك ولم تكن لديك رموز الاسترداد، ستفقد إمكانية الوصول إلى حسابك.
+                        </p>
+                        <p style="margin-block-start:.5rem">
+                            توليد رموز جديدة لا يغيّر المفتاح المستخدم في تطبيق المصادقة. لتغييره استخدم
+                            <a class="hr-link" href="Account/Manage/ResetAuthenticator">إعادة تعيين مفتاح المصادقة</a>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+                <form @formname="generate-recovery-codes" @onsubmit="OnSubmitAsync" method="post">
+                    <AntiforgeryToken />
+                    <button class="hr-btn hr-btn-danger" type="submit">
+                        <Icon Name="arrow-path" Size="xs" />
+                        <span>توليد رموز جديدة</span>
+                    </button>
+                </form>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private string? message;
+    private ApplicationUser? user;
+    private IEnumerable<string>? recoveryCodes;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        var isTwoFactorEnabled = await UserManager.GetTwoFactorEnabledAsync(user);
+        if (!isTwoFactorEnabled)
+        {
+            throw new InvalidOperationException("Cannot generate recovery codes for user because they do not have 2FA enabled.");
+        }
+    }
+
+    private async Task OnSubmitAsync()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        recoveryCodes = await UserManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10);
+        message = "You have generated new recovery codes.";
+
+        Logger.LogInformation("User with ID '{UserId}' has generated new 2FA recovery codes.", userId);
+    }
+}

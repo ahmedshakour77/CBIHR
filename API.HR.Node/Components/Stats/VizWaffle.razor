@@ -1,0 +1,51 @@
+@*
+    Waffle: a hundred squares, each one per cent of the scope, coloured by
+    value. Read at a glance as "how many in a hundred", and right for a
+    field dominated by one or two values (religion, nationality).
+    Squares are split by largest remainder, so they always total 100.
+*@
+<div class="hr-viz-waffle">
+    @if (Total == 0)
+    {
+        <p class="hr-viz-empty">@Viz.NoData(Lang.IsKurdish)</p>
+    }
+    else
+    {
+        <div class="hr-viz-waffle-grid" role="img" aria-label="@Summary">
+            @for (var i = 0; i < Slices.Count; i++)
+            {
+                var on = Selected?.Contains(Slices[i].Name) == true;
+                for (var c = 0; c < Cells[i]; c++)
+                {
+                    <span @key="Slices[i].Name + c" class="hr-viz-waffle-cell @Viz.Series(i) @(on ? "is-on" : null)"></span>
+                }
+            }
+        </div>
+        <VizLegend Slices="Slices" Total="Total" Selected="Selected" OnPick="OnPick" Label="@Label" />
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Items { get; set; } = [];
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public int MaxSlices { get; set; } = 5;
+
+    private int Total => Items.Sum(i => i.Count);
+    private List<StatItem> Slices = [];
+    private int[] Cells = [];
+    private string Summary => string.Join("، ", Slices.Select(s => $"{Viz.Display(s.Name, Lang.IsKurdish)} {Viz.Pct(s.Count, Total)}"));
+
+    protected override void OnParametersSet()
+    {
+        Slices = Viz.Fold(Items.OrderByDescending(i => i.Count), MaxSlices, Selected);
+
+        var total = Math.Max(1, Slices.Sum(s => s.Count));
+        var exact = Slices.Select(s => s.Count * 100.0 / total).ToArray();
+        Cells = exact.Select(e => (int)Math.Floor(e)).ToArray();
+        var left = 100 - Cells.Sum();
+        foreach (var i in Enumerable.Range(0, exact.Length).OrderByDescending(i => exact[i] - Cells[i]).Take(left))
+            Cells[i]++;
+    }
+}

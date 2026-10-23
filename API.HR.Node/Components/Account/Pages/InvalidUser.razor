@@ -1,0 +1,26 @@
+﻿@page "/Account/InvalidUser"
+
+<PageTitle>حساب غير صالح | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+    <div class="hr-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-danger" aria-hidden="true">
+                    <Icon Name="user-circle" Size="lg" />
+                </span>
+                <h1 class="hr-h1">حساب غير صالح</h1>
+                <p class="hr-sub hr-measure-sm">
+                    تعذّر العثور على الحساب المطلوب، أو أن الرابط لم يعد صالحاً.
+                </p>
+                <div style="width:min(28rem,100%);margin-block-start:.5rem">
+                    <StatusMessage />
+                </div>
+                <a class="hr-btn hr-btn-primary" href="Account/Login">
+                    <Icon Name="arrow-right-on-rectangle" Size="sm" />
+                    <span>العودة إلى تسجيل الدخول</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

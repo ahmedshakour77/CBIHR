@@ -1,0 +1,120 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject API.HR.Node.Services.Network.IAmlConnectivityService AmlNet
+@implements IDisposable
+
+@*
+    Employee Portal Shell.
+    An executive, dedicated, focused layout specifically for the employee self-service dossier.
+    No empty sidebars; centered, modern layout with responsive breathing room.
+*@
+
+<div class="hr-app hr-app-portal">
+
+    <a class="hr-skip" href="#hr-content">@Lang.T("a11y.skip", "تخطَّ إلى المحتوى الرئيسي")</a>
+
+    <header class="hr-header">
+        <div class="hr-portal-header-inner">
+            <a class="hr-brand" href="portal">
+                <div class="hr-brand-logos">
+                    <span class="hr-brand-mark hr-brand-mark-logo" aria-hidden="true" title="@Lang.T("org.cbi", "البنك المركزي العراقي")">
+                        <img src="img/logo.png" alt="شعار البنك المركزي" class="hr-brand-logo" width="204" height="204" />
+                    </span>
+                    @if (AmlNet.IsAmlConnected)
+                    {
+                        <span class="hr-brand-mark hr-brand-mark-logo hr-aml-logo-mark" aria-hidden="true" title="@Lang.T("org.aml", "مكتب مكافحة غسل الأموال وتمويل الإرهاب (متصل عبر aml.lan)")">
+                            <img src="img/aml-logo.png" alt="شعار مكتب مكافحة غسل الأموال" class="hr-brand-logo" width="204" height="204" />
+                        </span>
+                    }
+                </div>
+                <span class="hr-brand-text">
+                    <span class="hr-brand-name">@Lang.T("employee.portal.title", "بوابة الموظف")</span>
+                    <span class="hr-brand-sub">
+                        @if (AmlNet.IsAmlConnected)
+                        {
+                            <span class="hr-aml-dot" title="متصل بشبكة aml.lan"></span>
+                        }
+                        @Lang.T("employee.portal.sub", "الملف الوظيفي الإلكتروني")
+                    </span>
+                </span>
+            </a>
+
+            <div class="hr-header-spacer"></div>
+
+            <LanguageToggle />
+            <UserPreferencesModal />
+
+            <span class="hr-header-divider" aria-hidden="true"></span>
+
+            <AuthorizeView>
+                <Authorized>
+                    @if (context.User.IsInRole("Admin"))
+                    {
+                        <NotificationBell />
+                    }
+
+                    <span class="hr-header-user">
+                        <UserAvatar EmployeeId="@context.User.FindFirst("employee_id")?.Value"
+                                    UserName="@context.User.Identity?.Name"
+                                    Size="sm" />
+                        <span class="hr-header-user-name hr-truncate">
+                            @(context.User.Identity?.Name ?? Lang.T("auth.employee", "الموظف"))
+                        </span>
+                    </span>
+
+                    <form action="Account/Logout" method="post" class="hr-header-form">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@CurrentPath" />
+                        <button type="submit"
+                                class="hr-btn hr-btn-quiet hr-btn-icon"
+                                aria-label="@Lang.T("auth.logout", "تسجيل الخروج")"
+                                title="@Lang.T("auth.logout", "تسجيل الخروج")">
+                            <Icon Name="arrow-right-on-rectangle" />
+                        </button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="hr-btn hr-btn-primary hr-btn-sm" href="Account/Login">
+                        <Icon Name="lock-closed" Size="xs" />
+                        <span>@Lang.T("auth.login", "تسجيل الدخول")</span>
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </header>
+
+    <main class="hr-main" id="hr-content">
+        <div class="hr-portal-container">
+            @Body
+        </div>
+    </main>
+</div>
+
+<div id="blazor-error-ui" class="hr-errorbar" role="alert">
+    <Icon Name="exclamation-triangle" Size="sm" />
+    <span>@Lang.T("error.unexpected", "حدث خطأ غير متوقع في النظام.")</span>
+    <a href="." class="hr-errorbar-action">@Lang.T("error.reload", "إعادة التحميل")</a>
+    <button type="button" class="dismiss hr-errorbar-dismiss" aria-label="@Lang.T("error.dismiss", "إخفاء التنبيه")">
+        <Icon Name="x-mark" Size="sm" />
+    </button>
+</div>
+
+@code {
+    private string CurrentPath => Nav.ToBaseRelativePath(Nav.Uri);
+
+    protected override void OnInitialized()
+    {
+        AmlNet.OnConnectivityChanged += OnConnectivityChanged;
+    }
+
+    private void OnConnectivityChanged(bool isConnected)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        AmlNet.OnConnectivityChanged -= OnConnectivityChanged;
+    }
+}

@@ -1,0 +1,1664 @@
+@page "/admin/lookups"
+@using API.HR.Node.Data
+@using API.HR.Node.Data.Allowances
+@using API.HR.Node.Data.OrganizationalHierarchy
+@using API.HR.Node.Services.DesignSystem
+@using API.HR.Node.Services.Localization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject ILanguageService Lang
+@inject IToastService Toast
+@inject NavigationManager Nav
+
+<PageTitle>إدارة القوائم المنسدلة وبيانات الترميز المرجعي | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+    @* Page Header *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="hr-badge hr-badge--warn">صلاحية إدارة النظام (Admin Only)</span>
+                <span class="hr-badge">الترميز والقواميس المرجعية</span>
+            </div>
+            <h1 class="hr-h1">إدارة القوائم المنسدلة وبيانات الترميز</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start: var(--s-1)">
+                استعراض كافة القوائم المنسدلة في النظام، إدارة تفاصيلها وترابطاتها الوظيفية والمدنية، وإتاحة الإضافة والتعديل والحذف الآمن مع حماية سلامة السجلات المرتبطة.
+            </p>
+        </div>
+        <div class="hr-pagehead-actions" role="group">
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="ReloadCurrentLookupAsync" disabled="@isLoading" title="إعادة تحميل بيانات القائمة">
+                <Icon Name="arrow-path" Size="sm" Class="@(isLoading ? "hr-spin" : "")" />
+                <span>تحديث</span>
+            </button>
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenAddModal" title="إضافة قيمة جديدة لهذه القائمة">
+                <Icon Name="plus" Size="sm" />
+                <span>إضافة إلى @CurrentMeta.Title</span>
+            </button>
+        </div>
+    </header>
+
+    @* Category Tabs & Lookup Selector *@
+    <div class="hr-card" style="padding: 1rem 1.25rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            @* Category Selector *@
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; border-bottom: 1px solid var(--line-soft); padding-bottom: 0.75rem;">
+                @foreach (var cat in LookupCategories)
+                {
+                    var isCatActive = selectedCategory == cat.Key;
+                    <button type="button"
+                            class="hr-btn @(isCatActive ? "hr-btn-primary" : "hr-btn-secondary")"
+                            style="font-size: var(--fs-caption); padding: 0.35rem 0.85rem;"
+                            @onclick="() => SelectCategory(cat.Key)">
+                        <Icon Name="@cat.Icon" Size="xs" />
+                        <span>@cat.Name</span>
+                    </button>
+                }
+            </div>
+
+            @* Sub-lookup pills within selected category *@
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                <span class="hr-meta" style="font-weight: 600; margin-inline-end: 0.25rem;">القائمة المنسدلة:</span>
+                @foreach (var item in CurrentCategoryLookups)
+                {
+                    var isActive = selectedLookupKey == item.Key;
+                    <button type="button"
+                            class="hr-badge @(isActive ? "hr-badge-accent" : "")"
+                            style="cursor: pointer; padding: 0.4rem 0.85rem; font-size: var(--fs-caption); border: 1px solid @(isActive ? "var(--accent)" : "var(--line-soft)"); transition: all 0.15s ease;"
+                            @onclick="() => SelectLookup(item.Key)">
+                        <span>@item.Title</span>
+                        <span style="opacity: 0.75; font-size: 0.85em; margin-inline-start: 0.35rem;">(@item.Count)</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Relationship & Context Card *@
+    <div class="hr-card" style="padding: 1.15rem 1.35rem; background: var(--accent-tint); border-color: var(--accent-tint-2);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+            <div style="flex: 1 1 320px;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                    <Icon Name="link" Size="sm" />
+                    <h2 style="margin: 0; font-size: var(--fs-body); font-weight: 700;">ترابط وتفاصيل قائمة: @CurrentMeta.Title</h2>
+                </div>
+                <p style="margin: 0; font-size: var(--fs-caption); color: var(--text-muted); line-height: 1.6;">
+                    @CurrentMeta.RelationshipDescription
+                </p>
+                <div style="margin-top: 0.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap; font-size: var(--fs-caption); color: var(--text-muted);">
+                    <span><strong>الجدول في قاعدة البيانات:</strong> <code>@CurrentMeta.DbTableName</code></span>
+                    <span><strong>الحقول المرتبطة:</strong> <code>@CurrentMeta.LinkedForeignKey</code></span>
+                    <span><strong>أماكن الظهور في الواجهات:</strong> @CurrentMeta.UsedInScreens</span>
+                </div>
+            </div>
+
+            @if (itemsList.Count == 0 && CurrentMeta.HasDefaultSeeder)
+            {
+                <div>
+                    <button type="button" class="hr-btn hr-btn-secondary" style="border-color: var(--accent);" @onclick="SeedDefaultsAsync" disabled="@isLoading">
+                        <Icon Name="sparkles" Size="xs" />
+                        <span>تعبئة القيم الافتراضية القياسية</span>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Search & Filter Toolbar *@
+    <div class="hr-card" style="padding: 0.85rem 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="flex: 1 1 280px; position: relative;">
+                <input aria-label="البحث في عناصر القائمة" type="search"
+                       class="hr-input"
+                       placeholder="ابحث في عناصر @CurrentMeta.Title بالاسم أو الرمز..."
+                       @bind="searchQuery"
+                       @bind:event="oninput"
+                       style="padding-inline-start: 2rem; width: 100%;" />
+                <span style="position: absolute; inset-inline-start: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;">
+                    <Icon Name="magnifying-glass" Size="xs" />
+                </span>
+            </div>
+            <div style="font-size: var(--fs-caption); color: var(--text-muted);">
+                إجمالي العناصر: <strong>@filteredItems.Count</strong> من أصل <strong>@itemsList.Count</strong>
+            </div>
+        </div>
+    </div>
+
+    @* Main Lookup Table *@
+    <div class="hr-card" style="padding: 0; overflow: hidden;">
+        @if (isLoading)
+        {
+            <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
+                <Icon Name="arrow-path" Size="md" Class="hr-spin" />
+                <p style="margin-top: 0.5rem;">جاري تحميل بيانات @CurrentMeta.Title...</p>
+            </div>
+        }
+        else if (filteredItems.Count == 0)
+        {
+            <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
+                <Icon Name="inbox" Size="lg" />
+                <p style="margin-top: 0.5rem; font-weight: 600;">لا توجد عناصر مسجلة في قائمة @CurrentMeta.Title</p>
+                <p style="font-size: var(--fs-caption);">اضغط على زر "إضافة" بالأعلى لإضافة خيارات جديدة لهذه القائمة المنسدلة.</p>
+            </div>
+        }
+        else
+        {
+            <div style="overflow-x: auto;">
+                <table class="hr-table" style="width: 100%; border-collapse: collapse; text-align: start;">
+                    <thead>
+                        <tr style="background: var(--surface-sunken); border-bottom: 2px solid var(--line-soft);">
+                            <th scope="col" style="padding: 0.75rem 1rem; width: 60px;">المعرف</th>
+                            <th scope="col" style="padding: 0.75rem 1rem;">الاسم المعتمد (Name)</th>
+                            @if (CurrentMeta.HasCode)
+                            {
+                                <th scope="col" style="padding: 0.75rem 1rem; width: 120px;">الرمز (Code)</th>
+                            }
+                            @if (CurrentMeta.HasSecondaryField)
+                            {
+                                <th scope="col" style="padding: 0.75rem 1rem;">@CurrentMeta.SecondaryFieldTitle</th>
+                            }
+                            <th scope="col" style="padding: 0.75rem 1rem; width: 150px; text-align: center;">سجلات مرتبطة (ترابط)</th>
+                            <th scope="col" style="padding: 0.75rem 1rem; width: 140px; text-align: center;">إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in filteredItems)
+                        {
+                            var usageCount = row.UsageCount;
+                            <tr style="border-bottom: 1px solid var(--line-soft); transition: background 0.1s ease;">
+                                <td style="padding: 0.65rem 1rem; font-weight: 600; color: var(--text-muted);">
+                                    #@row.Id
+                                </td>
+                                <td style="padding: 0.65rem 1rem; font-weight: 600;">
+                                    @row.Name
+                                    @if (!string.IsNullOrEmpty(row.BadgeText))
+                                    {
+                                        <span class="hr-badge" style="margin-inline-start: 0.5rem; font-size: 0.8em;">@row.BadgeText</span>
+                                    }
+                                </td>
+                                @if (CurrentMeta.HasCode)
+                                {
+                                    <td style="padding: 0.65rem 1rem;">
+                                        @if (!string.IsNullOrEmpty(row.Code))
+                                        {
+                                            <code style="background: var(--surface-sunken); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.85em;">@row.Code</code>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--text-muted);">-</span>
+                                        }
+                                    </td>
+                                }
+                                @if (CurrentMeta.HasSecondaryField)
+                                {
+                                    <td style="padding: 0.65rem 1rem; font-size: var(--fs-caption); color: var(--text-muted);">
+                                        @(string.IsNullOrEmpty(row.SecondaryValue) ? "-" : row.SecondaryValue)
+                                    </td>
+                                }
+                                <td style="padding: 0.65rem 1rem; text-align: center;">
+                                    @if (usageCount > 0)
+                                    {
+                                        <span class="hr-badge hr-badge--ok" title="هذا العنصر مستخدم ومقترن بـ @usageCount سجل">
+                                            @usageCount سجل مقترن
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge" style="color: var(--text-muted);" title="عنصر متاح وغير مقترن بأي سجل حتى الآن">
+                                            0 (غير مستخدم)
+                                        </span>
+                                    }
+                                </td>
+                                <td style="padding: 0.65rem 1rem; text-align: center;">
+                                    <div style="display: flex; gap: 0.35rem; justify-content: center;">
+                                        <button type="button"
+                                                class="hr-btn hr-btn-secondary"
+                                                style="padding: 0.25rem 0.5rem;"
+                                                @onclick="() => OpenEditModal(row)"
+                                                title="تعديل هذا العنصر">
+                                            <Icon Name="pencil-square" Size="xs" />
+                                        </button>
+                                        <button type="button"
+                                                class="hr-btn hr-btn-secondary"
+                                                style="padding: 0.25rem 0.5rem; color: var(--danger);"
+                                                @onclick="() => ConfirmDelete(row)"
+                                                title="حذف هذا العنصر">
+                                            <Icon Name="trash" Size="xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@* ==================== MODAL: ADD / EDIT LOOKUP ITEM ==================== *@
+<Modal IsOpen="@showAddEditModal"
+       Title="@(modalItem.Id > 0 ? $"تعديل عنصر في {CurrentMeta.Title}" : $"إضافة خيار جديد إلى {CurrentMeta.Title}")"
+       Icon="@(modalItem.Id > 0 ? "pencil-square" : "plus")"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-stack" style="gap: 1rem;">
+            @if (!string.IsNullOrEmpty(modalError))
+            {
+                <div class="hr-alert hr-alert-danger" role="alert">
+                    <Icon Name="exclamation-circle" Size="xs" />
+                    <span>@modalError</span>
+                </div>
+            }
+
+            @* Name field *@
+            <div>
+                <label for="f-admin-lookups-1" class="hr-field-label">
+                    الاسم المعتمد في القائمة <span class="hr-req" aria-hidden="true">*</span>
+                </label>
+                <input id="f-admin-lookups-1"
+                       type="text"
+                       class="hr-input"
+                       aria-required="true"
+                       placeholder="مثال: هندسة برمجيات، ملاك دائم، بغداد..."
+                       @bind="modalItem.Name" />
+            </div>
+
+            @* Code field (if applicable) *@
+            @if (CurrentMeta.HasCode)
+            {
+                <div>
+                    <label for="f-admin-lookups-2" class="hr-field-label">الرمز أو الاختصار (Code)</label>
+                    <input id="f-admin-lookups-2"
+                           type="text"
+                           class="hr-input"
+                           placeholder="مثال: ENG, BGD, 01..."
+                           @bind="modalItem.Code" />
+                </div>
+            }
+
+            @* Extra fields specific to lookup type *@
+            @if (selectedLookupKey == "PenaltyTypes")
+            {
+                <div>
+                    <label for="f-admin-lookups-3" class="hr-field-label">مدة تأخير الترفيع بالأشهر</label>
+                    <input id="f-admin-lookups-3"
+                           type="number"
+                           class="hr-input"
+                           min="0"
+                           max="60"
+                           @bind="modalItem.SecondaryInt" />
+                </div>
+                <div>
+                    <label for="f-admin-lookups-4" class="hr-field-label">الوصف أو الأثر الانضباطي</label>
+                    <input id="f-admin-lookups-4"
+                           type="text"
+                           class="hr-input"
+                           placeholder="تأخير العلاوة والترفيع لمدة شهرين..."
+                           @bind="modalItem.Description" />
+                </div>
+            }
+            else if (selectedLookupKey == "MartyrKinships")
+            {
+                <div>
+                    <label for="f-admin-lookups-5" class="hr-field-label">درجة القرابة</label>
+                    <select id="f-admin-lookups-5" class="hr-input" @bind="modalItem.SecondaryInt">
+                        <option value="1">الدرجة الأولى (أب، أم، ابن، بنت، زوج/زوجة)</option>
+                        <option value="2">الدرجة الثانية (أخ، أخت، جد، جدة)</option>
+                        <option value="3">الدرجة الثالثة (عم، عمة، خال، خالة)</option>
+                        <option value="4">الدرجة الرابعة</option>
+                    </select>
+                </div>
+            }
+            else if (selectedLookupKey == "Grades")
+            {
+                <div>
+                    <label for="f-admin-lookups-6" class="hr-field-label">ترتيب الفرز (Sort Order)</label>
+                    <input id="f-admin-lookups-6"
+                           type="number"
+                           class="hr-input"
+                           min="1"
+                           max="100"
+                           @bind="modalItem.SecondaryInt" />
+                </div>
+            }
+            else if (selectedLookupKey == "Stages")
+            {
+                <div>
+                    <label for="f-admin-lookups-7" class="hr-field-label">رقم المرحلة (1-11)</label>
+                    <input id="f-admin-lookups-7"
+                           type="number"
+                           class="hr-input"
+                           min="1"
+                           max="11"
+                           @bind="modalItem.SecondaryInt" />
+                </div>
+            }
+            else if (selectedLookupKey == "AppreciationLetterTypes")
+            {
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div>
+                        <label for="f-admin-lookups-8" class="hr-field-label">القِدم بالأشهر</label>
+                        <input id="f-admin-lookups-8" type="number" class="hr-input" min="0" @bind="modalItem.SecondaryInt" />
+                    </div>
+                    <div>
+                        <label for="f-admin-lookups-9" class="hr-field-label">القِدم بالأيام</label>
+                        <input id="f-admin-lookups-9" type="number" class="hr-input" min="0" @bind="modalItem.ExtraInt" />
+                    </div>
+                </div>
+            }
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isSubmitting">
+            إلغاء
+        </button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveModalItemAsync" disabled="@isSubmitting">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSubmitting ? "جاري الحفظ..." : "حفظ التغييرات")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== MODAL: DELETE CONFIRMATION ==================== *@
+<Modal IsOpen="@showDeleteModal"
+       Title="تأكيد حذف الخيار المرجعي"
+       Icon="exclamation-triangle"
+       Size="sm"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-stack" style="gap: 0.75rem;">
+            @if (itemToDelete != null && itemToDelete.UsageCount > 0)
+            {
+                <div class="hr-alert hr-alert-danger" style="margin: 0;">
+                    <Icon Name="shield-exclamation" Size="sm" />
+                    <div>
+                        <strong style="display: block; margin-bottom: 0.25rem;">تنبيه حماية سلامة البيانات:</strong>
+                        هذا العنصر (<strong>@itemToDelete.Name</strong>) مقترن ومستخدم حالياً في <strong>@itemToDelete.UsageCount</strong> سجل في المنظومة.
+                        لا يمكن حذفه مباشرة لمنع تلف أو كسر البيانات في ملفات الموظفين. يجب نقل أو تعديل السجلات المقترنة أولاً.
+                    </div>
+                </div>
+            }
+            else
+            {
+                <p style="margin: 0; font-size: var(--fs-body);">
+                    هل أنت متأكد من رغبتك في حذف <strong>"@itemToDelete?.Name"</strong> من قائمة @CurrentMeta.Title؟
+                </p>
+                <p style="margin: 0; font-size: var(--fs-caption); color: var(--text-muted);">
+                    لن يظهر هذا الخيار مجدداً في القوائم المنسدلة بالمنظومة.
+                </p>
+            }
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isSubmitting">
+            إلغاء
+        </button>
+        <button type="button"
+                class="hr-btn hr-btn-danger"
+                @onclick="ExecuteDeleteAsync"
+                disabled="@(isSubmitting || (itemToDelete != null && itemToDelete.UsageCount > 0))">
+            <Icon Name="trash" Size="xs" />
+            <span>@(isSubmitting ? "جاري الحذف..." : "تأكيد الحذف")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    // Categories and metadata structures
+    private sealed record LookupCategory(string Key, string Name, string Icon);
+
+    private sealed record LookupMeta(
+        string Key,
+        string Title,
+        string Category,
+        string DbTableName,
+        string LinkedForeignKey,
+        string UsedInScreens,
+        string RelationshipDescription,
+        bool HasCode = false,
+        bool HasSecondaryField = false,
+        string SecondaryFieldTitle = "",
+        bool HasDefaultSeeder = false
+    )
+    {
+        public int Count { get; set; } = 0;
+    }
+
+    private sealed class LookupRowItem
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string? Code { get; set; }
+        public string? SecondaryValue { get; set; }
+        public int? SecondaryInt { get; set; }
+        public int? ExtraInt { get; set; }
+        public string? Description { get; set; }
+        public string? BadgeText { get; set; }
+        public int UsageCount { get; set; } = 0;
+    }
+
+    // State
+    private string selectedCategory = "Organization";
+    private string selectedLookupKey = "Formations";
+    private string searchQuery = string.Empty;
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+
+    // Modals
+    private bool showAddEditModal = false;
+    private bool showDeleteModal = false;
+    private string? modalError = null;
+    private LookupRowItem modalItem = new();
+    private LookupRowItem? itemToDelete = null;
+
+    private readonly List<LookupCategory> LookupCategories = new()
+    {
+        new("Organization", "الهيكل الإداري والتشكيلات", "building-office-2"),
+        new("JobStructure", "المسار والتوصيف الوظيفي", "briefcase"),
+        new("CivilData", "البيانات المدنية والشخصية", "user"),
+        new("LeavesAndPenalties", "الإجازات والعقوبات", "calendar-days"),
+        new("HonorsAndAllowances", "الشكر، الشهداء والمخصصات", "gift")
+    };
+
+    private readonly List<LookupMeta> AllLookups = new()
+    {
+        // 1. Organization
+        new("Formations", "التشكيلات الإدارية", "Organization", "Formations", "Employee.FormationId, AdministrativeUnit.FormationId", "ملف الموظف، لوحة مؤشرات التشكيل، شجرة التشكيلات", "التشكيلات الرئيسية في المنظومة. ترتبط بها كافة الوحدات الإدارية والموظفون ورؤساء التشكيلات."),
+        new("AdministrativeUnitTypes", "أنواع الوحدات الإدارية", "Organization", "AdministrativeUnitTypes", "AdministrativeUnit.UnitTypeId", "الهيكل التنظيمي الشجري، تصنيف الدوائر والأقسام", "تصنيفات المستوى الإداري (أمانة، مديرية، قسم، شعبة، وحدة). تحدد المستوى الهرمي والتبعية.", HasCode: true),
+
+        // 2. Job Structure
+        new("JobFamilies", "العوائل الوظيفية والتصنيف", "JobStructure", "JobFamilies", "JobTitle.JobFamilyId", "دليل العناوين الوظيفية، الهيكل المهني", "التصنيف المهني العام (مثل: المجموعة الهندسية، الإدارية، القانونية، الفنية). تجمع العناوين الوظيفية ذات الطبيعة الواحدة.", HasCode: true),
+        new("JobTitles", "العناوين الوظيفية", "JobStructure", "JobTitles", "Employee.JobTitleId", "ملف الموظف، استيراد الموظفين، الترفيعات", "العناوين الوظيفية المعتمدة قانونياً. ترتبط بالعائلة المهنية وبالدرجة المالية المقررة.", HasCode: true, HasSecondaryField: true, SecondaryFieldTitle: "العائلة والدرجة"),
+        new("PositionTitles", "المناصب الإشرافية", "JobStructure", "PositionTitles", "Employee.PositionTitleId", "ملف الموظف، شجرة القيادة، مسارات العمل", "المسمى الإشرافي الفعلي المستقل عن العنوان (مدير عام، مدير قسم، مسؤول شعبة). يستخدم في توجيه الموافقات الإدارية."),
+        new("Grades", "الدرجات الوظيفية", "JobStructure", "Grades", "Employee.GradeId, JobTitle.GradeId, SalaryScale.GradeId", "ملف الموظف، سلم الرواتب، الترفيعات", "درجات قانون الخدمة المدنية (من الدرجة 1 إلى 10). تحدد سقف الراتب والعنوان الوظيفي المقابل.", HasCode: true, HasSecondaryField: true, SecondaryFieldTitle: "ترتيب الدرجة"),
+        new("Stages", "المراحل الوظيفية", "JobStructure", "Stages", "Employee.StageId, SalaryScale.StageId", "ملف الموظف، سلم الرواتب، العلاوات السنوية", "مراحل الدرجة الواحدة (من المرحلة 1 إلى 11). تحدد قيمة العلاوة السنوية والراتب الاسمي الفعلي.", HasCode: true, HasSecondaryField: true, SecondaryFieldTitle: "رقم المرحلة"),
+        new("EmployeeStatuses", "حالات الموظف والخدمة", "JobStructure", "EmployeeStatuses", "Employee.EmployeeStatusId", "ملف الموظف، الفلترة المتقدمة، نسب العقود", "حالة الخدمة الحالية للموظف (ملاك دائم، عقد وزاري، منسب، معار، مجاز، متقاعد). تؤثر على احتساب المؤشرات ورواتب الكادر.", HasDefaultSeeder: true),
+
+        // 3. Civil Data
+        new("EducationLevels", "التحصيل الدراسي والشهادات", "CivilData", "EducationLevels", "Employee.EducationLevelId", "ملف الموظف، مؤشرات التشكيل، مخصصات الشهادة", "المؤهلات العلمية المعترف بها (دكتوراه، ماجستير، بكالوريوس، دبلوم، إعدادية...). ترتبط بمخصصات الشهادة وسقف الترقية."),
+        new("Specializations", "التخصصات الأكاديمية", "CivilData", "Specializations", "Employee.SpecializationId", "ملف الموظف، البحث والفلترة، إحصائيات التشكيل", "التخصص الدقيق للموظف (هندسة برمجيات، علوم حاسوب، قانون، محاسبة). يدعم التسكين الوظيفي المناسب."),
+        new("Genders", "النوع الاجتماعي (الجنس)", "CivilData", "Genders", "Employee.GenderId", "ملف الموظف، الهرم الديموغرافي، إحصائيات النوع", "تصنيف الجنس (ذكر، أنثى). يدخل في حسابات الهرم العمري، إجازات الأمومة، ومؤشرات النوع الاجتماعي.", HasDefaultSeeder: true),
+        new("MaritalStatuses", "الحالة الاجتماعية", "CivilData", "MaritalStatuses", "Employee.MaritalStatusId", "ملف الموظف، مخصصات الإعالة والزوجية", "الحالة الاجتماعية للموظف (أعزب، متزوج، أرمل، مطلق). ترتبط باحتساب مخصصات الإعالة الزوجية والأطفال.", HasDefaultSeeder: true),
+        new("Governorates", "المحافظات", "CivilData", "Governorates", "EmployeeResidence.GovernorateId", "بطاقة السكن، خريطة الكوادر الجغرافية", "المحافظات العراقية الرسمية. ترتبط بإسقاط وتوزيع سكن الموظفين وتخطيط النقل واللوجستيات.", HasSecondaryField: true, SecondaryFieldTitle: "الاسم الكردي والترتيب"),
+        new("Religions", "الديانات", "CivilData", "Religions", "Employee.ReligionId", "البيانات المدنية للموظف", "التصنيف الديني وفق السجلات المدنية الرسمية."),
+        new("Nationalities", "الجنسيات", "CivilData", "Nationalities", "Employee.NationalityId", "البيانات المدنية للموظف، البطاقة الموحدة", "الجنسية الرسمية للموظف."),
+
+        // 4. Leaves & Penalties
+        new("LeaveTypes", "أنواع الإجازات", "LeavesAndPenalties", "LeaveTypes", "EmployeeLeave.LeaveTypeId", "سجل الإجازات، أرصدة الإجازات، مسار الموافقات", "قائمة أنواع الإجازات المقررة قانوناً (اعتيادية، مرضية، دراسية، أمومة، بدون راتب، حج).", HasDefaultSeeder: true),
+        new("PenaltyTypes", "أنواع العقوبات الانضباطية", "LeavesAndPenalties", "PenaltyTypes", "EmployeePenalty.PenaltyTypeId", "سجل العقوبات، احتساب تأخير الترفيع، السجل الوظيفي", "العقوبات المنصوص عليها في قانون انضباط موظفي الدولة (لفت نظر، إنذار، قطع راتب، توبيخ). ترتبط بمدد تأخير الترفيع المقررة قانوناً.", HasSecondaryField: true, SecondaryFieldTitle: "مدة التأخير (شهر)", HasDefaultSeeder: true),
+
+        // 5. Honors & Allowances
+        new("AppreciationLetterTitles", "ألقاب وتصنيفات كتب الشكر", "HonorsAndAllowances", "AppreciationLetterTitles", "AppreciationLetter.TitleId", "سجل كتب الشكر، الاستيراد المجمع", "التصنيف الموضوعي لكتاب الشكر الصادر أو الوارد."),
+        new("AppreciationLetterTypes", "أنواع كتب الشكر والقِدم", "HonorsAndAllowances", "AppreciationLetterTypes", "AppreciationLetter.TypeId", "سجل كتب الشكر، احتساب القِدم الترفيعي", "أنواع كتب الشكر الصادرة عن (رئيس وزراء، وزير، وكيل، مدير عام) وقيمة القِدم الوظيفي المستحق عنها.", HasSecondaryField: true, SecondaryFieldTitle: "القِدم الممنوح (شهر/يوم)"),
+        new("MartyrdomTypes", "أنواع الشهادة", "HonorsAndAllowances", "MartyrdomTypes", "EmployeeMartyr.MartyrdomTypeId", "سجل ذوي الشهداء، استحقاقات الامتيازات", "تصنيف الشهادة وفق قرارات مؤسسة الشهداء الرسمية.", HasDefaultSeeder: true),
+        new("MartyrKinships", "صلة القرابة بالشهيد", "HonorsAndAllowances", "MartyrKinships", "EmployeeMartyr.MartyrKinshipId", "سجل ذوي الشهداء، تدقيق الحقوق", "صلة قرابة الموظف بالشهيد (أب، أم، ابن، زوجة...) ودرجة القرابة المعتمدة.", HasSecondaryField: true, SecondaryFieldTitle: "درجة القرابة", HasDefaultSeeder: true),
+        new("AllowanceTypes", "دليل أنواع المخصصات", "HonorsAndAllowances", "AllowanceTypes", "EmployeeAllowanceItem.AllowanceTypeId", "المخصصات المالية، فترات الاستحقاق، الراتب", "أنواع المخصصات المالية (ثابتة أو نسبية، مخصصات شهادة، خطورة، منصب، موقع).", HasCode: true, HasSecondaryField: true, SecondaryFieldTitle: "النسبة أو المبلغ", HasDefaultSeeder: true)
+    };
+
+    private IEnumerable<LookupMeta> CurrentCategoryLookups =>
+        AllLookups.Where(l => l.Category == selectedCategory);
+
+    private LookupMeta CurrentMeta =>
+        AllLookups.FirstOrDefault(l => l.Key == selectedLookupKey) ?? AllLookups.First();
+
+    private List<LookupRowItem> itemsList = new();
+
+    private List<LookupRowItem> filteredItems => string.IsNullOrWhiteSpace(searchQuery)
+        ? itemsList
+        : itemsList.Where(i =>
+            (!string.IsNullOrEmpty(i.Name) && i.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(i.Code) && i.Code.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(i.SecondaryValue) && i.SecondaryValue.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+        ).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookupCountsAsync();
+        await LoadCurrentLookupDataAsync();
+    }
+
+    private async Task SelectCategory(string categoryKey)
+    {
+        if (selectedCategory == categoryKey) return;
+        selectedCategory = categoryKey;
+        var first = CurrentCategoryLookups.FirstOrDefault();
+        if (first != null)
+        {
+            selectedLookupKey = first.Key;
+            await LoadCurrentLookupDataAsync();
+        }
+    }
+
+    private async Task SelectLookup(string lookupKey)
+    {
+        if (selectedLookupKey == lookupKey) return;
+        selectedLookupKey = lookupKey;
+        searchQuery = string.Empty;
+        await LoadCurrentLookupDataAsync();
+    }
+
+    private async Task ReloadCurrentLookupAsync()
+    {
+        await LoadLookupCountsAsync();
+        await LoadCurrentLookupDataAsync();
+        Toast.Info("تم تحديث البيانات بنجاح");
+    }
+
+    private async Task LoadLookupCountsAsync()
+    {
+        try
+        {
+            // Update counts for pills in parallel/batch
+            var metaDict = AllLookups.ToDictionary(m => m.Key);
+            metaDict["Formations"].Count = await Db.Formations.CountAsync();
+            metaDict["AdministrativeUnitTypes"].Count = await Db.AdministrativeUnitTypes.CountAsync();
+            metaDict["JobFamilies"].Count = await Db.JobFamilies.CountAsync();
+            metaDict["JobTitles"].Count = await Db.JobTitles.CountAsync();
+            metaDict["PositionTitles"].Count = await Db.PositionTitles.CountAsync();
+            metaDict["Grades"].Count = await Db.Grades.CountAsync();
+            metaDict["Stages"].Count = await Db.Stages.CountAsync();
+            metaDict["EmployeeStatuses"].Count = await Db.EmployeeStatuses.CountAsync();
+            metaDict["EducationLevels"].Count = await Db.EducationLevels.CountAsync();
+            metaDict["Specializations"].Count = await Db.Specializations.CountAsync();
+            metaDict["Genders"].Count = await Db.Genders.CountAsync();
+            metaDict["MaritalStatuses"].Count = await Db.MaritalStatuses.CountAsync();
+            metaDict["Governorates"].Count = await Db.Governorates.CountAsync();
+            metaDict["Religions"].Count = await Db.Religions.CountAsync();
+            metaDict["Nationalities"].Count = await Db.Nationalities.CountAsync();
+            metaDict["LeaveTypes"].Count = await Db.LeaveTypes.CountAsync();
+            metaDict["PenaltyTypes"].Count = await Db.PenaltyTypes.CountAsync();
+            metaDict["AppreciationLetterTitles"].Count = await Db.AppreciationLetterTitles.CountAsync();
+            metaDict["AppreciationLetterTypes"].Count = await Db.AppreciationLetterTypes.CountAsync();
+            metaDict["MartyrdomTypes"].Count = await Db.MartyrdomTypes.CountAsync();
+            metaDict["MartyrKinships"].Count = await Db.MartyrKinships.CountAsync();
+            metaDict["AllowanceTypes"].Count = await Db.AllowanceTypes.CountAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error counting lookups: {ex.Message}");
+        }
+    }
+
+    private async Task LoadCurrentLookupDataAsync()
+    {
+        isLoading = true;
+        itemsList.Clear();
+
+        try
+        {
+            switch (selectedLookupKey)
+            {
+                case "Formations":
+                    var formCounts = await Db.Employees.Where(e => e.FormationId != null)
+                        .GroupBy(e => e.FormationId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var formations = await Db.Formations.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = formations.Select(f => new LookupRowItem
+                    {
+                        Id = f.Id,
+                        Name = f.Name,
+                        UsageCount = formCounts.GetValueOrDefault(f.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "AdministrativeUnitTypes":
+                    var unitTypeCounts = await Db.AdministrativeUnits
+                        .GroupBy(u => u.UnitTypeId)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var unitTypes = await Db.AdministrativeUnitTypes.AsNoTracking().OrderBy(x => x.HierarchyLevel).ToListAsync();
+                    itemsList = unitTypes.Select(u => new LookupRowItem
+                    {
+                        Id = u.Id,
+                        Name = u.Name,
+                        Code = u.Code,
+                        SecondaryValue = $"مستوى {u.HierarchyLevel}",
+                        UsageCount = unitTypeCounts.GetValueOrDefault(u.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "JobFamilies":
+                    var familyCounts = await Db.JobTitles.Where(j => j.JobFamilyId != null)
+                        .GroupBy(j => j.JobFamilyId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var families = await Db.JobFamilies.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = families.Select(j => new LookupRowItem
+                    {
+                        Id = j.Id,
+                        Name = j.Name,
+                        Code = j.Code,
+                        UsageCount = familyCounts.GetValueOrDefault(j.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "JobTitles":
+                    var jtCounts = await Db.Employees.Where(e => e.JobTitleId != null)
+                        .GroupBy(e => e.JobTitleId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var jobTitles = await Db.JobTitles.AsNoTracking()
+                        .Include(j => j.JobFamily)
+                        .Include(j => j.Grade)
+                        .OrderBy(x => x.Name)
+                        .ToListAsync();
+
+                    itemsList = jobTitles.Select(j => new LookupRowItem
+                    {
+                        Id = j.Id,
+                        Name = j.Name,
+                        Code = j.Code,
+                        SecondaryValue = $"{j.JobFamily?.Name ?? "بدون عائلة"} | {j.Grade?.Name ?? "بدون درجة"}",
+                        UsageCount = jtCounts.GetValueOrDefault(j.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "PositionTitles":
+                    var posCounts = await Db.Employees.Where(e => e.PositionTitleId != null)
+                        .GroupBy(e => e.PositionTitleId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var posTitles = await Db.PositionTitles.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = posTitles.Select(p => new LookupRowItem
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        UsageCount = posCounts.GetValueOrDefault(p.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Grades":
+                    var gradeCounts = await Db.Employees.Where(e => e.GradeId != null)
+                        .GroupBy(e => e.GradeId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var grades = await Db.Grades.AsNoTracking().OrderBy(x => x.SortOrder ?? 99).ToListAsync();
+                    itemsList = grades.Select(g => new LookupRowItem
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+                        Code = g.Code,
+                        SecondaryValue = $"ترتيب: {g.SortOrder}",
+                        SecondaryInt = g.SortOrder,
+                        UsageCount = gradeCounts.GetValueOrDefault(g.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Stages":
+                    var stageCounts = await Db.Employees.Where(e => e.StageId != null)
+                        .GroupBy(e => e.StageId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var stages = await Db.Stages.AsNoTracking().OrderBy(x => x.StageNumber ?? 99).ToListAsync();
+                    itemsList = stages.Select(s => new LookupRowItem
+                    {
+                        Id = s.Id,
+                        Name = s.Name,
+                        Code = s.Code,
+                        SecondaryValue = $"المرحلة {s.StageNumber}",
+                        SecondaryInt = s.StageNumber,
+                        UsageCount = stageCounts.GetValueOrDefault(s.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "EmployeeStatuses":
+                    var statusCounts = await Db.Employees.Where(e => e.EmployeeStatusId != null)
+                        .GroupBy(e => e.EmployeeStatusId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var statuses = await Db.EmployeeStatuses.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = statuses.Select(s => new LookupRowItem
+                    {
+                        Id = s.Id,
+                        Name = s.Name,
+                        UsageCount = statusCounts.GetValueOrDefault(s.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "EducationLevels":
+                    var eduCounts = await Db.Employees.Where(e => e.EducationLevelId != null)
+                        .GroupBy(e => e.EducationLevelId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var edus = await Db.EducationLevels.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = edus.Select(e => new LookupRowItem
+                    {
+                        Id = e.Id,
+                        Name = e.Name,
+                        UsageCount = eduCounts.GetValueOrDefault(e.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Specializations":
+                    var specCounts = await Db.Employees.Where(e => e.SpecializationId != null)
+                        .GroupBy(e => e.SpecializationId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var specs = await Db.Specializations.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = specs.Select(s => new LookupRowItem
+                    {
+                        Id = s.Id,
+                        Name = s.Name,
+                        UsageCount = specCounts.GetValueOrDefault(s.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Genders":
+                    var genCounts = await Db.Employees.Where(e => e.GenderId != null)
+                        .GroupBy(e => e.GenderId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var genders = await Db.Genders.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = genders.Select(g => new LookupRowItem
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+                        UsageCount = genCounts.GetValueOrDefault(g.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "MaritalStatuses":
+                    var marCounts = await Db.Employees.Where(e => e.MaritalStatusId != null)
+                        .GroupBy(e => e.MaritalStatusId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var marStatuses = await Db.MaritalStatuses.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = marStatuses.Select(m => new LookupRowItem
+                    {
+                        Id = m.Id,
+                        Name = m.Name,
+                        UsageCount = marCounts.GetValueOrDefault(m.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Governorates":
+                    var govCounts = await Db.EmployeeResidences.Where(r => r.GovernorateId != null)
+                        .GroupBy(r => r.GovernorateId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var govs = await Db.Governorates.AsNoTracking().OrderBy(x => x.DisplayOrder).ThenBy(x => x.Name).ToListAsync();
+                    itemsList = govs.Select(g => new LookupRowItem
+                    {
+                        Id = g.Id,
+                        Name = g.Name,
+                        SecondaryValue = !string.IsNullOrEmpty(g.NameKu) ? $"{g.NameKu} (تسلسل {g.DisplayOrder})" : $"تسلسل {g.DisplayOrder}",
+                        SecondaryInt = g.DisplayOrder,
+                        UsageCount = govCounts.GetValueOrDefault(g.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Religions":
+                    var relCounts = await Db.Employees.Where(e => e.ReligionId != null)
+                        .GroupBy(e => e.ReligionId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var rels = await Db.Religions.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = rels.Select(r => new LookupRowItem
+                    {
+                        Id = r.Id,
+                        Name = r.Name,
+                        UsageCount = relCounts.GetValueOrDefault(r.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "Nationalities":
+                    var natCounts = await Db.Employees.Where(e => e.NationalityId != null)
+                        .GroupBy(e => e.NationalityId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var nats = await Db.Nationalities.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = nats.Select(n => new LookupRowItem
+                    {
+                        Id = n.Id,
+                        Name = n.Name,
+                        UsageCount = natCounts.GetValueOrDefault(n.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "LeaveTypes":
+                    var leaveCounts = await Db.EmployeeLeaves.Where(l => l.LeaveTypeId != null)
+                        .GroupBy(l => l.LeaveTypeId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var leaveTypes = await Db.LeaveTypes.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = leaveTypes.Select(l => new LookupRowItem
+                    {
+                        Id = l.Id,
+                        Name = l.Name,
+                        UsageCount = leaveCounts.GetValueOrDefault(l.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "PenaltyTypes":
+                    var penCounts = await Db.EmployeePenalties.Where(p => p.PenaltyTypeId != null)
+                        .GroupBy(p => p.PenaltyTypeId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var penTypes = await Db.PenaltyTypes.AsNoTracking().OrderBy(x => x.DelayMonths).ToListAsync();
+                    itemsList = penTypes.Select(p => new LookupRowItem
+                    {
+                        Id = p.Id,
+                        Name = p.Name,
+                        SecondaryValue = p.DelayMonths > 0 ? $"{p.DelayMonths} شهر تأخير" : "بدون تأخير",
+                        SecondaryInt = p.DelayMonths,
+                        Description = p.Description,
+                        UsageCount = penCounts.GetValueOrDefault(p.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "AppreciationLetterTitles":
+                    var titleCounts = await Db.AppreciationLetters.Where(a => a.TitleId != null)
+                        .GroupBy(a => a.TitleId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var letterTitles = await Db.AppreciationLetterTitles.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = letterTitles.Select(a => new LookupRowItem
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        UsageCount = titleCounts.GetValueOrDefault(a.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "AppreciationLetterTypes":
+                    var letterTypeCounts = await Db.AppreciationLetters.Where(a => a.TypeId != null)
+                        .GroupBy(a => a.TypeId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var letterTypes = await Db.AppreciationLetterTypes.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = letterTypes.Select(a => new LookupRowItem
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        SecondaryValue = $"{a.SeniorityMonths} شهر، {a.SeniorityDays} يوم",
+                        SecondaryInt = a.SeniorityMonths,
+                        ExtraInt = a.SeniorityDays,
+                        UsageCount = letterTypeCounts.GetValueOrDefault(a.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "MartyrdomTypes":
+                    var martCounts = await Db.EmployeeMartyrs.Where(m => m.MartyrdomTypeId != null)
+                        .GroupBy(m => m.MartyrdomTypeId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var martTypes = await Db.MartyrdomTypes.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                    itemsList = martTypes.Select(m => new LookupRowItem
+                    {
+                        Id = m.Id,
+                        Name = m.Name,
+                        Description = m.Description,
+                        UsageCount = martCounts.GetValueOrDefault(m.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "MartyrKinships":
+                    var kinCounts = await Db.EmployeeMartyrs.Where(m => m.KinshipId != null)
+                        .GroupBy(m => m.KinshipId!.Value)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var kinships = await Db.MartyrKinships.AsNoTracking().OrderBy(x => x.Degree).ToListAsync();
+                    itemsList = kinships.Select(k => new LookupRowItem
+                    {
+                        Id = k.Id,
+                        Name = k.Name,
+                        SecondaryValue = $"الدرجة {k.Degree}",
+                        SecondaryInt = k.Degree,
+                        UsageCount = kinCounts.GetValueOrDefault(k.Id, 0)
+                    }).ToList();
+                    break;
+
+                case "AllowanceTypes":
+                    var allowCounts = await Db.EmployeeAllowanceItems
+                        .GroupBy(a => a.AllowanceTypeId)
+                        .Select(g => new { Id = g.Key, Count = g.Count() })
+                        .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+                    var allowances = await Db.AllowanceTypes.AsNoTracking().OrderBy(x => x.SortOrder).ToListAsync();
+                    itemsList = allowances.Select(a => new LookupRowItem
+                    {
+                        Id = a.Id,
+                        Name = a.Name,
+                        Code = a.Code,
+                        SecondaryValue = a.CalculationType == AllowanceCalculationType.Percentage
+                            ? $"{a.DefaultPercentage}% (نسبية)"
+                            : $"{a.DefaultAmount:N0} د.ع (مقطوعة)",
+                        UsageCount = allowCounts.GetValueOrDefault(a.Id, 0)
+                    }).ToList();
+                    break;
+            }
+
+            CurrentMeta.Count = itemsList.Count;
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر جلب البيانات: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ==================== ADD / EDIT ACTIONS ====================
+
+    private void OpenAddModal()
+    {
+        modalItem = new LookupRowItem
+        {
+            SecondaryInt = selectedLookupKey switch
+            {
+                "Grades" => (itemsList.Max(x => x.SecondaryInt) ?? 0) + 1,
+                "Stages" => (itemsList.Max(x => x.SecondaryInt) ?? 0) + 1,
+                "MartyrKinships" => 1,
+                "PenaltyTypes" => 0,
+                _ => 0
+            }
+        };
+        modalError = null;
+        showAddEditModal = true;
+    }
+
+    private void OpenEditModal(LookupRowItem item)
+    {
+        modalItem = new LookupRowItem
+        {
+            Id = item.Id,
+            Name = item.Name,
+            Code = item.Code,
+            SecondaryValue = item.SecondaryValue,
+            SecondaryInt = item.SecondaryInt,
+            ExtraInt = item.ExtraInt,
+            Description = item.Description
+        };
+        modalError = null;
+        showAddEditModal = true;
+    }
+
+    private async Task SaveModalItemAsync()
+    {
+        var cleanName = modalItem.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(cleanName))
+        {
+            modalError = "اسم الخيار مطلوب ولا يمكن أن يكون فارغاً.";
+            return;
+        }
+
+        isSubmitting = true;
+        modalError = null;
+
+        try
+        {
+            switch (selectedLookupKey)
+            {
+                case "Formations":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Formations.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.Formations.Add(new Formation { Name = cleanName });
+                    }
+                    break;
+
+                case "AdministrativeUnitTypes":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.AdministrativeUnitTypes.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Code = modalItem.Code?.Trim() ?? entity.Code;
+                        }
+                    }
+                    else
+                    {
+                        Db.AdministrativeUnitTypes.Add(new AdministrativeUnitType
+                        {
+                            Name = cleanName,
+                            Code = string.IsNullOrWhiteSpace(modalItem.Code) ? cleanName[..Math.Min(cleanName.Length, 6)].ToUpper() : modalItem.Code.Trim(),
+                            HierarchyLevel = (await Db.AdministrativeUnitTypes.MaxAsync(x => (int?)x.HierarchyLevel) ?? 0) + 1
+                        });
+                    }
+                    break;
+
+                case "JobFamilies":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.JobFamilies.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Code = modalItem.Code?.Trim();
+                        }
+                    }
+                    else
+                    {
+                        Db.JobFamilies.Add(new JobFamily
+                        {
+                            Name = cleanName,
+                            Code = modalItem.Code?.Trim()
+                        });
+                    }
+                    break;
+
+                case "JobTitles":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.JobTitles.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Code = modalItem.Code?.Trim();
+                        }
+                    }
+                    else
+                    {
+                        Db.JobTitles.Add(new JobTitle
+                        {
+                            Name = cleanName,
+                            Code = modalItem.Code?.Trim()
+                        });
+                    }
+                    break;
+
+                case "PositionTitles":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.PositionTitles.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.PositionTitles.Add(new PositionTitle { Name = cleanName });
+                    }
+                    break;
+
+                case "Grades":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Grades.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Code = modalItem.Code?.Trim();
+                            entity.SortOrder = modalItem.SecondaryInt;
+                        }
+                    }
+                    else
+                    {
+                        Db.Grades.Add(new Grade
+                        {
+                            Name = cleanName,
+                            Code = modalItem.Code?.Trim(),
+                            SortOrder = modalItem.SecondaryInt ?? 1
+                        });
+                    }
+                    break;
+
+                case "Stages":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Stages.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Code = modalItem.Code?.Trim();
+                            entity.StageNumber = modalItem.SecondaryInt;
+                        }
+                    }
+                    else
+                    {
+                        Db.Stages.Add(new Stage
+                        {
+                            Name = cleanName,
+                            Code = modalItem.Code?.Trim(),
+                            StageNumber = modalItem.SecondaryInt ?? 1
+                        });
+                    }
+                    break;
+
+                case "EmployeeStatuses":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.EmployeeStatuses.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.EmployeeStatuses.Add(new EmployeeStatus { Name = cleanName });
+                    }
+                    break;
+
+                case "EducationLevels":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.EducationLevels.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.EducationLevels.Add(new EducationLevel { Name = cleanName });
+                    }
+                    break;
+
+                case "Specializations":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Specializations.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.Specializations.Add(new Specialization { Name = cleanName });
+                    }
+                    break;
+
+                case "Genders":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Genders.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.Genders.Add(new Gender { Name = cleanName });
+                    }
+                    break;
+
+                case "MaritalStatuses":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.MaritalStatuses.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.MaritalStatuses.Add(new MaritalStatus { Name = cleanName });
+                    }
+                    break;
+
+                case "Governorates":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Governorates.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                        }
+                    }
+                    else
+                    {
+                        Db.Governorates.Add(new Governorate
+                        {
+                            Name = cleanName,
+                            DisplayOrder = (await Db.Governorates.MaxAsync(x => (int?)x.DisplayOrder) ?? 0) + 1
+                        });
+                    }
+                    break;
+
+                case "Religions":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Religions.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.Religions.Add(new Religion { Name = cleanName });
+                    }
+                    break;
+
+                case "Nationalities":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.Nationalities.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.Nationalities.Add(new Nationality { Name = cleanName });
+                    }
+                    break;
+
+                case "LeaveTypes":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.LeaveTypes.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.LeaveTypes.Add(new LeaveType { Name = cleanName });
+                    }
+                    break;
+
+                case "PenaltyTypes":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.PenaltyTypes.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.DelayMonths = modalItem.SecondaryInt ?? 0;
+                            entity.Description = modalItem.Description?.Trim();
+                        }
+                    }
+                    else
+                    {
+                        Db.PenaltyTypes.Add(new PenaltyType
+                        {
+                            Name = cleanName,
+                            DelayMonths = modalItem.SecondaryInt ?? 0,
+                            Description = modalItem.Description?.Trim()
+                        });
+                    }
+                    break;
+
+                case "AppreciationLetterTitles":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.AppreciationLetterTitles.FindAsync(modalItem.Id);
+                        if (entity != null) entity.Name = cleanName;
+                    }
+                    else
+                    {
+                        Db.AppreciationLetterTitles.Add(new AppreciationLetterTitle { Name = cleanName });
+                    }
+                    break;
+
+                case "AppreciationLetterTypes":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.AppreciationLetterTypes.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.SeniorityMonths = modalItem.SecondaryInt ?? 0;
+                            entity.SeniorityDays = modalItem.ExtraInt ?? 0;
+                        }
+                    }
+                    else
+                    {
+                        Db.AppreciationLetterTypes.Add(new AppreciationLetterType
+                        {
+                            Name = cleanName,
+                            SeniorityMonths = modalItem.SecondaryInt ?? 0,
+                            SeniorityDays = modalItem.ExtraInt ?? 0
+                        });
+                    }
+                    break;
+
+                case "MartyrdomTypes":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.MartyrdomTypes.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Description = modalItem.Description?.Trim();
+                        }
+                    }
+                    else
+                    {
+                        Db.MartyrdomTypes.Add(new MartyrdomType
+                        {
+                            Name = cleanName,
+                            Description = modalItem.Description?.Trim()
+                        });
+                    }
+                    break;
+
+                case "MartyrKinships":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.MartyrKinships.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Degree = modalItem.SecondaryInt ?? 1;
+                        }
+                    }
+                    else
+                    {
+                        Db.MartyrKinships.Add(new MartyrKinship
+                        {
+                            Name = cleanName,
+                            Degree = modalItem.SecondaryInt ?? 1
+                        });
+                    }
+                    break;
+
+                case "AllowanceTypes":
+                    if (modalItem.Id > 0)
+                    {
+                        var entity = await Db.AllowanceTypes.FindAsync(modalItem.Id);
+                        if (entity != null)
+                        {
+                            entity.Name = cleanName;
+                            entity.Code = modalItem.Code?.Trim();
+                        }
+                    }
+                    else
+                    {
+                        Db.AllowanceTypes.Add(new AllowanceType
+                        {
+                            Name = cleanName,
+                            Code = modalItem.Code?.Trim(),
+                            CalculationType = AllowanceCalculationType.Percentage,
+                            DefaultPercentage = 10
+                        });
+                    }
+                    break;
+            }
+
+            await Db.SaveChangesAsync();
+            Toast.Success(modalItem.Id > 0 ? "تم تحديث الخيار بنجاح" : "تمت إضافة الخيار بنجاح");
+            showAddEditModal = false;
+            await LoadCurrentLookupDataAsync();
+            await LoadLookupCountsAsync();
+        }
+        catch (Exception ex)
+        {
+            modalError = $"حدث خطأ أثناء الحفظ: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    // ==================== DELETE ACTIONS ====================
+
+    private void ConfirmDelete(LookupRowItem item)
+    {
+        itemToDelete = item;
+        showDeleteModal = true;
+    }
+
+    private async Task ExecuteDeleteAsync()
+    {
+        if (itemToDelete == null) return;
+        if (itemToDelete.UsageCount > 0)
+        {
+            Toast.Danger("لا يمكن حذف هذا العنصر لوجود سجلات مرتبطة به في المنظومة.");
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            switch (selectedLookupKey)
+            {
+                case "Formations":
+                    var form = await Db.Formations.FindAsync(itemToDelete.Id);
+                    if (form != null) Db.Formations.Remove(form);
+                    break;
+                case "AdministrativeUnitTypes":
+                    var aut = await Db.AdministrativeUnitTypes.FindAsync(itemToDelete.Id);
+                    if (aut != null) Db.AdministrativeUnitTypes.Remove(aut);
+                    break;
+                case "JobFamilies":
+                    var jf = await Db.JobFamilies.FindAsync(itemToDelete.Id);
+                    if (jf != null) Db.JobFamilies.Remove(jf);
+                    break;
+                case "JobTitles":
+                    var jt = await Db.JobTitles.FindAsync(itemToDelete.Id);
+                    if (jt != null) Db.JobTitles.Remove(jt);
+                    break;
+                case "PositionTitles":
+                    var pt = await Db.PositionTitles.FindAsync(itemToDelete.Id);
+                    if (pt != null) Db.PositionTitles.Remove(pt);
+                    break;
+                case "Grades":
+                    var gr = await Db.Grades.FindAsync(itemToDelete.Id);
+                    if (gr != null) Db.Grades.Remove(gr);
+                    break;
+                case "Stages":
+                    var st = await Db.Stages.FindAsync(itemToDelete.Id);
+                    if (st != null) Db.Stages.Remove(st);
+                    break;
+                case "EmployeeStatuses":
+                    var es = await Db.EmployeeStatuses.FindAsync(itemToDelete.Id);
+                    if (es != null) Db.EmployeeStatuses.Remove(es);
+                    break;
+                case "EducationLevels":
+                    var el = await Db.EducationLevels.FindAsync(itemToDelete.Id);
+                    if (el != null) Db.EducationLevels.Remove(el);
+                    break;
+                case "Specializations":
+                    var sp = await Db.Specializations.FindAsync(itemToDelete.Id);
+                    if (sp != null) Db.Specializations.Remove(sp);
+                    break;
+                case "Genders":
+                    var gn = await Db.Genders.FindAsync(itemToDelete.Id);
+                    if (gn != null) Db.Genders.Remove(gn);
+                    break;
+                case "MaritalStatuses":
+                    var ms = await Db.MaritalStatuses.FindAsync(itemToDelete.Id);
+                    if (ms != null) Db.MaritalStatuses.Remove(ms);
+                    break;
+                case "Governorates":
+                    var gv = await Db.Governorates.FindAsync(itemToDelete.Id);
+                    if (gv != null) Db.Governorates.Remove(gv);
+                    break;
+                case "Religions":
+                    var rl = await Db.Religions.FindAsync(itemToDelete.Id);
+                    if (rl != null) Db.Religions.Remove(rl);
+                    break;
+                case "Nationalities":
+                    var nt = await Db.Nationalities.FindAsync(itemToDelete.Id);
+                    if (nt != null) Db.Nationalities.Remove(nt);
+                    break;
+                case "LeaveTypes":
+                    var lt = await Db.LeaveTypes.FindAsync(itemToDelete.Id);
+                    if (lt != null) Db.LeaveTypes.Remove(lt);
+                    break;
+                case "PenaltyTypes":
+                    var ptp = await Db.PenaltyTypes.FindAsync(itemToDelete.Id);
+                    if (ptp != null) Db.PenaltyTypes.Remove(ptp);
+                    break;
+                case "AppreciationLetterTitles":
+                    var alt = await Db.AppreciationLetterTitles.FindAsync(itemToDelete.Id);
+                    if (alt != null) Db.AppreciationLetterTitles.Remove(alt);
+                    break;
+                case "AppreciationLetterTypes":
+                    var altype = await Db.AppreciationLetterTypes.FindAsync(itemToDelete.Id);
+                    if (altype != null) Db.AppreciationLetterTypes.Remove(altype);
+                    break;
+                case "MartyrdomTypes":
+                    var mt = await Db.MartyrdomTypes.FindAsync(itemToDelete.Id);
+                    if (mt != null) Db.MartyrdomTypes.Remove(mt);
+                    break;
+                case "MartyrKinships":
+                    var mk = await Db.MartyrKinships.FindAsync(itemToDelete.Id);
+                    if (mk != null) Db.MartyrKinships.Remove(mk);
+                    break;
+                case "AllowanceTypes":
+                    var at = await Db.AllowanceTypes.FindAsync(itemToDelete.Id);
+                    if (at != null) Db.AllowanceTypes.Remove(at);
+                    break;
+            }
+
+            await Db.SaveChangesAsync();
+            Toast.Success("تم حذف الخيار بنجاح");
+            showDeleteModal = false;
+            await LoadCurrentLookupDataAsync();
+            await LoadLookupCountsAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر الحذف: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    // ==================== SEED STANDARD DEFAULTS ====================
+
+    private async Task SeedDefaultsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            switch (selectedLookupKey)
+            {
+                case "MaritalStatuses":
+                    var defaultMaritals = new[] { "أعزب", "متزوج", "أرمل", "مطلق" };
+                    foreach (var m in defaultMaritals)
+                    {
+                        if (!await Db.MaritalStatuses.AnyAsync(x => x.Name == m))
+                        {
+                            Db.MaritalStatuses.Add(new MaritalStatus { Name = m });
+                        }
+                    }
+                    break;
+
+                case "EmployeeStatuses":
+                    var defaultStatuses = new[] { "ملاك دائم", "عقد", "أجر يومي", "منسب", "معار", "متقاعد", "مفصول" };
+                    foreach (var s in defaultStatuses)
+                    {
+                        if (!await Db.EmployeeStatuses.AnyAsync(x => x.Name == s))
+                        {
+                            Db.EmployeeStatuses.Add(new EmployeeStatus { Name = s });
+                        }
+                    }
+                    break;
+
+                case "LeaveTypes":
+                    var defaultLeaves = new[] { "إجازة اعتيادية", "إجازة مرضية", "إجازة دراسية", "إجازة أمومة ورعاية طفل", "إجازة بدون راتب", "إجازة حج وعمرة", "إجازة عدة شرعية" };
+                    foreach (var l in defaultLeaves)
+                    {
+                        if (!await Db.LeaveTypes.AnyAsync(x => x.Name == l))
+                        {
+                            Db.LeaveTypes.Add(new LeaveType { Name = l });
+                        }
+                    }
+                    break;
+
+                case "PenaltyTypes":
+                    var defaultPenalties = new (string Name, int Months, string Desc)[]
+                    {
+                        ("لفت نظر", 0, "لا يؤخر الترفيع قانوناً"),
+                        ("إنذار", 1, "تأخير الترفيع لمدة شهر واحد"),
+                        ("قطع راتب", 1, "تأخير الترفيع لمدة شهر واحد"),
+                        ("توبيخ", 3, "تأخير الترفيع لمدة ثلاثة أشهر"),
+                        ("إنقاص راتب", 6, "تأخير الترفيع لمدة ستة أشهر"),
+                        ("تنزيل درجة", 12, "تأخير الترفيع لمدة سنة كاملة وتنزيل الدرجة المالية")
+                    };
+                    foreach (var p in defaultPenalties)
+                    {
+                        if (!await Db.PenaltyTypes.AnyAsync(x => x.Name == p.Name))
+                        {
+                            Db.PenaltyTypes.Add(new PenaltyType { Name = p.Name, DelayMonths = p.Months, Description = p.Desc });
+                        }
+                    }
+                    break;
+
+                case "MartyrdomTypes":
+                    var defaultMartyrs = new[] { "شهداء العمليات الحربية والأخطاء العسكرية والعمليات الإرهابية", "شهداء ضحايا النظام البائد", "شهداء الواجب والخدمة" };
+                    foreach (var m in defaultMartyrs)
+                    {
+                        if (!await Db.MartyrdomTypes.AnyAsync(x => x.Name == m))
+                        {
+                            Db.MartyrdomTypes.Add(new MartyrdomType { Name = m });
+                        }
+                    }
+                    break;
+
+                case "MartyrKinships":
+                    var defaultKin = new (string Name, int Deg)[]
+                    {
+                        ("أب", 1), ("أم", 1), ("ابن", 1), ("بنت", 1), ("زوج/زوجة", 1),
+                        ("أخ", 2), ("أخت", 2), ("جد/جدة", 2),
+                        ("عم/عمة", 3), ("خال/خالة", 3)
+                    };
+                    foreach (var k in defaultKin)
+                    {
+                        if (!await Db.MartyrKinships.AnyAsync(x => x.Name == k.Name))
+                        {
+                            Db.MartyrKinships.Add(new MartyrKinship { Name = k.Name, Degree = k.Deg });
+                        }
+                    }
+                    break;
+
+                case "AllowanceTypes":
+                    var defaultAllows = new (string Name, string Code, AllowanceCalculationType Type, decimal Amount)[]
+                    {
+                        ("مخصصات الشهادة", "EDU", AllowanceCalculationType.Percentage, 45),
+                        ("مخصصات الخطورة المهنية", "HAZ", AllowanceCalculationType.Percentage, 50),
+                        ("مخصصات المنصب الإشرافي", "POS", AllowanceCalculationType.Percentage, 25),
+                        ("مخصصات الإعالة الزوجية", "MAR", AllowanceCalculationType.Fixed, 50000),
+                        ("مخصصات الأطفال", "CHLD", AllowanceCalculationType.Fixed, 10000),
+                        ("مخصصات بدل النقل", "TRN", AllowanceCalculationType.Fixed, 30000),
+                        ("مخصصات الموقع الجغرافي والنائية", "GEO", AllowanceCalculationType.Percentage, 20)
+                    };
+                    foreach (var a in defaultAllows)
+                    {
+                        if (!await Db.AllowanceTypes.AnyAsync(x => x.Name == a.Name))
+                        {
+                            Db.AllowanceTypes.Add(new AllowanceType
+                            {
+                                Name = a.Name,
+                                Code = a.Code,
+                                CalculationType = a.Type,
+                                DefaultPercentage = a.Type == AllowanceCalculationType.Percentage ? a.Amount : null,
+                                DefaultAmount = a.Type == AllowanceCalculationType.Fixed ? a.Amount : null
+                            });
+                        }
+                    }
+                    break;
+            }
+
+            await Db.SaveChangesAsync();
+            Toast.Success("تمت استعادة وتعبئة القيم الافتراضية بنجاح");
+            await LoadCurrentLookupDataAsync();
+            await LoadLookupCountsAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر تعبئة القيم: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CloseModals()
+    {
+        showAddEditModal = false;
+        showDeleteModal = false;
+        modalError = null;
+        itemToDelete = null;
+    }
+}

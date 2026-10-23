@@ -1,0 +1,204 @@
+﻿@page "/Account/Manage/ExternalLogins"
+
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IUserStore<ApplicationUser> UserStore
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>تسجيل الدخول الخارجي | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Removing a provider can lock someone out if it is their only way in, so
+    the remove control appears only when a password or another provider
+    remains — and when it does not, the reason is stated rather than the
+    button silently vanishing.
+*@
+
+<div class="hr-stack-sm">
+    <StatusMessage />
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="globe-alt" Size="sm" /></span>
+                <div class="hr-idcell-text">
+                    <h2 class="hr-h2">الخدمات المرتبطة</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">مزوّدو الدخول المربوطون بحسابك</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card-body">
+            @if (currentLogins?.Count > 0)
+            {
+                <ul class="hr-contactlist">
+                    @foreach (var login in currentLogins)
+                    {
+                        <li class="hr-contactrow" @key="login.ProviderKey">
+                            <span class="hr-contactrow-value">@login.ProviderDisplayName</span>
+
+                            @if (showRemoveButton)
+                            {
+                                <form @formname="@($"remove-login-{login.LoginProvider}")" @onsubmit="OnSubmitAsync" method="post">
+                                    <AntiforgeryToken />
+                                    <input type="hidden" name="@nameof(LoginProvider)" value="@login.LoginProvider" />
+                                    <input type="hidden" name="@nameof(ProviderKey)" value="@login.ProviderKey" />
+                                    <button type="submit" class="hr-btn hr-btn-danger-quiet hr-btn-sm">
+                                        <Icon Name="link-slash" Size="xs" />
+                                        <span>فك الارتباط</span>
+                                    </button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="hr-badge">طريقة الدخول الوحيدة</span>
+                            }
+                        </li>
+                    }
+                </ul>
+
+                @if (!showRemoveButton)
+                {
+                    <p class="hr-help" style="margin-block-start:.75rem">
+                        لا يمكن فك الارتباط ما دامت هذه هي طريقة الدخول الوحيدة لحسابك.
+                        عيّن كلمة مرور أو اربط خدمة أخرى أولاً.
+                    </p>
+                }
+            }
+            else
+            {
+                <p class="hr-contactempty">لا توجد خدمات دخول مرتبطة بحسابك.</p>
+            }
+        </div>
+    </section>
+
+    @if (otherLogins?.Count > 0)
+    {
+        <section class="hr-card">
+            <div class="hr-card-head">
+                <div>
+                    <h2 class="hr-h2">ربط خدمة أخرى</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">تتيح لك الدخول بحساب المزوّد مباشرة</p>
+                </div>
+            </div>
+
+            <div class="hr-card-body">
+                <form action="Account/Manage/LinkExternalLogin" method="post">
+                    <AntiforgeryToken />
+                    <div class="hr-chips">
+                        @foreach (var provider in otherLogins)
+                        {
+                            <button type="submit" class="hr-btn hr-btn-secondary" name="Provider" value="@provider.Name">
+                                <Icon Name="link" Size="xs" />
+                                <span>ربط @provider.DisplayName</span>
+                            </button>
+                        }
+                    </div>
+                </form>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    public const string LinkLoginCallbackAction = "LinkLoginCallback";
+
+    private ApplicationUser? user;
+    private IList<UserLoginInfo>? currentLogins;
+    private IList<AuthenticationScheme>? otherLogins;
+    private bool showRemoveButton;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private string? LoginProvider { get; set; }
+
+    [SupplyParameterFromForm]
+    private string? ProviderKey { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Action { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        currentLogins = await UserManager.GetLoginsAsync(user);
+        otherLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync())
+            .Where(auth => currentLogins.All(ul => auth.Name != ul.LoginProvider))
+            .ToList();
+
+        string? passwordHash = null;
+        if (UserStore is IUserPasswordStore<ApplicationUser> userPasswordStore)
+        {
+            passwordHash = await userPasswordStore.GetPasswordHashAsync(user, HttpContext.RequestAborted);
+        }
+
+        showRemoveButton = passwordHash is not null || currentLogins.Count > 1;
+
+        if (HttpMethods.IsGet(HttpContext.Request.Method) && Action == LinkLoginCallbackAction)
+        {
+            await OnGetLinkLoginCallbackAsync();
+        }
+    }
+
+    private async Task OnSubmitAsync()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        var result = await UserManager.RemoveLoginAsync(user, LoginProvider!, ProviderKey!);
+        if (!result.Succeeded)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: The external login was not removed.", HttpContext);
+        }
+        else
+        {
+            await SignInManager.RefreshSignInAsync(user);
+            RedirectManager.RedirectToCurrentPageWithStatus("The external login was removed.", HttpContext);
+        }
+    }
+
+    private async Task OnGetLinkLoginCallbackAsync()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var info = await SignInManager.GetExternalLoginInfoAsync(userId);
+        if (info is null)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: Could not load external login info.", HttpContext);
+            return;
+        }
+
+        var result = await UserManager.AddLoginAsync(user, info);
+        if (result.Succeeded)
+        {
+            // Clear the existing external cookie to ensure a clean login process
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+
+            RedirectManager.RedirectToCurrentPageWithStatus("The external login was added.", HttpContext);
+        }
+        else
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: The external login was not added. External logins can only be associated with one account.", HttpContext);
+        }
+    }
+}

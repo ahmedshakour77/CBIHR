@@ -1,0 +1,127 @@
+@*
+    Squarified treemap, laid out here rather than in a chart library: area is
+    headcount, tiles stay close to square so their sizes compare, and
+    positions use inline-start so the map mirrors with the page. The tail
+    past fourteen values folds into one "other" tile; a picked value keeps its own.
+*@
+<div class="hr-viz-tree" style="aspect-ratio:@Viz.Css(Aspect)">
+    @if (Tiles.Count == 0)
+    {
+        <p class="hr-viz-empty">@Viz.NoData(Lang.IsKurdish)</p>
+    }
+    else
+    {
+        @for (var i = 0; i < Tiles.Count; i++)
+        {
+            var (item, r) = Tiles[i];
+            var shade = Shade(i);
+            var on = Selected?.Contains(item.Name) == true;
+            var big = r.W * r.H > 0.018 && r.W > 0.09;
+            var style = $"inset-inline-start:{Viz.Css(r.X * 100)}%;inset-block-start:{Viz.Css(r.Y * 100)}%;inline-size:{Viz.Css(r.W * 100)}%;block-size:{Viz.Css(r.H * 100)}%";
+            if (OnPick.HasDelegate && item.Name != Viz.Other)
+            {
+                <button @key="item.Name" type="button" class="hr-viz-tile @shade @(on ? "is-on" : null)" style="@style" aria-pressed="@(on ? "true" : "false")"
+                        aria-label="@item.Name: @item.Count.ToString("N0") (@Viz.Pct(item.Count, Total))" title="@item.Name: @item.Count.ToString("N0")"
+                        @onclick="() => OnPick.InvokeAsync(item.Name)">
+                    @if (big)
+                    {
+                        @TileText(item)
+                    }
+                </button>
+            }
+            else
+            {
+                <div @key="item.Name" class="hr-viz-tile @shade" style="@style" role="img" aria-label="@Viz.Display(item.Name, Lang.IsKurdish): @item.Count.ToString("N0")" title="@Viz.Display(item.Name, Lang.IsKurdish): @item.Count.ToString("N0")">
+                    @if (big)
+                    {
+                        @TileText(item)
+                    }
+                </div>
+            }
+        }
+    }
+</div>
+<div class="hr-viz-tree-list">
+    <VizBars Items="Items" Total="Total" Selected="Selected" OnPick="OnPick" Label="@Label" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Items { get; set; } = [];
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public double Aspect { get; set; } = 2.2;
+    [Parameter] public int MaxTiles { get; set; } = 14;
+    [Parameter] public string Label { get; set; } = string.Empty;
+
+    private readonly record struct Box(double X, double Y, double W, double H);
+    private List<(StatItem Item, Box Rect)> Tiles = [];
+    private int Total => Items.Sum(i => i.Count);
+
+    private RenderFragment TileText(StatItem item) => @<text>
+        <span class="hr-viz-tile-name">@Viz.Display(item.Name, Lang.IsKurdish)</span>
+        <span class="hr-viz-tile-value"><span class="hr-num">@item.Count.ToString("N0")</span> · <span class="hr-num">@Viz.Pct(item.Count, Total)</span></span>
+    </text>;
+
+    // The largest tiles take the deepest fills; the brand ramp keeps the map one hue.
+    private static string Shade(int i) => i switch { 0 => "is-t1", < 3 => "is-t2", < 6 => "is-t3", < 10 => "is-t4", _ => "is-t5" };
+
+    protected override void OnParametersSet()
+    {
+        // Squarifying wants the largest first, so "other" sorts in by its size.
+        var tiles = Viz.Fold(Items.OrderByDescending(i => i.Count), MaxTiles, Selected).OrderByDescending(i => i.Count).ToList();
+        Tiles = Squarify(tiles, Aspect);
+    }
+
+    // Bruls, Huizing and van Wijk: grow a row while it improves its worst aspect ratio,
+    // lay it along the short side, then continue in what is left. The box is Aspect
+    // wide and 1 tall; results are normalised to fractions of it.
+    private static List<(StatItem, Box)> Squarify(List<StatItem> items, double aspect)
+    {
+        var result = new List<(StatItem, Box)>(items.Count);
+        var total = items.Sum(i => (double)i.Count);
+        if (total <= 0) return result;
+        var areas = items.Select(i => i.Count / total * aspect).ToList();
+        var rect = new Box(0, 0, aspect, 1);
+        var start = 0;
+        while (start < areas.Count)
+        {
+            var side = Math.Min(rect.W, rect.H);
+            var end = start + 1;
+            var worst = Worst(areas, start, end, side);
+            while (end < areas.Count)
+            {
+                var next = Worst(areas, start, end + 1, side);
+                if (next > worst) break;
+                worst = next;
+                end++;
+            }
+            var sum = 0d;
+            for (var i = start; i < end; i++) sum += areas[i];
+            var thickness = sum / side;
+            var wide = rect.W >= rect.H;
+            var offset = 0d;
+            for (var i = start; i < end; i++)
+            {
+                var length = areas[i] / thickness;
+                var box = wide
+                    ? new Box(rect.X, rect.Y + offset, thickness, length)
+                    : new Box(rect.X + offset, rect.Y, length, thickness);
+                result.Add((items[i], box with { X = box.X / aspect, W = box.W / aspect }));
+                offset += length;
+            }
+            rect = wide
+                ? new Box(rect.X + thickness, rect.Y, rect.W - thickness, rect.H)
+                : new Box(rect.X, rect.Y + thickness, rect.W, rect.H - thickness);
+            start = end;
+        }
+        return result;
+    }
+
+    private static double Worst(List<double> areas, int start, int end, double side)
+    {
+        double sum = 0, max = 0, min = double.MaxValue;
+        for (var i = start; i < end; i++) { sum += areas[i]; max = Math.Max(max, areas[i]); min = Math.Min(min, areas[i]); }
+        var s2 = side * side;
+        return Math.Max(s2 * max / (sum * sum), sum * sum / (s2 * min));
+    }
+}

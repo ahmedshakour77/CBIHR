@@ -1,0 +1,48 @@
+@*
+    Age pyramid: men on the inline-start side, women on the end, one row per
+    five-year band, oldest at the top. Both sides share one scale so the
+    shape is honest. A row toggles that age band in the general filter.
+*@
+<div class="hr-viz-pyr">
+    @if (Bands.Sum(b => b.Male + b.Female + b.Unset) == 0)
+    {
+        <p class="hr-viz-empty">@(Lang.IsKurdish ? "هیچ ڕێکەوتێکی لەدایکبوون لە چوارچێوەی ئێستادا تۆمار نەکراوە." : "لا توجد تواريخ ميلاد مسجلة ضمن النطاق الحالي.")</p>
+    }
+    else
+    {
+        var max = Math.Max(1, Bands.Max(b => Math.Max(b.Male, b.Female)));
+        <div class="hr-viz-pyr-head" aria-hidden="true">
+            <span><span class="hr-viz-swatch is-male"></span> @(Lang.IsKurdish ? "نێر" : "ذكور") <span class="hr-num">@Bands.Sum(b => b.Male).ToString("N0")</span></span>
+            <span>@(Lang.IsKurdish ? "تەمەن" : "العمر")</span>
+            <span><span class="hr-viz-swatch is-female"></span> @(Lang.IsKurdish ? "مێ" : "إناث") <span class="hr-num">@Bands.Sum(b => b.Female).ToString("N0")</span></span>
+        </div>
+        <ol class="hr-viz-pyr-rows" aria-label="@(Label ?? (Lang.IsKurdish ? "پیرامیدی تەمەن" : "الهرم العمري"))">
+            @foreach (var band in Bands.Reverse())
+            {
+                var on = Selected?.Contains(band.Band) == true;
+                <li @key="band.Band">
+                    <button type="button" class="hr-viz-pyr-row @(on ? "is-on" : null)" aria-pressed="@(on ? "true" : "false")"
+                            aria-label="@(Lang.IsKurdish ? $"{band.Band}: نێر {band.Male:N0}، مێ {band.Female:N0}" : $"{band.Band}: ذكور {band.Male:N0}، إناث {band.Female:N0}")"
+                            @onclick="() => OnPick.InvokeAsync(band.Band)">
+                        <span class="hr-viz-pyr-side is-male">
+                            <span class="hr-num">@band.Male.ToString("N0")</span>
+                            <span class="hr-viz-pyr-bar" style="--v:@Viz.Css((double)band.Male / max)"></span>
+                        </span>
+                        <span class="hr-viz-pyr-band hr-num">@band.Band</span>
+                        <span class="hr-viz-pyr-side is-female">
+                            <span class="hr-viz-pyr-bar" style="--v:@Viz.Css((double)band.Female / max)"></span>
+                            <span class="hr-num">@band.Female.ToString("N0")</span>
+                        </span>
+                    </button>
+                </li>
+            }
+        </ol>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PyramidBand> Bands { get; set; } = [];
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public string? Label { get; set; }
+}

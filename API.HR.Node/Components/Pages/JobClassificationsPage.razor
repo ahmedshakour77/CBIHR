@@ -1,0 +1,576 @@
+@page "/admin/job-classifications"
+@page "/admin/job-titles"
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Localization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject ILanguageService Lang
+@inject IToastService Toast
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>دليل وتصنيف العناوين والعوائل الوظيفية | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+    @* Page Header *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="hr-badge hr-badge--warn">صلاحية إدارة النظام (Admin Only)</span>
+                <span class="hr-badge">القاموس والتصنيف الوظيفي</span>
+            </div>
+            <h1 class="hr-h1">دليل وتصنيف العناوين والعوائل الوظيفية</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start: var(--s-2)">
+                استعراض وجلب بيانات العناوين الوظيفية الرسمية، الرموز، العوائل الوظيفية، والدرجات المعتمدة وربطها مع الكادر الوظيفي
+            </p>
+        </div>
+        <div class="hr-pagehead-actions" role="group">
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadDataAsync" disabled="@isLoading" title="تحديث قائمة العناوين">
+                <Icon Name="arrow-path" Size="sm" Class="@(isLoading ? "hr-spin" : "")" />
+                <span>تحديث البيانات</span>
+            </button>
+            <a href="/api/import/template/job-titles" target="_blank" class="hr-btn hr-btn-secondary" title="تحميل قالب إكسل لتصنيف العناوين">
+                <Icon Name="arrow-down-tray" Size="sm" />
+                <span>قالب Excel (.xlsx)</span>
+            </a>
+            <a href="/data-import" class="hr-btn hr-btn-secondary" title="الانتقال لمركز استيراد ملفات الإكسل">
+                <Icon Name="arrow-up-tray" Size="sm" />
+                <span>استيراد ملف Excel</span>
+            </a>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="ExportCsv" disabled="@(filteredList.Count == 0)" title="تصدير القائمة الحالية كملف CSV">
+                <Icon Name="document-arrow-down" Size="sm" />
+                <span>تصدير CSV</span>
+            </button>
+        </div>
+    </header>
+
+    @* KPI Summary Cards *@
+    <div class="hr-stat-grid" style="margin-block-end: var(--s-4);">
+        <div class="hr-stat-card">
+            <span class="hr-meta">إجمالي العناوين الوظيفية</span>
+            <strong class="hr-stat-val">@titlesList.Count</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">عناوين معتمدة في النظام</span>
+        </div>
+        <div class="hr-stat-card hr-stat-card--accent">
+            <span class="hr-meta">العوائل الوظيفية الفريدة</span>
+            <strong class="hr-stat-val">@distinctFamiliesCount</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">تصنيف مهني عائلي</span>
+        </div>
+        <div class="hr-stat-card hr-stat-card--ok">
+            <span class="hr-meta">عناوين ذات درجات محددة</span>
+            <strong class="hr-stat-val">@titlesWithGradesCount</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">مرتبطة بسلم الدرجات</span>
+        </div>
+        <div class="hr-stat-card hr-stat-card--warn">
+            <span class="hr-meta">الموظفون المسكنون</span>
+            <strong class="hr-stat-val">@totalLinkedEmployees</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">مرتبطون بهذه العناوين</span>
+        </div>
+    </div>
+
+    @* Filter & Search Toolbar *@
+    <div class="hr-card" style="padding: 1rem 1.25rem; margin-block-end: var(--s-4);">
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            @* Search Box *@
+            <div style="flex: 1 1 250px; min-width: 220px; position: relative;">
+                <input aria-label="البحث في التصنيفات الوظيفية" type="search"
+                       class="hr-input"
+                       placeholder="ابحث بالرمز، العائلة، العنوان، أو الدرجة…"
+                       @bind="searchQuery"
+                       @bind:event="oninput"
+                       style="padding-inline-start: 2rem; width: 100%;" />
+                <span style="position: absolute; inset-inline-start: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;">
+                    <Icon Name="magnifying-glass" Size="xs" />
+                </span>
+            </div>
+
+            @* Family Filter *@
+            <div style="flex: 0 1 200px; min-width: 170px;">
+                <select aria-label="تصفية حسب العائلة الوظيفية" class="hr-input" @bind="selectedFamily">
+                    <option value="">جميع العوائل الوظيفية (@distinctFamiliesCount)</option>
+                    @foreach (var fam in availableFamilies)
+                    {
+                        <option value="@fam">@fam</option>
+                    }
+                </select>
+            </div>
+
+            @* Grade Filter *@
+            <div style="flex: 0 1 180px; min-width: 150px;">
+                <select aria-label="تصفية حسب الدرجة الوظيفية" class="hr-input" @bind="selectedGrade">
+                    <option value="">جميع الدرجات الوظيفية</option>
+                    @foreach (var gr in availableGrades)
+                    {
+                        <option value="@gr">@gr</option>
+                    }
+                </select>
+            </div>
+
+            @* Occupancy Filter *@
+            <div style="flex: 0 1 170px; min-width: 140px;">
+                <select aria-label="تصفية حسب حالة الإشغال" class="hr-input" @bind="occupancyFilter">
+                    <option value="all">جميع الحالات</option>
+                    <option value="occupied">مشغولة بموظفين (@occupiedTitlesCount)</option>
+                    <option value="vacant">بدون موظفين حالياً (@(titlesList.Count - occupiedTitlesCount))</option>
+                </select>
+            </div>
+
+            @* Reset Filter Button *@
+            @if (HasActiveFilters)
+            {
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearFilters" title="إعادة ضبط الفلاتر">
+                    <Icon Name="x-mark" Size="xs" />
+                    <span>إلغاء الفرز</span>
+                </button>
+            }
+
+            <div style="margin-inline-start: auto; font-size: var(--fs-caption); color: var(--text-muted);">
+                تم العثور على <strong>@filteredList.Count</strong> من أصل <strong>@titlesList.Count</strong>
+            </div>
+        </div>
+    </div>
+
+    @* Main Data Table *@
+    <div class="hr-card" style="padding: 0; overflow: hidden;">
+        @if (isLoading)
+        {
+            <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <p style="margin-top: 0.75rem; font-size: var(--fs-body);">جارٍ جلب وتجميع بيانات العناوين والعوائل الوظيفية…</p>
+            </div>
+        }
+        else if (filteredList.Count == 0)
+        {
+            <div style="padding: 3.5rem 1.5rem; text-align: center;">
+                <div style="display: inline-flex; padding: 1rem; border-radius: 50%; background: var(--surface-raised); color: var(--text-muted); margin-bottom: 1rem;">
+                    <Icon Name="identification" Size="lg" />
+                </div>
+                <h2 class="hr-h3" style="margin-bottom: 0.5rem;">لا توجد نتائج مطابقة</h2>
+                <p class="hr-sub" style="max-width: 480px; margin: 0 auto 1.5rem;">
+                    @if (HasActiveFilters)
+                    {
+                        <span>لم يتم العثور على عناوين وظيفية تطابق معايير البحث والفرز المحددة. جرب تغيير كلمة البحث أو إلغاء الفلاتر.</span>
+                    }
+                    else
+                    {
+                        <span>لم يتم تسجيل أي عناوين وظيفية في النظام حتى الآن. يمكنك استيراد قائمة العناوين عبر ملف إكسل.</span>
+                    }
+                </p>
+                @if (HasActiveFilters)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary" @onclick="ClearFilters">
+                        <span>إلغاء الفلاتر الحالية</span>
+                    </button>
+                }
+                else
+                {
+                    <a href="/data-import" class="hr-btn hr-btn-primary">
+                        <Icon Name="arrow-up-tray" Size="sm" />
+                        <span>استيراد ملف إكسل للعناوين</span>
+                    </a>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table" style="width: 100%; border-collapse: collapse; text-align: start;">
+                    <thead>
+                        <tr style="background: var(--surface-raised); border-bottom: 1px solid var(--line-soft);">
+                            <th scope="col" style="width: 60px; text-align: center; padding: 0.75rem 0.5rem; font-size: var(--fs-caption); color: var(--text-muted);">#</th>
+                            <th scope="col" style="width: 140px; padding: 0.75rem 1rem; font-weight: 600; cursor: pointer;" @onclick='() => SetSort("code")'>
+                                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                    <span>الرمز</span>
+                                    @if (sortColumn == "code")
+                                    {
+                                        <Icon Name="@(sortAscending ? "chevron-up" : "chevron-down")" Size="xs" Class="hr-text-copper" />
+                                    }
+                                </div>
+                            </th>
+                            <th scope="col" style="min-width: 200px; padding: 0.75rem 1rem; font-weight: 600; cursor: pointer;" @onclick='() => SetSort("family")'>
+                                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                    <span>العائلة الوظيفية</span>
+                                    @if (sortColumn == "family")
+                                    {
+                                        <Icon Name="@(sortAscending ? "chevron-up" : "chevron-down")" Size="xs" Class="hr-text-copper" />
+                                    }
+                                </div>
+                            </th>
+                            <th scope="col" style="min-width: 250px; padding: 0.75rem 1rem; font-weight: 600; cursor: pointer;" @onclick='() => SetSort("title")'>
+                                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                    <span>العنوان الوظيفي</span>
+                                    @if (sortColumn == "title")
+                                    {
+                                        <Icon Name="@(sortAscending ? "chevron-up" : "chevron-down")" Size="xs" Class="hr-text-copper" />
+                                    }
+                                </div>
+                            </th>
+                            <th scope="col" style="min-width: 180px; padding: 0.75rem 1rem; font-weight: 600; cursor: pointer;" @onclick='() => SetSort("grade")'>
+                                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                    <span>الدرجة الوظيفية</span>
+                                    @if (sortColumn == "grade")
+                                    {
+                                        <Icon Name="@(sortAscending ? "chevron-up" : "chevron-down")" Size="xs" Class="hr-text-copper" />
+                                    }
+                                </div>
+                            </th>
+                            <th scope="col" style="width: 130px; text-align: center; padding: 0.75rem 1rem; font-weight: 600; cursor: pointer;" @onclick='() => SetSort("employees")'>
+                                <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                                    <span>الموظفون</span>
+                                    @if (sortColumn == "employees")
+                                    {
+                                        <Icon Name="@(sortAscending ? "chevron-up" : "chevron-down")" Size="xs" Class="hr-text-copper" />
+                                    }
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{
+                            int idx = 1;
+                        }
+                        @foreach (var item in PagedList)
+                        {
+                            var empCount = employeeCounts.TryGetValue(item.Id, out var count) ? count : 0;
+                            <tr style="border-bottom: 1px solid var(--line-soft); transition: background-color 0.15s ease;">
+                                @* Row Number *@
+                                <td style="text-align: center; padding: 0.75rem 0.5rem; font-size: var(--fs-caption); color: var(--text-muted); font-family: monospace;">
+                                    @((currentPage - 1) * pageSize + idx++)
+                                </td>
+
+                                @* Column 1: الرمز (Code) *@
+                                <td style="padding: 0.75rem 1rem;">
+                                    @if (!string.IsNullOrWhiteSpace(item.Code))
+                                    {
+                                        <span class="hr-badge"
+                                              style="font-family: monospace; font-weight: 600; letter-spacing: 0.04em; color: var(--accent-text);">
+                                            @item.Code
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color: var(--text-muted); font-size: var(--fs-caption);">-</span>
+                                    }
+                                </td>
+
+                                @* Column 2: العائلة الوظيفية (Job Family) *@
+                                <td style="padding: 0.75rem 1rem;">
+                                    @if (!string.IsNullOrWhiteSpace(item.JobFamily?.Name))
+                                    {
+                                        <span style="display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.65rem; border-radius: 9999px; background: var(--accent-tint); color: var(--accent-text); font-size: var(--fs-caption); font-weight: 500;">
+                                            <Icon Name="tag" Size="xs" />
+                                            <span>@item.JobFamily.Name</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color: var(--text-muted); font-size: var(--fs-caption); font-style: italic;">غير محددة</span>
+                                    }
+                                </td>
+
+                                @* Column 3: العنوان الوظيفي (Job Title) *@
+                                <td style="padding: 0.75rem 1rem;">
+                                    <div style="display: flex; flex-direction: column;">
+                                        <strong style="font-size: var(--fs-body); color: var(--text);">@item.Name</strong>
+                                        <span style="font-size: var(--fs-caption); color: var(--text-muted);">معرف النظام: #@item.Id</span>
+                                    </div>
+                                </td>
+
+                                @* Column 4: الدرجة الوظيفية (Grade) *@
+                                <td style="padding: 0.75rem 1rem;">
+                                    @{
+                                        var displayGrade = item.Grade?.Name;
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(displayGrade))
+                                    {
+                                        <span class="hr-badge hr-badge-accent" style="font-size: var(--fs-caption);">
+                                            @displayGrade
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color: var(--text-muted); font-size: var(--fs-caption); font-style: italic;">غير مسكنة</span>
+                                    }
+                                </td>
+
+                                @* Related Employees Count *@
+                                <td style="text-align: center; padding: 0.75rem 1rem;">
+                                    @if (empCount > 0)
+                                    {
+                                        <a href="/employees?jobTitleId=@item.Id"
+                                           class="hr-badge hr-badge--ok"
+                                           style="text-decoration: none; cursor: pointer;"
+                                           title="عرض الموظفين المسكنين بهذا العنوان">
+                                            <span>@empCount موظف</span>
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge" style="font-size: var(--fs-caption); color: var(--text-muted);">
+                                            شاغر
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Pagination Bar *@
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--line-soft); flex-wrap: wrap; gap: 0.75rem;">
+                <div style="font-size: var(--fs-caption); color: var(--text-muted);">
+                    عرض <strong>@((currentPage - 1) * pageSize + 1)</strong> إلى <strong>@Math.Min(currentPage * pageSize, filteredList.Count)</strong> من إجمالي <strong>@filteredList.Count</strong> عنوان وظيفي
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <button type="button"
+                            class="hr-btn hr-btn-secondary hr-btn-sm"
+                            @onclick="() => ChangePage(currentPage - 1)"
+                            disabled="@(currentPage <= 1)">
+                        <Icon Name="chevron-right" Size="xs" />
+                        <span>السابق</span>
+                    </button>
+                    <span style="font-size: var(--fs-caption); padding: 0 0.5rem; color: var(--text-muted);">
+                        صفحة <strong>@currentPage</strong> من <strong>@totalPages</strong>
+                    </span>
+                    <button type="button"
+                            class="hr-btn hr-btn-secondary hr-btn-sm"
+                            @onclick="() => ChangePage(currentPage + 1)"
+                            disabled="@(currentPage >= totalPages)">
+                        <span>التالي</span>
+                        <Icon Name="chevron-left" Size="xs" />
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<JobTitle> titlesList = new();
+    private Dictionary<int, int> employeeCounts = new();
+
+    private string searchQuery = "";
+    private string selectedFamily = "";
+    private string selectedGrade = "";
+    private string occupancyFilter = "all";
+
+    private string sortColumn = "code";
+    private bool sortAscending = true;
+
+    private int currentPage = 1;
+    private const int pageSize = 25;
+
+    private int distinctFamiliesCount => titlesList
+        .Where(t => t.JobFamily != null && !string.IsNullOrWhiteSpace(t.JobFamily.Name))
+        .Select(t => t.JobFamily!.Name.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+
+    private int titlesWithGradesCount => titlesList
+        .Count(t => t.GradeId.HasValue || t.Grade != null);
+
+    private int occupiedTitlesCount => titlesList
+        .Count(t => employeeCounts.TryGetValue(t.Id, out var c) && c > 0);
+
+    private int totalLinkedEmployees => employeeCounts.Values.Sum();
+
+    private List<string> availableFamilies => titlesList
+        .Where(t => t.JobFamily != null && !string.IsNullOrWhiteSpace(t.JobFamily.Name))
+        .Select(t => t.JobFamily!.Name.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(f => f)
+        .ToList();
+
+    private List<string> availableGrades => titlesList
+        .Where(t => t.Grade != null && !string.IsNullOrWhiteSpace(t.Grade.Name))
+        .Select(t => t.Grade!.Name.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(g => g)
+        .ToList();
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) ||
+        !string.IsNullOrWhiteSpace(selectedFamily) ||
+        !string.IsNullOrWhiteSpace(selectedGrade) ||
+        occupancyFilter != "all";
+
+    private List<JobTitle> filteredList
+    {
+        get
+        {
+            var query = titlesList.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var q = searchQuery.Trim();
+                query = query.Where(t =>
+                    (!string.IsNullOrEmpty(t.Code) && t.Code.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                    (t.JobFamily != null && !string.IsNullOrEmpty(t.JobFamily.Name) && t.JobFamily.Name.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(t.Name) && t.Name.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                    (t.Grade != null && t.Grade.Name.Contains(q, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedFamily))
+            {
+                query = query.Where(t => string.Equals(t.JobFamily?.Name?.Trim(), selectedFamily, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedGrade))
+            {
+                query = query.Where(t =>
+                    string.Equals(t.Grade?.Name?.Trim(), selectedGrade, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (occupancyFilter == "occupied")
+            {
+                query = query.Where(t => employeeCounts.TryGetValue(t.Id, out var c) && c > 0);
+            }
+            else if (occupancyFilter == "vacant")
+            {
+                query = query.Where(t => !employeeCounts.TryGetValue(t.Id, out var c) || c == 0);
+            }
+
+            // Sorting
+            query = (sortColumn, sortAscending) switch
+            {
+                ("code", true) => query.OrderBy(t => t.Code ?? "ZZZ").ThenBy(t => t.Name),
+                ("code", false) => query.OrderByDescending(t => t.Code ?? "").ThenByDescending(t => t.Name),
+                ("family", true) => query.OrderBy(t => t.JobFamily?.Name ?? "ZZZ").ThenBy(t => t.Name),
+                ("family", false) => query.OrderByDescending(t => t.JobFamily?.Name ?? "").ThenBy(t => t.Name),
+                ("title", true) => query.OrderBy(t => t.Name),
+                ("title", false) => query.OrderByDescending(t => t.Name),
+                ("grade", true) => query.OrderBy(t => t.Grade?.SortOrder ?? 999).ThenBy(t => t.Grade?.Name ?? ""),
+                ("grade", false) => query.OrderByDescending(t => t.Grade?.SortOrder ?? -1).ThenByDescending(t => t.Grade?.Name ?? ""),
+                ("employees", true) => query.OrderBy(t => employeeCounts.TryGetValue(t.Id, out var c) ? c : 0),
+                ("employees", false) => query.OrderByDescending(t => employeeCounts.TryGetValue(t.Id, out var c) ? c : 0),
+                _ => query.OrderBy(t => t.Code ?? "ZZZ").ThenBy(t => t.Name)
+            };
+
+            return query.ToList();
+        }
+    }
+
+    private int totalPages => Math.Max(1, (int)Math.Ceiling(filteredList.Count / (double)pageSize));
+
+    private IEnumerable<JobTitle> PagedList =>
+        filteredList.Skip((currentPage - 1) * pageSize).Take(pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            titlesList = await Db.JobTitles
+                .AsNoTracking()
+                .Include(j => j.JobFamily)
+                .Include(j => j.Grade)
+                .OrderBy(j => j.Code)
+                .ThenBy(j => j.JobFamily != null ? j.JobFamily.Name : "")
+                .ThenBy(j => j.Name)
+                .ToListAsync();
+
+            employeeCounts = await Db.Employees
+                .AsNoTracking()
+                .Where(e => e.JobTitleId.HasValue)
+                .GroupBy(e => e.JobTitleId!.Value)
+                .Select(g => new { JobTitleId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.JobTitleId, x => x.Count);
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر جلب بيانات العناوين الوظيفية: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            currentPage = 1;
+            StateHasChanged();
+        }
+    }
+
+    private void SetSort(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortAscending = true;
+        }
+        currentPage = 1;
+    }
+
+    private void ChangePage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        selectedFamily = "";
+        selectedGrade = "";
+        occupancyFilter = "all";
+        currentPage = 1;
+    }
+
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            // UTF-8 BOM
+            sb.Append('\uFEFF');
+            sb.AppendLine("الرمز,العائلة الوظيفية,العنوان الوظيفي,الدرجة الوظيفية,عدد الموظفين");
+
+            foreach (var item in filteredList)
+            {
+                var code = EscapeCsv(item.Code ?? "");
+                var family = EscapeCsv(item.JobFamily?.Name ?? "");
+                var title = EscapeCsv(item.Name);
+                var grade = EscapeCsv(item.Grade?.Name ?? "");
+                var empCount = employeeCounts.TryGetValue(item.Id, out var count) ? count : 0;
+
+                sb.AppendLine($"{code},{family},{title},{grade},{empCount}");
+            }
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            var base64 = Convert.ToBase64String(bytes);
+            var filename = $"دليل_العناوين_والعوائل_الوظيفية_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            await JS.InvokeVoidAsync("downloadFileFromBase64", filename, "text/csv;charset=utf-8", base64);
+            Toast.Success("تم تصدير ملف CSV بنجاح.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"فشل تصدير الملف: {ex.Message}");
+        }
+    }
+
+    private static string EscapeCsv(string field)
+    {
+        if (string.IsNullOrEmpty(field)) return "";
+        if (field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+        {
+            return $"\"{field.Replace("\"", "\"\"")}\"";
+        }
+        return field;
+    }
+}

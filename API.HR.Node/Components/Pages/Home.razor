@@ -1,0 +1,1232 @@
+@page "/"
+@rendermode InteractiveServer
+@using API.HR.Node.Services.Employees
+@using API.HR.Node.Services.OrganizationalHierarchy
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+@inject WorkforceSnapshotService Snapshots
+@inject HomeDashboardViewState ViewState
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<Home> Logger
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IFormationKpiService FormationKpiService
+@implements IDisposable
+
+@*
+    THESIS: a leader reads the state of the workforce in one screen of plain sentences,
+    then digs through a themed atlas; refuses the wall of equal KPI tiles.
+    OWN-WORLD: API.HR.Node tokens. One ink brief panel (--accent fill), everything else
+    on hairline-ruled sheets, a different chart form for each shape of data, brand ramp
+    for density, --series for categories.
+    STORY: open, read headcount, who is out, who retires, what is missing; narrow with the
+    filter bar or by clicking any bar, slice or tile; open a list from any figure.
+    FIRST VIEWPORT: sticky filter bar; brief: ink panel (headcount, sentence, four signals)
+    beside the ten-year retirement columns and today's leave list; chapter index below.
+    FORM: briefing-atlas, 1 of 7 on the ranked list; surface seed 2fd869d6.
+    FINISH: documented in DESIGN.md ("Dashboard charts"); verified by WorkforceStatsTests and the
+    HomeDashboardPreview render over synthetic data. No independent finish review has been run, and
+    the page has not yet been checked against live data.
+
+    LANGUAGE: every string is written in Arabic and Sorani through L(ar, ku). Values that come
+    from the data (formation names, age bands, statuses) are shown as stored.
+    CHARTS: a chart that picks values for a field draws stats.Context, which ignores that
+    field's own filter, so its siblings stay on screen and the picked values are marked.
+*@
+
+<PageTitle>@L("مركز بيانات وإحصائيات الموارد البشرية | منظومة الموارد البشرية", "ناوەندی داتا و ئامارەکانی سەرچاوە مرۆییەکان | سیستەمی سەرچاوە مرۆییەکان")</PageTitle>
+
+<div class="home">
+    <header class="home-head">
+        <div class="home-head-titles">
+            <h1 class="hr-h1 hr-balance">@L("مركز بيانات وإحصائيات الموارد البشرية", "ناوەندی داتا و ئامارەکانی سەرچاوە مرۆییەکان")</h1>
+            <p class="home-head-meta" role="status" aria-live="polite" aria-atomic="true">
+                @if (isLoading && stats is null)
+                {
+                    <span>@L("جارٍ تحميل بيانات الموظفين…", "داتای فەرمانبەران بار دەکرێت…")</span>
+                }
+                else if (loadFailed)
+                {
+                    <span>@L("تعذّر تحميل البيانات", "بارکردنی داتا سەرنەکەوت")</span>
+                }
+                else if (stats is not null)
+                {
+                    <span @key="CountLine" class="home-tick">@CountLine</span>
+                    <span aria-hidden="true">·</span>
+                    <span>@L("آخر تحديث", "دوایین نوێکردنەوە") <bdi dir="ltr" class="hr-num">@lastRefreshedAt?.ToString("yyyy/MM/dd HH:mm")</bdi></span>
+                }
+            </p>
+            @if (LockedScopeName is not null)
+            {
+                <p class="home-head-lock">
+                    <Icon Name="lock-closed" Size="xs" />
+                    @if (Ku)
+                    {
+                        <span>تەختەکە تەنها <strong>@LockedScopeName</strong> پیشان دەدات، بەپێی دەسەڵاتەکانی هەژمارەکەت.</span>
+                    }
+                    else
+                    {
+                        <span>تعرض اللوحة تشكيل <strong>@LockedScopeName</strong> فقط، وفق صلاحيات حسابك.</span>
+                    }
+                </p>
+            }
+            @* Print drops the filter bar, so the printed page names its scope here instead. *@
+            <p class="home-print-scope">@L("النطاق:", "چوارچێوە:") @ScopeDescription</p>
+        </div>
+        <div class="home-head-actions">
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="ReloadAsync" disabled="@isLoading">
+                <Icon Name="arrow-path" Size="sm" Class="@(isLoading ? "home-spin" : null)" />
+                <span>@(isLoading ? L("جارٍ التحديث…", "نوێ دەکرێتەوە…") : L("تحديث البيانات", "نوێکردنەوەی داتا"))</span>
+            </button>
+            <button type="button" class="hr-btn hr-btn-quiet" @onclick="PrintAsync">
+                <Icon Name="printer" Size="sm" />
+                <span>@L("طباعة", "چاپکردن")</span>
+            </button>
+        </div>
+    </header>
+
+    @* ==================== GENERAL FILTER ==================== *@
+    <section class="home-filter" aria-label="@L("التصفية العامة", "پاڵاوتنی گشتی")">
+        <div class="home-filter-row">
+            @foreach (var d in PrimaryDimensions)
+            {
+                @FilterControl(d)
+            }
+            <button type="button" class="home-filter-more-toggle" aria-expanded="@(moreFilters ? "true" : "false")" aria-controls="home-filter-more"
+                    @onclick="() => moreFilters = !moreFilters">
+                <Icon Name="adjustments-horizontal" Size="sm" />
+                <span>@L("كل الحقول", "هەموو خانەکان")</span>
+                @if (MoreFilterCount > 0)
+                {
+                    <span class="hr-badge hr-badge-accent hr-num">@MoreFilterCount</span>
+                }
+                <Icon Name="@(moreFilters ? "chevron-up" : "chevron-down")" Size="xs" />
+            </button>
+            <button type="button" class="hr-btn hr-btn-secondary home-filter-list" @onclick='() => OpenDrill("scope")' disabled="@(stats is null || stats.Total == 0)">
+                <Icon Name="table-cells" Size="sm" />
+                <span>@L("قائمة الموظفين", "لیستی فەرمانبەران")</span>
+            </button>
+        </div>
+
+        <div id="home-filter-more" class="home-filter-more" hidden="@(!moreFilters)">
+            @foreach (var d in MoreDimensions)
+            {
+                @FilterControl(d)
+            }
+        </div>
+
+        @if (!filter.IsEmpty)
+        {
+            <div class="home-chips">
+                <ul aria-label="@L("التصفيات المطبقة", "پاڵاوتنە جێبەجێکراوەکان")">
+                    @foreach (var d in filter.Active.ToList())
+                    {
+                        @foreach (var value in filter[d].ToList())
+                        {
+                            <li @key="(d, value)">
+                                <button type="button" class="home-chip" @onclick="() => Pick(d, value)" aria-label="@L("إزالة", "لابردنی") @DimLabel(d): @value">
+                                    <span class="home-chip-dim">@DimLabel(d)</span>
+                                    <span class="home-chip-value">@value</span>
+                                    <Icon Name="x-mark" Size="xs" />
+                                </button>
+                            </li>
+                        }
+                    }
+                </ul>
+                <button type="button" class="hr-link home-chips-clear" @onclick="ClearFilters">@L("مسح كل التصفيات", "سڕینەوەی هەموو پاڵاوتنەکان")</button>
+            </div>
+        }
+    </section>
+
+    @if (loadFailed && stats is null)
+    {
+        <div class="hr-alert hr-alert-danger home-error" role="alert">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <div>
+                <p>
+                    <strong>@L("تعذّر تحميل بيانات الموظفين.", "بارکردنی داتای فەرمانبەران سەرنەکەوت.")</strong>
+                    @L("قد يكون الاتصال بقاعدة البيانات متقطعاً.", "لەوانەیە پەیوەندی بە بنکەدراوەوە پچڕابێت.")
+                </p>
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ReloadAsync">@L("إعادة المحاولة", "دووبارە هەوڵبدەرەوە")</button>
+            </div>
+        </div>
+    }
+    else if (stats is null)
+    {
+        <div class="home-brief is-loading" aria-hidden="true">
+            <div class="home-brief-lead"><DsSkeleton Count="4" /></div>
+            <div class="home-brief-panel"><DsSkeleton Type="DsSkeleton.SkeletonType.Card" Height="12rem" /></div>
+            <div class="home-brief-panel"><DsSkeleton Count="5" /></div>
+        </div>
+    }
+    else if (stats.Total == 0)
+    {
+        <section class="hr-empty home-empty" aria-labelledby="home-empty-heading">
+            <span class="hr-empty-art hr-plate-a" aria-hidden="true"><Icon Name="funnel" Size="lg" /></span>
+            <h2 id="home-empty-heading" class="hr-h2">
+                @(filter.IsEmpty
+                    ? L("لا توجد سجلات موظفين لعرضها بعد", "هێشتا هیچ تۆمارێکی فەرمانبەر نییە بۆ پیشاندان")
+                    : L("لا يوجد موظفون يطابقون هذه التصفية", "هیچ فەرمانبەرێک لەگەڵ ئەم پاڵاوتنەدا ناگونجێت"))
+            </h2>
+            <p class="hr-sub hr-measure-sm">
+                @(filter.IsEmpty
+                    ? L("ستظهر الإحصائيات هنا عند إضافة الموظفين أو استيرادهم.", "ئامارەکان لێرە دەردەکەون کاتێک فەرمانبەران زیاد یان هاوردە دەکرێن.")
+                    : L("أزل إحدى التصفيات من الشريط أعلاه لتوسيع النطاق.", "یەکێک لە پاڵاوتنەکانی شریتی سەرەوە لابەرە بۆ فراوانکردنی چوارچێوەکە."))
+            </p>
+            @if (!filter.IsEmpty)
+            {
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="ClearFilters">@L("مسح كل التصفيات", "سڕینەوەی هەموو پاڵاوتنەکان")</button>
+            }
+        </section>
+    }
+    else
+    {
+        var s = stats;
+
+        @* ==================== THE BRIEF ==================== *@
+        <section class="home-brief" aria-labelledby="home-brief-heading">
+            <div class="home-brief-lead">
+                <h2 id="home-brief-heading" class="hr-sr">@L("موجز القوى العاملة", "پوختەی هێزی کار")</h2>
+                <p class="home-brief-count"><span @key="s.Total" class="hr-num home-tick">@s.Total.ToString("N0")</span> <span>@L("موظفاً", "فەرمانبەر")</span></p>
+                <p class="home-brief-scope">@ScopeHeadline</p>
+                <p class="home-brief-text">@BriefSentence</p>
+
+                <ul class="home-signals">
+                    <li>
+                        <button type="button" class="home-signal" @onclick='() => OpenDrill("leave-today")' disabled="@(s.OnLeaveToday.Count == 0)">
+                            <span @key="s.OnLeaveToday.Count" class="home-signal-value hr-num home-tick">@s.OnLeaveToday.Count.ToString("N0")</span>
+                            <span class="home-signal-label">@L("في إجازة اليوم", "ئەمڕۆ لە مۆڵەتدان")</span>
+                            <span class="home-signal-note">
+                                @(s.OnLeaveToday.Count == 0
+                                    ? L("الجميع على رأس العمل", "هەمووان لەسەر کارن")
+                                    : L($"يعود {s.ReturningThisWeek:N0} منهم خلال أسبوع", $"{s.ReturningThisWeek:N0} یان لە ماوەی هەفتەیەکدا دەگەڕێنەوە"))
+                            </span>
+                        </button>
+                    </li>
+                    <li>
+                        <button type="button" class="home-signal" @onclick='() => OpenDrill("retiring-12")' disabled="@(s.RetiringIn12Months == 0)">
+                            <span @key="s.RetiringIn12Months" class="home-signal-value hr-num home-tick">@s.RetiringIn12Months.ToString("N0")</span>
+                            <span class="home-signal-label">@L("يبلغون سن التقاعد خلال 12 شهراً", "لە ماوەی 12 مانگدا دەگەنە تەمەنی خانەنشینی")</span>
+                            <span class="home-signal-note">@RetirementNote</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button type="button" class="home-signal" @onclick='() => OpenDrill("new-hires")' disabled="@(s.NewHires == 0)">
+                            <span @key="s.NewHires" class="home-signal-value hr-num home-tick">@s.NewHires.ToString("N0")</span>
+                            <span class="home-signal-label">@L("عُيّنوا خلال آخر سنتين", "لە دوو ساڵی ڕابردوودا دامەزراون")</span>
+                            <span class="home-signal-note">@L($"منذ {Today.AddYears(-2).AddDays(1):yyyy/MM/dd} · {Viz.Pct(s.NewHires, s.Total)} من النطاق", $"لە {Today.AddYears(-2).AddDays(1):yyyy/MM/dd} ەوە · {Viz.Pct(s.NewHires, s.Total)} ی چوارچێوەکە")</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button type="button" class="home-signal" @onclick='() => OpenDrill("incomplete")' disabled="@(IncompleteCount == 0)">
+                            <span @key="IncompleteCount" class="home-signal-value hr-num home-tick">@IncompleteCount.ToString("N0")</span>
+                            <span class="home-signal-label">@L("سجلات بلا صورة أو بيانات اتصال", "تۆماری بێ وێنە یان زانیاری پەیوەندی")</span>
+                            <span class="home-signal-note">
+                                @(IncompleteCount == 0
+                                    ? L("كل السجلات مكتملة", "هەموو تۆمارەکان تەواون")
+                                    : L($"{Viz.Pct(IncompleteCount, s.Total)} من النطاق", $"{Viz.Pct(IncompleteCount, s.Total)} ی چوارچێوەکە"))
+                            </span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="home-brief-panel">
+                <h3 class="home-panel-title">@L("التقاعد خلال عشر سنوات", "خانەنشینی لە دە ساڵی داهاتوودا")</h3>
+                <p class="home-panel-note">@ForecastSentence</p>
+                <VizForecast Years="s.Forecast" BaseTotal="s.Total" Compact="true" OnYear="OpenRetirementYear" />
+            </div>
+
+            <div class="home-brief-panel">
+                <h3 class="home-panel-title">@L("في إجازة اليوم", "ئەمڕۆ لە مۆڵەتدان")</h3>
+                @if (s.OnLeaveToday.Count == 0)
+                {
+                    <p class="home-panel-note">@L("لا أحد في إجازة اليوم ضمن النطاق الحالي.", "ئەمڕۆ کەس لە چوارچێوەی ئێستادا لە مۆڵەتدا نییە.")</p>
+                }
+                else
+                {
+                    <p class="home-panel-note">@L("الأقرب عودةً أولاً.", "نزیکترین گەڕانەوە سەرەتا.")</p>
+                    <ol class="home-away">
+                        @foreach (var l in s.OnLeaveToday.Take(6))
+                        {
+                            <li @key="l.Employee.Id">
+                                <span class="home-away-name">@l.Employee.Name</span>
+                                <span class="home-away-meta">@l.Type · @l.Employee.Formation</span>
+                                <span class="home-away-back">@L("يعود", "دەگەڕێتەوە") <bdi dir="ltr" class="hr-num">@l.End.AddDays(1).ToString("MM/dd")</bdi></span>
+                            </li>
+                        }
+                    </ol>
+                    @if (s.OnLeaveToday.Count > 6)
+                    {
+                        <button type="button" class="hr-link home-panel-link" @onclick='() => OpenDrill("leave-today")'>
+                            @L($"كل المجازين اليوم ({s.OnLeaveToday.Count:N0})", $"هەموو مۆڵەتدارانی ئەمڕۆ ({s.OnLeaveToday.Count:N0})")
+                        </button>
+                    }
+                }
+            </div>
+        </section>
+
+        <nav class="home-chapters" aria-label="@L("أقسام الأطلس", "بەشەکانی ئەتڵەس")">
+            <ul>
+                @foreach (var (id, ar, ku) in Chapters)
+                {
+                    <li @key="id"><a href="#@id" class="home-chapter-link" @onclick:preventDefault @onclick="() => JumpTo(id)">@L(ar, ku)</a></li>
+                }
+            </ul>
+        </nav>
+
+        @* ==================== ATLAS: PEOPLE ==================== *@
+        <section class="home-chapter" id="ch-people" aria-labelledby="ch-people-h">
+            <header class="home-chapter-head">
+                <h2 id="ch-people-h" class="hr-h2">@L("الأفراد", "تاکەکان")</h2>
+                <p>@L("العمر والجنس والحالة الاجتماعية والديانة والجنسية.", "تەمەن، ڕەگەز، باری خێزانی، ئایین و ڕەگەزنامە.")</p>
+            </header>
+            <div class="home-sheet">
+                <article class="home-panel is-span-6">
+                    <h3 class="home-panel-title">@L("الهرم العمري", "پیرامیدی تەمەن")</h3>
+                    <p class="home-panel-note">
+                        @L($"متوسط العمر {s.AverageAge:0.#} سنة. اضغط فئة لتصفية بها.", $"تێکڕای تەمەن {s.AverageAge:0.#} ساڵ. کلیک لە پۆلێک بکە بۆ پاڵاوتن.")
+                    </p>
+                    <VizPyramid Bands="s.Pyramid" Selected="filter[WorkforceDimension.AgeBand]" OnPick="v => Pick(WorkforceDimension.AgeBand, v)" />
+                </article>
+                <article class="home-panel is-span-3">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Gender)</h3>
+                    <VizDonut Items="Ctx(WorkforceDimension.Gender)" SeriesOf="GenderSeries" Selected="filter[WorkforceDimension.Gender]" OnPick="v => Pick(WorkforceDimension.Gender, v)"
+                              CenterValue="@FemaleShare" CenterLabel="@L("إناث", "مێ")" Label="@DimLabel(WorkforceDimension.Gender)" />
+                </article>
+                <article class="home-panel is-span-3">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Marital)</h3>
+                    <VizDonut Items="Ctx(WorkforceDimension.Marital)" Selected="filter[WorkforceDimension.Marital]" OnPick="v => Pick(WorkforceDimension.Marital, v)"
+                              CenterValue="@KnownValues(WorkforceDimension.Marital).ToString()" CenterLabel="@L("حالات", "حاڵەت")" Label="@DimLabel(WorkforceDimension.Marital)" />
+                </article>
+                <article class="home-panel is-span-3">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Religion)</h3>
+                    <VizWaffle Items="Ctx(WorkforceDimension.Religion)" Selected="filter[WorkforceDimension.Religion]" OnPick="v => Pick(WorkforceDimension.Religion, v)" Label="@DimLabel(WorkforceDimension.Religion)" />
+                </article>
+                <article class="home-panel is-span-3">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Nationality)</h3>
+                    <VizBars Items="Ctx(WorkforceDimension.Nationality)" Selected="filter[WorkforceDimension.Nationality]"
+                             OnPick="v => Pick(WorkforceDimension.Nationality, v)" Limit="6" Label="@DimLabel(WorkforceDimension.Nationality)" />
+                </article>
+                <article class="home-panel is-span-6">
+                    <h3 class="home-panel-title">@L("الأجيال", "نەوەکان")</h3>
+                    <p class="home-panel-note">@L("بحسب سنة الميلاد.", "بەپێی ساڵی لەدایکبوون.")</p>
+                    <VizStack Items="Ctx(WorkforceDimension.Generation)" Selected="filter[WorkforceDimension.Generation]" OnPick="v => Pick(WorkforceDimension.Generation, v)" Label="@L("الأجيال", "نەوەکان")" />
+                </article>
+            </div>
+        </section>
+
+        @* ==================== ATLAS: ORGANISATION ==================== *@
+        <section class="home-chapter" id="ch-org" aria-labelledby="ch-org-h">
+            <header class="home-chapter-head">
+                <h2 id="ch-org-h" class="hr-h2">@L("التنظيم", "ڕێکخستن")</h2>
+                <p>@L("أين يعمل الموظفون: التشكيلات والوحدات والحالة الوظيفية ومحافظات السكن.", "فەرمانبەران لە کوێ کار دەکەن: پێکهاتەکان، یەکەکان، باری وەزیفی و پارێزگاکانی نیشتەجێبوون.")</p>
+            </header>
+            <div class="home-sheet">
+                <article class="home-panel is-span-8">
+                    <h3 class="home-panel-title">@L("التشكيلات", "پێکهاتەکان")</h3>
+                    <p class="home-panel-note">
+                        @L($"{KnownValues(WorkforceDimension.Formation)} تشكيلاً. مساحة كل مربع بحجم كادره.", $"{KnownValues(WorkforceDimension.Formation)} پێکهاتە. ڕووبەری هەر چوارگۆشەیەک بە قەبارەی ستافەکەیەتی.")
+                    </p>
+                    <VizTreemap Items="Ctx(WorkforceDimension.Formation)" Selected="filter[WorkforceDimension.Formation]" OnPick="v => Pick(WorkforceDimension.Formation, v)" Label="@L("التشكيلات", "پێکهاتەکان")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Status)</h3>
+                    <VizDonut Items="Ctx(WorkforceDimension.Status)" Selected="filter[WorkforceDimension.Status]" OnPick="v => Pick(WorkforceDimension.Status, v)"
+                              CenterValue="@KnownValues(WorkforceDimension.Status).ToString()" CenterLabel="@L("حالات", "حاڵەت")" Label="@DimLabel(WorkforceDimension.Status)" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("الوحدات الإدارية", "یەکە کارگێڕییەکان")</h3>
+                    <VizBars Items="Ctx(WorkforceDimension.Unit)" Selected="filter[WorkforceDimension.Unit]" OnPick="v => Pick(WorkforceDimension.Unit, v)" Label="@L("الوحدات الإدارية", "یەکە کارگێڕییەکان")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Governorate)</h3>
+                    <VizBars Items="Ctx(WorkforceDimension.Governorate)" Selected="filter[WorkforceDimension.Governorate]" OnPick="v => Pick(WorkforceDimension.Governorate, v)" Label="@DimLabel(WorkforceDimension.Governorate)" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("الدائرة الأولى عند التعيين", "یەکەم فەرمانگە لە کاتی دامەزراندن")</h3>
+                    <VizBars Items="FirstDepartments" Total="s.Total" Label="@L("الدائرة الأولى", "یەکەم فەرمانگە")"
+                             EmptyText="@L("لم تُسجَّل دوائر التعيين الأولى ضمن النطاق.", "یەکەم فەرمانگەکانی دامەزراندن لە چوارچێوەکەدا تۆمار نەکراون.")" />
+                </article>
+            </div>
+        </section>
+
+        @* ==================== ATLAS: CAREER ==================== *@
+        <section class="home-chapter" id="ch-career" aria-labelledby="ch-career-h">
+            <header class="home-chapter-head">
+                <h2 id="ch-career-h" class="hr-h2">@L("المسار الوظيفي", "ڕێڕەوی وەزیفی")</h2>
+                <p>@L("الدرجات والمراحل، التحصيل والتخصص، العناوين والمناصب، الخدمة والتكريم.", "پلە و قۆناغەکان، خوێندن و پسپۆڕی، ناونیشان و پۆستەکان، خزمەت و ڕێزلێنان.")</p>
+            </header>
+            <div class="home-sheet">
+                <article class="home-panel is-span-12">
+                    <h3 class="home-panel-title">@L("الدرجات والمراحل", "پلە و قۆناغەکان")</h3>
+                    <p class="home-panel-note">@L("كل خلية عدد الموظفين في تلك الدرجة والمرحلة. اضغط خلية لعرض أسمائهم.", "هەر خانەیەک ژمارەی فەرمانبەرانی ئەو پلە و قۆناغەیە. کلیک لە خانەیەک بکە بۆ بینینی ناوەکانیان.")</p>
+                    <VizHeatmap Rows="s.Heatmap" Max="s.HeatmapMax" OnCell="OpenGradeStage" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.Education)</h3>
+                    <p class="home-panel-note">@L($"{Viz.Pct(s.Postgraduate, s.Total)} يحملون شهادات عليا.", $"{Viz.Pct(s.Postgraduate, s.Total)} بڕوانامەی باڵایان هەیە.")</p>
+                    <VizBars Items="Ctx(WorkforceDimension.Education)" Selected="filter[WorkforceDimension.Education]" OnPick="v => Pick(WorkforceDimension.Education, v)" Label="@DimLabel(WorkforceDimension.Education)" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("التخصصات", "پسپۆڕییەکان")</h3>
+                    <VizBars Items="Specializations" Selected="filter[WorkforceDimension.Specialization]" OnPick="v => Pick(WorkforceDimension.Specialization, v)" Label="@L("التخصصات", "پسپۆڕییەکان")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("العناوين الوظيفية", "ناونیشانە وەزیفییەکان")</h3>
+                    <VizBars Items="Ctx(WorkforceDimension.JobTitle)" Selected="filter[WorkforceDimension.JobTitle]" OnPick="v => Pick(WorkforceDimension.JobTitle, v)" Label="@L("العناوين الوظيفية", "ناونیشانە وەزیفییەکان")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("المناصب الإدارية", "پۆستە کارگێڕییەکان")</h3>
+                    <p class="home-panel-note">@L($"{s.Supervisory:N0} يشغلون منصباً ({Viz.Pct(s.Supervisory, s.Total)}).", $"{s.Supervisory:N0} پۆستیان هەیە ({Viz.Pct(s.Supervisory, s.Total)}).")</p>
+                    <VizBars Items="Positions" Selected="filter[WorkforceDimension.Position]" OnPick="v => Pick(WorkforceDimension.Position, v)" Label="@L("المناصب", "پۆستەکان")"
+                             EmptyText="@L("لا أحد يشغل منصباً ضمن النطاق.", "کەس لە چوارچێوەکەدا پۆستی نییە.")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@DimLabel(WorkforceDimension.ServiceBand)</h3>
+                    <p class="home-panel-note">@L($"متوسط الخدمة {s.AverageService:0.#} سنة.", $"تێکڕای خزمەت {s.AverageService:0.#} ساڵ.")</p>
+                    <VizColumns Items="ServiceBands" Selected="filter[WorkforceDimension.ServiceBand]" OnPick="v => Pick(WorkforceDimension.ServiceBand, v)" Label="@DimLabel(WorkforceDimension.ServiceBand)" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("المدة في العنوان الوظيفي الحالي", "ماوە لە ناونیشانی وەزیفی ئێستادا")</h3>
+                    <p class="home-panel-note">@L("بالسنوات منذ آخر تغيير للعنوان.", "بە ساڵ، لە دوایین گۆڕینی ناونیشانەوە.")</p>
+                    <VizColumns Items="s.YearsInTitle" Label="@L("المدة في العنوان الحالي", "ماوە لە ناونیشانی ئێستادا")" />
+                </article>
+                <article class="home-panel is-span-8">
+                    <h3 class="home-panel-title">@L("التعيينات حسب السنة", "دامەزراندن بەپێی ساڵ")</h3>
+                    <p class="home-panel-note">@HiresNote</p>
+                    <VizColumns Items="s.HiresByYear.Skip(1).ToList()" LabelEvery="4" Label="@L("التعيينات حسب السنة", "دامەزراندن بەپێی ساڵ")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("التكريم والتطوير", "ڕێزلێنان و پەرەپێدان")</h3>
+                    <dl class="home-facts">
+                        <div><dt>@L("كتب الشكر والتقدير", "نامەکانی سوپاس و ڕێزلێنان")</dt><dd class="hr-num">@s.LettersTotal.ToString("N0")</dd></div>
+                        <div><dt>@L("موظفون كُرّموا", "فەرمانبەرانی ڕێزلێنراو")</dt><dd><button type="button" class="hr-link hr-num" @onclick='() => OpenDrill("honored")' disabled="@(s.HonoredEmployees == 0)">@s.HonoredEmployees.ToString("N0")</button></dd></div>
+                        <div><dt>@L("قِدم أضافته الكتب", "کۆنی زیادکراو بە نامەکان")</dt><dd>@(string.IsNullOrEmpty(s.LettersSeniority) ? "—" : s.LettersSeniority)</dd></div>
+                        <div><dt>@L("دورات تدريبية", "خولە ڕاهێنانییەکان")</dt><dd class="hr-num">@s.CoursesTotal.ToString("N0")</dd></div>
+                        <div><dt>@L("موظفون تدرّبوا", "فەرمانبەرانی ڕاهێنراو")</dt><dd><button type="button" class="hr-link hr-num" @onclick='() => OpenDrill("trained")' disabled="@(s.TrainedEmployees == 0)">@s.TrainedEmployees.ToString("N0")</button></dd></div>
+                    </dl>
+                    <h4 class="home-panel-sub">@L("حسب جهة الكتاب", "بەپێی لایەنی نامە")</h4>
+                    <VizBars Items="s.LettersByType" Total="s.LettersTotal" Limit="4" Dense="true" Label="@L("كتب الشكر حسب الجهة", "نامەکانی سوپاس بەپێی لایەن")"
+                             EmptyText="@L("لا كتب شكر ضمن النطاق.", "هیچ نامەیەکی سوپاس لە چوارچێوەکەدا نییە.")" />
+                </article>
+            </div>
+        </section>
+
+        @* ==================== ATLAS: ATTENDANCE & DISCIPLINE ==================== *@
+        <section class="home-chapter" id="ch-attendance" aria-labelledby="ch-attendance-h">
+            <header class="home-chapter-head">
+                <h2 id="ch-attendance-h" class="hr-h2">@L("الإجازات والانضباط", "مۆڵەت و دیسپلین")</h2>
+                <p>@L("إجازات هذا العام وأرصدتها، والعقوبات المسجلة.", "مۆڵەتەکانی ئەمساڵ و باڵانسەکانیان، و سزا تۆمارکراوەکان.")</p>
+            </header>
+            <div class="home-sheet">
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L($"إجازات {Today.Year} حسب النوع", $"مۆڵەتەکانی {Today.Year} بەپێی جۆر")</h3>
+                    <p class="home-panel-note">@L($"{s.LeaveYearDays:N0} يوم إجازة هذا العام.", $"{s.LeaveYearDays:N0} ڕۆژ مۆڵەت لەمساڵدا.")</p>
+                    <VizBars Items="s.LeaveYearByType" Label="@L("الإجازات حسب النوع", "مۆڵەتەکان بەپێی جۆر")"
+                             EmptyText="@L("لا إجازات مسجلة هذا العام ضمن النطاق.", "هیچ مۆڵەتێک ئەمساڵ لە چوارچێوەکەدا تۆمار نەکراوە.")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("المجازون اليوم حسب النوع", "مۆڵەتدارانی ئەمڕۆ بەپێی جۆر")</h3>
+                    <VizDonut Items="s.LeaveTodayByType" CenterValue="@s.OnLeaveToday.Count.ToString("N0")" CenterLabel="@L("اليوم", "ئەمڕۆ")" Label="@L("المجازون اليوم", "مۆڵەتدارانی ئەمڕۆ")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("أرصدة الإجازات", "باڵانسی مۆڵەت")</h3>
+                    <p class="home-panel-note">@L("الرصيد المتبقي بالأيام.", "باڵانسی ماوە بە ڕۆژ.")</p>
+                    <VizColumns Items="s.LeaveBalanceBands" Label="@L("أرصدة الإجازات", "باڵانسی مۆڵەت")" />
+                </article>
+                <article class="home-panel is-span-8">
+                    <h3 class="home-panel-title">@L("العقوبات حسب النوع", "سزاکان بەپێی جۆر")</h3>
+                    <VizBars Items="s.PenaltiesByType" Total="s.PenaltiesTotal" Label="@L("العقوبات حسب النوع", "سزاکان بەپێی جۆر")"
+                             EmptyText="@L("لا عقوبات مسجلة ضمن النطاق.", "هیچ سزایەک لە چوارچێوەکەدا تۆمار نەکراوە.")" />
+                </article>
+                <article class="home-panel is-span-4">
+                    <h3 class="home-panel-title">@L("الانضباط", "دیسپلین")</h3>
+                    <dl class="home-facts">
+                        <div><dt>@L("عقوبات مسجلة", "سزا تۆمارکراوەکان")</dt><dd class="hr-num">@s.PenaltiesTotal.ToString("N0")</dd></div>
+                        <div><dt>@L("منها خلال 12 شهراً", "لەوانە لە 12 مانگی ڕابردوودا")</dt><dd class="hr-num">@s.PenaltiesLast12Months.ToString("N0")</dd></div>
+                        <div><dt>@L("موظفون عليهم عقوبات", "فەرمانبەرانی سزادراو")</dt><dd><button type="button" class="hr-link hr-num" @onclick='() => OpenDrill("penalized")' disabled="@(s.PenalizedEmployees == 0)">@s.PenalizedEmployees.ToString("N0")</button></dd></div>
+                        <div><dt>@L("سجلات بلا عقوبة", "تۆماری بێ سزا")</dt><dd class="hr-num">@Viz.Pct(s.Total - s.PenalizedEmployees, s.Total)</dd></div>
+                    </dl>
+                </article>
+            </div>
+        </section>
+
+        @* ==================== ATLAS: RETIREMENT ==================== *@
+        <section class="home-chapter" id="ch-retirement" aria-labelledby="ch-retirement-h">
+            <header class="home-chapter-head">
+                <h2 id="ch-retirement-h" class="hr-h2">@L("التقاعد", "خانەنشینی")</h2>
+                <p>@L($"من يبلغ سن {WorkforceStats.RetirementAge} خلال السنوات العشر القادمة، وما يبقى من النطاق الحالي.", $"کێ لە دە ساڵی داهاتوودا دەگاتە تەمەنی {WorkforceStats.RetirementAge}، و چی لە چوارچێوەی ئێستا دەمێنێتەوە.")</p>
+            </header>
+            <div class="home-sheet">
+                <article class="home-panel is-span-12">
+                    <h3 class="home-panel-title">@L("المتقاعدون المتوقعون سنوياً", "خانەنشینە چاوەڕوانکراوەکان بە ساڵ")</h3>
+                    <p class="home-panel-note">@ForecastSentence @L("اضغط سنة لعرض أسمائها.", "کلیک لە ساڵێک بکە بۆ بینینی ناوەکان.")</p>
+                    <VizForecast Years="s.Forecast" BaseTotal="s.Total" OnYear="OpenRetirementYear" />
+                </article>
+                <article class="home-panel is-span-12">
+                    <h3 class="home-panel-title">@L("السنوات بالتفصيل", "ساڵەکان بە وردی")</h3>
+                    <div class="hr-tablewrap">
+                        <table class="hr-table hr-table-tight home-forecast-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">@L("السنة", "ساڵ")</th>
+                                    <th scope="col">@L("متقاعدون", "خانەنشین")</th>
+                                    <th scope="col">@L("شاغلو مناصب", "خاوەن پۆست")</th>
+                                    <th scope="col">@L("المتبقي", "ماوە")</th>
+                                    <th scope="col">@L("الأكثر تأثراً", "زۆرترین کاریگەری")</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var y in s.Forecast)
+                                {
+                                    <tr @key="y.Year">
+                                        <th scope="row" class="hr-num">@y.Year</th>
+                                        <td data-label="@L("متقاعدون", "خانەنشین")"><button type="button" class="hr-link hr-num" @onclick="() => OpenRetirementYear(y.Year)" disabled="@(y.Retirees == 0)">@y.Retirees.ToString("N0")</button></td>
+                                        <td data-label="@L("شاغلو مناصب", "خاوەن پۆست")" class="hr-num">@y.Supervisory.ToString("N0")</td>
+                                        <td data-label="@L("المتبقي", "ماوە")" class="hr-num">@y.Projected.ToString("N0")</td>
+                                        <td data-label="@L("الأكثر تأثراً", "زۆرترین کاریگەری")"><span class="hr-truncate home-forecast-formation" title="@y.TopFormation">@y.TopFormation</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        @* ==================== ATLAS: RECORDS ==================== *@
+        <section class="home-chapter" id="ch-records" aria-labelledby="ch-records-h">
+            <header class="home-chapter-head">
+                <h2 id="ch-records-h" class="hr-h2">@L("السجلات والوثائق", "تۆمار و بەڵگەنامەکان")</h2>
+                <p>@L("ما ينقص ملفات الموظفين، وقوائم جاهزة لمتابعته.", "ئەوەی لە دۆسیەی فەرمانبەراندا کەمە، و لیستی ئامادە بۆ بەدواداچوونی.")</p>
+            </header>
+            <div class="home-sheet">
+                <article class="home-panel is-span-6">
+                    <h3 class="home-panel-title">@L("اكتمال الملفات", "تەواوبوونی دۆسیەکان")</h3>
+                    <p class="home-panel-note">
+                        @L($"{Viz.Pct(s.RecordsComplete, s.Total)} من الملفات فيها صورة وهاتف وبريد وبطاقة وطنية معاً.", $"{Viz.Pct(s.RecordsComplete, s.Total)} ی دۆسیەکان وێنە، تەلەفۆن، ئیمەیڵ و کارتی نیشتمانییان پێکەوە تێدایە.")
+                    </p>
+                    <VizMeters Items="Meters" Total="s.Total" OnGap="OpenMissing" />
+                </article>
+                <article class="home-panel is-span-6">
+                    <h3 class="home-panel-title">@L("قوائم جاهزة", "لیستی ئامادە")</h3>
+                    <p class="home-panel-note">@L("كل قائمة تحترم التصفية الحالية، ويمكن تصديرها.", "هەر لیستێک پاڵاوتنی ئێستا ڕەچاو دەکات، و دەکرێت هەناردە بکرێت.")</p>
+                    <ul class="home-lists">
+                        @foreach (var (key, icon, label, count) in ReadyLists)
+                        {
+                            <li @key="key">
+                                <button type="button" class="home-list" @onclick="() => OpenDrill(key)" disabled="@(count == 0)">
+                                    <Icon Name="@icon" Size="sm" />
+                                    <span class="home-list-label">@label</span>
+                                    <span class="home-list-count hr-num">@count.ToString("N0")</span>
+                                </button>
+                            </li>
+                        }
+                    </ul>
+                </article>
+            </div>
+        </section>
+    }
+</div>
+
+@* ==================== DRILL-DOWN LIST ==================== *@
+<Modal IsOpen="@isReportModalOpen" Title="@activeReportTitle" Subtitle="@activeReportSubtitle" Icon="@activeReportIcon" Size="xl" OnClose="CloseReportModal">
+    <Body>
+        <div class="hr-stack-sm home-report">
+            <p class="home-report-context"><strong>@L("النطاق:", "چوارچێوە:")</strong> @loadedScopeDescription</p>
+            <h3 class="hr-sr home-report-results-heading" tabindex="-1" @ref="reportResultsHeading">@L("نتائج القائمة", "ئەنجامەکانی لیست")</h3>
+            <div class="home-report-bar">
+                <div class="hr-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input type="search" class="hr-input" placeholder="@L("ابحث بالاسم، الرقم الوظيفي، أو التشكيل…", "بگەڕێ بە ناو، ژمارەی وەزیفی، یان پێکهاتە…")"
+                           @bind="modalSearchTerm" @bind:event="oninput" aria-label="@L("بحث داخل القائمة", "گەڕان لەناو لیستدا")" />
+                </div>
+                <span class="hr-badge hr-badge-accent">@L("النتائج:", "ئەنجامەکان:") <strong class="hr-num">@FilteredModalEmployees.Count.ToString("N0")</strong></span>
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ExportModalReportCsv" disabled="@(isExporting || FilteredModalEmployees.Count == 0)"
+                        title="@L("تنزيل جميع نتائج البحث الحالية، بما فيها الصفحات الأخرى", "داگرتنی هەموو ئەنجامەکانی گەڕانی ئێستا، لەوانە لاپەڕەکانی تر")">
+                    <Icon Name="arrow-down-tray" Size="xs" />
+                    <span>@(isExporting ? L("جارٍ تجهيز الملف…", "فایلەکە ئامادە دەکرێت…") : L("تصدير (CSV)", "هەناردە (CSV)"))</span>
+                </button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(exportFeedback))
+            {
+                <p class="hr-alert @(exportFailed ? "hr-alert-danger" : "hr-alert-accent")" role="status" aria-live="polite">@exportFeedback</p>
+            }
+            @if (FilteredModalEmployees.Count == 0)
+            {
+                <div class="hr-empty home-report-empty">
+                    <p class="hr-h3">@L("لا توجد نتائج مطابقة", "هیچ ئەنجامێکی گونجاو نییە")</p>
+                    <p class="hr-sub">@L("جرّب اسماً أو رقماً آخر، أو امسح البحث لعرض القائمة كاملة.", "ناو یان ژمارەیەکی تر تاقی بکەرەوە، یان گەڕانەکە بسڕەوە بۆ پیشاندانی هەموو لیستەکە.")</p>
+                    @if (!string.IsNullOrWhiteSpace(modalSearchTerm))
+                    {
+                        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => modalSearchTerm = string.Empty">@L("مسح البحث", "سڕینەوەی گەڕان")</button>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="hr-tablewrap home-report-table">
+                    <table class="hr-table hr-table-tight">
+                        <thead>
+                            <tr>
+                                <th scope="col">@L("الرقم الوظيفي", "ژمارەی وەزیفی")</th>
+                                <th scope="col">@L("اسم الموظف", "ناوی فەرمانبەر")</th>
+                                <th scope="col">@DimLabel(WorkforceDimension.Formation)</th>
+                                <th scope="col">@DimLabel(WorkforceDimension.JobTitle)</th>
+                                <th scope="col">@activeReportDetailHeader</th>
+                                <th scope="col"><span class="hr-sr">@L("الإجراء", "کردار")</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in PagedModalEmployees)
+                            {
+                                <tr @key="row.EmployeeId">
+                                    <td class="hr-cell-id hr-num">@row.EmployeeId</td>
+                                    <td><strong class="hr-cell-strong">@row.Name</strong></td>
+                                    <td><span class="hr-truncate home-report-cell" title="@row.Formation">@row.Formation</span></td>
+                                    <td><span class="hr-truncate home-report-cell" title="@row.JobTitle">@row.JobTitle</span></td>
+                                    <td><span class="hr-badge @row.BadgeClass">@row.DetailValue</span></td>
+                                    <td>
+                                        <a class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" href="employees/@Uri.EscapeDataString(row.EmployeeId)" target="_blank" rel="noopener"
+                                           aria-label="@L($"فتح ملف الموظف {row.EmployeeId} في تبويب جديد", $"کردنەوەی دۆسیەی فەرمانبەر {row.EmployeeId} لە تابێکی نوێدا")"
+                                           title="@L("فتح الملف في تبويب جديد", "کردنەوەی دۆسیە لە تابێکی نوێدا")">
+                                            <Icon Name="arrow-top-right-on-square" Size="xs" />
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <nav class="home-report-pager" aria-label="@L("صفحات القائمة", "لاپەڕەکانی لیست")">
+                    <p class="hr-meta" role="status" aria-live="polite">@ReportRangeLabel</p>
+                    <div class="home-page-actions">
+                        <button type="button" class="hr-btn hr-btn-secondary" disabled="@(CurrentReportPage <= 1)" @onclick="PreviousReportPage">@L("السابق", "پێشوو")</button>
+                        <span class="hr-num">@L($"الصفحة {CurrentReportPage} من {ReportPageCount}", $"لاپەڕەی {CurrentReportPage} لە {ReportPageCount}")</span>
+                        <button type="button" class="hr-btn hr-btn-secondary" disabled="@(CurrentReportPage >= ReportPageCount)" @onclick="NextReportPage">@L("التالي", "دواتر")</button>
+                    </div>
+                </nav>
+            }
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseReportModal">@L("إغلاق", "داخستن")</button>
+    </Footer>
+</Modal>
+
+@code {
+    public sealed class QuickReportRow
+    {
+        public string EmployeeId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Formation { get; set; } = string.Empty;
+        public string JobTitle { get; set; } = string.Empty;
+        public string DetailValue { get; set; } = string.Empty;
+        public string BadgeClass { get; set; } = string.Empty;
+    }
+
+    private static readonly WorkforceDimension[] PrimaryDimensions =
+        [WorkforceDimension.Formation, WorkforceDimension.Status, WorkforceDimension.Grade, WorkforceDimension.Gender];
+
+    private static readonly WorkforceDimension[] MoreDimensions =
+    [
+        WorkforceDimension.Unit, WorkforceDimension.Stage, WorkforceDimension.JobTitle, WorkforceDimension.Position,
+        WorkforceDimension.Education, WorkforceDimension.Specialization, WorkforceDimension.AgeBand, WorkforceDimension.ServiceBand,
+        WorkforceDimension.Generation, WorkforceDimension.Nationality, WorkforceDimension.Religion, WorkforceDimension.Marital,
+        WorkforceDimension.Governorate, WorkforceDimension.Digital
+    ];
+
+    private static readonly (string Id, string Ar, string Ku)[] Chapters =
+    [
+        ("ch-people", "الأفراد", "تاکەکان"), ("ch-org", "التنظيم", "ڕێکخستن"), ("ch-career", "المسار الوظيفي", "ڕێڕەوی وەزیفی"),
+        ("ch-attendance", "الإجازات والانضباط", "مۆڵەت و دیسپلین"), ("ch-retirement", "التقاعد", "خانەنشینی"), ("ch-records", "السجلات والوثائق", "تۆمار و بەڵگەنامەکان")
+    ];
+
+    // Gender keeps one colour per value everywhere it is drawn, matching the pyramid.
+    private static int? GenderSeries(string value) => value switch { WorkforceStats.Male => 1, WorkforceStats.Female => 0, _ => 6 };
+
+    private static string IconFor(WorkforceDimension d) => d switch
+    {
+        WorkforceDimension.Formation or WorkforceDimension.Unit => "building-office-2",
+        WorkforceDimension.Status => "signal",
+        WorkforceDimension.Grade or WorkforceDimension.Stage => "chart-bar",
+        WorkforceDimension.Education or WorkforceDimension.Specialization => "academic-cap",
+        WorkforceDimension.JobTitle or WorkforceDimension.Position => "briefcase",
+        WorkforceDimension.Gender or WorkforceDimension.Marital => "users",
+        WorkforceDimension.Nationality or WorkforceDimension.Religion => "globe-alt",
+        WorkforceDimension.AgeBand or WorkforceDimension.Generation => "cake",
+        WorkforceDimension.ServiceBand => "clock",
+        WorkforceDimension.Governorate => "map-pin",
+        WorkforceDimension.Digital => "identification",
+        _ => "funnel"
+    };
+
+    private readonly WorkforceFilter filter = new();
+    private WorkforceSnapshot snapshot = WorkforceSnapshot.Empty;
+    private IReadOnlyList<WorkforceRow> scope = [];
+    private WorkforceStatsResult? stats;
+    private Dictionary<WorkforceDimension, Dictionary<string, int>> facetCounts = [];
+    // A user limited to some formations: the one formation's own name, or a description of the set
+    // that is worded at render time so it follows a language switch.
+    private bool scopeLocked;
+    private string? lockedFormationName;
+    private string? LockedScopeName => !scopeLocked ? null
+        : lockedFormationName ?? (allowedFormations is { Count: > 0 }
+            ? L("التشكيلات المخولة", "پێکهاتە ڕێگەپێدراوەکان")
+            : L("لا تشكيلات مخولة", "هیچ پێکهاتەیەکی ڕێگەپێدراو نییە"));
+    private bool isLoading = true;
+    private bool loadFailed;
+    private bool moreFilters;
+    private DateTime? lastRefreshedAt;
+    private string loadedScopeDescription = "جميع الموظفين";
+    private ElementReference reportResultsHeading;
+    private bool revealReportResults;
+
+    // Lang is absent when the page is built outside a renderer (the export tests); Arabic then.
+    private bool Ku => Lang?.IsKurdish == true;
+    private string L(string ar, string ku) => Ku ? ku : ar;
+    private string DimLabel(WorkforceDimension d) => WorkforceStats.Label(d, Ku);
+
+    private DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private int MoreFilterCount => MoreDimensions.Sum(d => filter[d].Count);
+    private int IncompleteCount => stats?.Rows.Count(r => !r.HasPhoto || !r.HasContacts) ?? 0;
+
+    /// <summary>A picking chart's values: every other filter applied, its own not.</summary>
+    private IReadOnlyList<StatItem> Ctx(WorkforceDimension d) => stats!.Context[d];
+
+    /// <summary>
+    /// Distinct recorded values a chart draws, for "14 formations" or a donut's centre. It counts the
+    /// chart's own data (Context), so the number matches the tiles or slices beside it.
+    /// </summary>
+    private int KnownValues(WorkforceDimension d) => stats?.Context[d].Count(i => i.Name != WorkforceSnapshot.Unset && i.Name != WorkforceStats.NotRecorded) ?? 0;
+
+    // The donut draws the gender context, so its centre reads the same base.
+    private string FemaleShare
+    {
+        get
+        {
+            var items = Ctx(WorkforceDimension.Gender);
+            return Viz.Pct(items.FirstOrDefault(i => i.Name == WorkforceStats.Female)?.Count ?? 0, items.Sum(i => i.Count));
+        }
+    }
+
+    private IReadOnlyList<StatItem> Specializations =>
+        Ctx(WorkforceDimension.Specialization).Where(i => i.Name != WorkforceSnapshot.Unset).ToList();
+    private IReadOnlyList<StatItem> Positions =>
+        Ctx(WorkforceDimension.Position).Where(i => i.Name != WorkforceStats.NoPosition).ToList();
+    private IReadOnlyList<StatItem> ServiceBands =>
+        Ctx(WorkforceDimension.ServiceBand).Where(i => i.Name != WorkforceStats.NotRecorded).ToList();
+    private IReadOnlyList<StatItem> FirstDepartments =>
+        stats!.Rows.Where(r => r.FirstDepartment is not null).GroupBy(r => r.FirstDepartment!)
+            .Select(g => new StatItem(g.Key, g.Count())).OrderByDescending(i => i.Count).ToList();
+
+    private static readonly Dictionary<string, string> KurdishMeterLabels = new()
+    {
+        ["photo"] = "وێنەی کەسی", ["phone"] = "ژمارەی تەلەفۆن", ["email"] = "ئیمەیڵ", ["account"] = "هەژمار لە سیستەمدا",
+        ["card"] = "کارتی نیشتمانی", ["passport"] = "پاسپۆرت", ["residence"] = "زانیاری نیشتەجێبوون"
+    };
+
+    private string MeterLabel(RecordMeter m) => Ku ? KurdishMeterLabels.GetValueOrDefault(m.Key, m.Label) : m.Label;
+
+    private IReadOnlyList<RecordMeter> Meters => stats!.Records.Select(m => m with { Label = MeterLabel(m) }).ToList();
+
+    private string CountLine
+    {
+        get
+        {
+            var s = stats!;
+            if (filter.IsEmpty) return L($"{s.Total:N0} موظفاً في النطاق", $"{s.Total:N0} فەرمانبەر لە چوارچێوەکەدا");
+            return L($"{s.Total:N0} موظفاً يطابقون التصفية من أصل {s.BaseTotal:N0}", $"{s.Total:N0} فەرمانبەر لەگەڵ پاڵاوتنەکە دەگونجێن لە کۆی {s.BaseTotal:N0}");
+        }
+    }
+
+    private string ScopeHeadline => filter.IsEmpty
+        ? (LockedScopeName is null
+            ? L("كل الموظفين غير المؤرشفين، بجميع حالاتهم الوظيفية", "هەموو فەرمانبەرانی ئەرشیفنەکراو، بە هەموو بارە وەزیفییەکانیانەوە")
+            : L($"في {LockedScopeName}، بجميع الحالات الوظيفية", $"لە {LockedScopeName}، بە هەموو بارە وەزیفییەکانەوە"))
+        : L($"ضمن التصفية الحالية، من أصل {stats!.BaseTotal:N0}", $"لە پاڵاوتنی ئێستادا، لە کۆی {stats!.BaseTotal:N0}");
+
+    // Under the 12-month figure: who is already past the age, else who is close to it.
+    private string RetirementNote
+    {
+        get
+        {
+            var s = stats!;
+            return s.PastRetirementAge > 0
+                ? L($"و{s.PastRetirementAge:N0} تجاوزوه ولا يزالون في الخدمة", $"و {s.PastRetirementAge:N0} تێیان پەڕاندووە و هێشتا لە خزمەتدان")
+                : L($"{s.Age58Plus:N0} في سن 58 فأكثر", $"{s.Age58Plus:N0} تەمەنیان 58 ساڵ و زیاترە");
+        }
+    }
+
+    private string BriefSentence
+    {
+        get
+        {
+            var s = stats!;
+            var lines = new List<string>();
+            if (s.Female + s.Male > 0)
+                lines.Add(L($"{Viz.Pct(s.Female, s.Total)} إناث و{Viz.Pct(s.Male, s.Total)} ذكور", $"{Viz.Pct(s.Female, s.Total)} مێ و {Viz.Pct(s.Male, s.Total)} نێر"));
+            if (s.AverageAge > 0) lines.Add(L($"بمتوسط عمر {s.AverageAge:0.#} سنة", $"بە تێکڕای تەمەنی {s.AverageAge:0.#} ساڵ"));
+            if (s.AverageService > 0) lines.Add(L($"وخدمة {s.AverageService:0.#} سنة", $"و خزمەتی {s.AverageService:0.#} ساڵ"));
+            var first = lines.Count > 0 ? string.Join("، ", lines) + "." : string.Empty;
+            var second = L($" يشغل {s.Supervisory:N0} منهم مناصب إدارية، ويحمل {Viz.Pct(s.Postgraduate, s.Total)} شهادات عليا.",
+                $" {s.Supervisory:N0} یان پۆستی کارگێڕییان هەیە، و {Viz.Pct(s.Postgraduate, s.Total)} بڕوانامەی باڵایان هەیە.");
+            return first + second;
+        }
+    }
+
+    private string ForecastSentence
+    {
+        get
+        {
+            var f = stats!.Forecast;
+            if (f.Count == 0 || f[^1].Cumulative == 0)
+                return L("لا أحد يبلغ سن التقاعد خلال عشر سنوات.", "کەس لە ماوەی دە ساڵدا ناگاتە تەمەنی خانەنشینی.");
+            var peak = f.OrderByDescending(y => y.Retirees).First();
+            var share = Viz.Pct(f[^1].Cumulative, stats.Total);
+            var sentence = L($"يبلغ {f[^1].Cumulative:N0} موظفاً ({share}) سن التقاعد بحلول {f[^1].Year}، وذروتها {peak.Year} بـ{peak.Retirees:N0}.",
+                $"{f[^1].Cumulative:N0} فەرمانبەر ({share}) تا {f[^1].Year} دەگەنە تەمەنی خانەنشینی، و لووتکەکەی ساڵی {peak.Year} ە بە {peak.Retirees:N0}.");
+            // The first column also holds anyone already past the age; say so rather than let it read as one year's wave.
+            var past = stats.PastRetirementAge;
+            return past == 0 ? sentence : sentence + L($" يشمل عمود {f[0].Year} {past:N0} تجاوزوا السن فعلاً.", $" ستوونی {f[0].Year} {past:N0} کەس دەگرێتەوە کە پێشتر تەمەنەکەیان تێپەڕاندووە.");
+        }
+    }
+
+    private string HiresNote
+    {
+        get
+        {
+            var before = stats!.HiresByYear[0].Count;
+            return before > 0
+                ? L($"سنة التعيين لموظفي النطاق الحالي خلال آخر عشرين سنة؛ و{before:N0} عُيّنوا قبلها.", $"ساڵی دامەزراندنی فەرمانبەرانی چوارچێوەی ئێستا لە بیست ساڵی ڕابردوودا؛ و {before:N0} پێش ئەوە دامەزراون.")
+                : L("سنة التعيين لموظفي النطاق الحالي خلال آخر عشرين سنة.", "ساڵی دامەزراندنی فەرمانبەرانی چوارچێوەی ئێستا لە بیست ساڵی ڕابردوودا.");
+        }
+    }
+
+    private IEnumerable<(string Key, string Icon, string Label, int Count)> ReadyLists
+    {
+        get
+        {
+            var s = stats!;
+            yield return ("missing-photo", "camera", L("بلا صورة شخصية", "بێ وێنەی کەسی"), s.Rows.Count(r => !r.HasPhoto));
+            yield return ("missing-contacts", "phone", L("بيانات اتصال ناقصة", "زانیاری پەیوەندی ناتەواو"), s.Rows.Count(r => !r.HasContacts));
+            yield return ("missing-account", "key", L("بلا حساب في المنظومة", "بێ هەژمار لە سیستەمدا"), s.Rows.Count(r => !r.HasAccount));
+            yield return ("postgrad", "academic-cap", L("حملة الشهادات العليا", "خاوەن بڕوانامەی باڵا"), s.Postgraduate);
+            yield return ("supervisory", "briefcase", L("شاغلو المناصب", "خاوەن پۆستەکان"), s.Supervisory);
+            yield return ("age-58", "cake", L("في سن 58 فأكثر", "تەمەن 58 ساڵ و زیاتر"), s.Age58Plus);
+            yield return ("past-retirement", "exclamation-circle", L("تجاوزوا سن التقاعد", "تەمەنی خانەنشینییان تێپەڕاندووە"), s.PastRetirementAge);
+            yield return ("honored", "gift", L("المكرّمون بكتب شكر", "ڕێزلێنراوان بە نامەی سوپاس"), s.HonoredEmployees);
+            yield return ("martyr", "shield-check", L("ذوو الشهداء", "کەسوکاری شەهیدان"), s.MartyrFamilies);
+            yield return ("vehicles", "truck", L("لديهم مركبات مسجلة", "خاوەن ئۆتۆمبێلی تۆمارکراو"), s.VehicleOwners);
+        }
+    }
+
+    private string ScopeDescription
+    {
+        get
+        {
+            var parts = filter.Active.Select(d => $"{DimLabel(d)}: {string.Join("، ", filter[d])}").ToList();
+            var baseScope = LockedScopeName is null ? L("جميع الموظفين غير المؤرشفين", "هەموو فەرمانبەرانی ئەرشیفنەکراو") : L($"تشكيل {LockedScopeName}", $"پێکهاتەی {LockedScopeName}");
+            return parts.Count == 0 ? baseScope : (LockedScopeName is null ? "" : baseScope + "؛ ") + string.Join("؛ ", parts);
+        }
+    }
+
+    private RenderFragment FilterControl(WorkforceDimension d) => __builder =>
+    {
+        var facet = stats?.Facets.GetValueOrDefault(d);
+        var selected = filter[d];
+        var label = DimLabel(d);
+        <MultiSelectDropdown @key="d" Title="@(selected.Count > 0 ? $"{label} ({selected.Count})" : label)"
+                             Placeholder="@L($"ابحث في {label}…", $"گەڕان لە {label}…")" Icon="@IconFor(d)"
+                             Options="@(facet?.Options.ToList() ?? [])" OptionCounts="@facetCounts.GetValueOrDefault(d)"
+                             SelectedValues="@selected.ToHashSet()" SelectedValuesChanged="@(v => SetFilter(d, v))" />
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        if (!(user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager")))
+        {
+            NavigationManager.NavigateTo("portal", replace: true);
+            return;
+        }
+
+        foreach (var d in Enum.GetValues<WorkforceDimension>())
+            filter.Set(d, ViewState.Get(d.ToString()));
+        // "All fields" opens over the page on wider screens, so it starts closed; the chips and
+        // the badge on its button already show any field it holds a filter for.
+        moreFilters = false;
+        Lang.OnLanguageChanged += HandleLanguageChanged;
+
+        // A formation manager sees their own formation here, as on the formation dashboard.
+        try
+        {
+            var (isGlobal, lockedId, formations) = await FormationKpiService.GetUserFormationAccessAsync(user);
+            if (!isGlobal)
+            {
+                allowedFormations = lockedId is { } id ? [id] : formations.Select(f => f.Id).ToHashSet();
+                scopeLocked = true;
+                lockedFormationName = lockedId is { } lid ? formations.FirstOrDefault(f => f.Id == lid)?.Name
+                    : formations.Count == 1 ? formations[0].Name : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to resolve formation access for the home dashboard.");
+            allowedFormations = [];
+            scopeLocked = true;
+        }
+
+        await LoadAsync();
+    }
+
+    private HashSet<int>? allowedFormations;
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadFailed = false;
+        try
+        {
+            snapshot = await Snapshots.GetAsync();
+            scope = allowedFormations is null
+                ? snapshot.Rows
+                : snapshot.Rows.Where(r => r.FormationId is { } f && allowedFormations.Contains(f)).ToList();
+            lastRefreshedAt = snapshot.LoadedAt;
+            Recompute();
+        }
+        catch (Exception ex)
+        {
+            loadFailed = true;
+            Logger.LogError(ex, "Failed to load the home dashboard snapshot.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // Filtering is in memory over the cached snapshot, so it runs on every click.
+    private void Recompute()
+    {
+        stats = WorkforceStats.Compute(scope, filter, snapshot, Today);
+        facetCounts = stats.Facets.ToDictionary(kv => kv.Key, kv => kv.Value.Counts.ToDictionary(c => c.Key, c => c.Value));
+        loadedScopeDescription = ScopeDescription;
+    }
+
+    private void Pick(WorkforceDimension d, string value)
+    {
+        filter.Toggle(d, value);
+        Recompute();
+    }
+
+    private void SetFilter(WorkforceDimension d, HashSet<string> values)
+    {
+        filter.Set(d, values);
+        Recompute();
+    }
+
+    private void ClearFilters()
+    {
+        filter.Clear();
+        Recompute();
+    }
+
+    private async Task ReloadAsync()
+    {
+        Snapshots.Invalidate();
+        await LoadAsync();
+    }
+
+    private async Task PrintAsync()
+    {
+        try { await JSRuntime.InvokeVoidAsync("window.print"); }
+        catch (Exception ex) { Logger.LogWarning(ex, "Print failed."); }
+    }
+
+    private async Task JumpTo(string id)
+    {
+        try { await JSRuntime.InvokeVoidAsync("hrDashboard.jump", id); }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or TaskCanceledException) { }
+    }
+
+    // The language can change while the page is open; scope text and the lock name follow it.
+    private void HandleLanguageChanged() => InvokeAsync(() =>
+    {
+        if (stats is not null) loadedScopeDescription = ScopeDescription;
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        foreach (var d in Enum.GetValues<WorkforceDimension>())
+            ViewState.Set(d.ToString(), filter[d].ToHashSet());
+        Lang.OnLanguageChanged -= HandleLanguageChanged;
+    }
+
+    // ==================== DRILL-DOWN ====================
+    private bool isReportModalOpen;
+    private string activeReportKey = string.Empty;
+    private string activeReportTitle = string.Empty;
+    private string activeReportSubtitle = string.Empty;
+    private string activeReportIcon = "document-text";
+    private string activeReportDetailHeader = "التفاصيل";
+    private const int ReportPageSize = 50;
+    private int reportPage = 1;
+    private bool isExporting;
+    private bool exportFailed;
+    private string? exportFeedback;
+    private string reportSearch = string.Empty;
+    private string modalSearchTerm
+    {
+        get => reportSearch;
+        set { reportSearch = value; reportPage = 1; exportFeedback = null; }
+    }
+    private List<QuickReportRow> currentModalRows = [];
+    private int ReportPageCount => Math.Max(1, (FilteredModalEmployees.Count + ReportPageSize - 1) / ReportPageSize);
+    private int CurrentReportPage => Math.Clamp(reportPage, 1, ReportPageCount);
+    private IEnumerable<QuickReportRow> PagedModalEmployees => FilteredModalEmployees.Skip((CurrentReportPage - 1) * ReportPageSize).Take(ReportPageSize);
+    private string ReportRangeLabel
+    {
+        get
+        {
+            var from = (CurrentReportPage - 1) * ReportPageSize + 1;
+            var to = Math.Min(CurrentReportPage * ReportPageSize, FilteredModalEmployees.Count);
+            var total = FilteredModalEmployees.Count;
+            return L($"عرض {from:N0}–{to:N0} من {total:N0} نتيجة", $"پیشاندانی {from:N0}–{to:N0} لە کۆی {total:N0} ئەنجام");
+        }
+    }
+    private void PreviousReportPage() { reportPage = Math.Max(1, CurrentReportPage - 1); revealReportResults = true; }
+    private void NextReportPage() { reportPage = Math.Min(ReportPageCount, CurrentReportPage + 1); revealReportResults = true; }
+
+    private List<QuickReportRow> FilteredModalEmployees
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(modalSearchTerm)) return currentModalRows;
+            var term = modalSearchTerm.Trim();
+            return currentModalRows
+                .Where(r => r.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                            r.EmployeeId.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                            r.Formation.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                            r.JobTitle.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                            r.DetailValue.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    private static QuickReportRow Row(WorkforceRow r, string detail, string badge = "") => new()
+    {
+        EmployeeId = r.EmployeeId, Name = r.Name, Formation = r.Formation, JobTitle = r.JobTitle, DetailValue = detail, BadgeClass = badge
+    };
+
+    private static string Date(DateOnly? d) => d?.ToString("yyyy/MM/dd") ?? "—";
+
+    private void ShowDrill(string key, string title, string icon, string detailHeader, IEnumerable<QuickReportRow> rows)
+    {
+        activeReportKey = key;
+        activeReportTitle = title;
+        activeReportIcon = icon;
+        activeReportDetailHeader = detailHeader;
+        currentModalRows = rows.ToList();
+        activeReportSubtitle = L($"{currentModalRows.Count:N0} موظفاً", $"{currentModalRows.Count:N0} فەرمانبەر");
+        modalSearchTerm = string.Empty;
+        exportFailed = false;
+        isReportModalOpen = true;
+    }
+
+    private void OpenDrill(string key)
+    {
+        if (stats is null) return;
+        var rows = stats.Rows;
+        var today = Today;
+        int? Age(WorkforceRow r) => WorkforceStats.YearsBetween(r.BirthDate, today);
+        string Years(int? n) => L($"{n} سنة", $"{n} ساڵ");
+        switch (key)
+        {
+            case "scope":
+                ShowDrill(key, L("موظفو النطاق الحالي", "فەرمانبەرانی چوارچێوەی ئێستا"), "table-cells", DimLabel(WorkforceDimension.Status),
+                    rows.OrderBy(r => r.Name).Select(r => Row(r, r.Status)));
+                break;
+            case "leave-today":
+                ShowDrill(key, L("في إجازة اليوم", "ئەمڕۆ لە مۆڵەتدان"), "calendar-days", L("الإجازة والعودة", "مۆڵەت و گەڕانەوە"),
+                    stats.OnLeaveToday.Select(l => Row(l.Employee, L($"{l.Type} · يعود {l.End.AddDays(1):yyyy/MM/dd}", $"{l.Type} · دەگەڕێتەوە {l.End.AddDays(1):yyyy/MM/dd}"), "hr-badge-accent")));
+                break;
+            case "retiring-12":
+                ShowDrill(key, L("يبلغون سن التقاعد خلال 12 شهراً", "لە ماوەی 12 مانگدا دەگەنە تەمەنی خانەنشینی"), "clock", L("تاريخ بلوغ السن", "ڕێکەوتی گەیشتن بە تەمەن"),
+                    rows.Where(r => WorkforceStats.IsRetiringWithinYear(r, today))
+                        .OrderBy(r => r.BirthDate).Select(r => Row(r, Date(WorkforceStats.RetirementDate(r)), "hr-badge-warn")));
+                break;
+            case "past-retirement":
+                ShowDrill(key, L($"تجاوزوا سن التقاعد ({WorkforceStats.RetirementAge}) ولا يزالون في الخدمة", $"تەمەنی خانەنشینییان ({WorkforceStats.RetirementAge}) تێپەڕاندووە و هێشتا لە خزمەتدان"),
+                    "exclamation-circle", L("تاريخ بلوغ السن", "ڕێکەوتی گەیشتن بە تەمەن"),
+                    rows.Where(r => WorkforceStats.IsPastRetirementAge(r, today))
+                        .OrderBy(r => r.BirthDate).Select(r => Row(r, Date(WorkforceStats.RetirementDate(r)), "hr-badge-danger")));
+                break;
+            case "age-58":
+                ShowDrill(key, L("في سن 58 فأكثر", "تەمەن 58 ساڵ و زیاتر"), "cake", L("العمر", "تەمەن"),
+                    rows.Where(r => Age(r) is >= 58 and <= 90).OrderByDescending(Age).Select(r => Row(r, Years(Age(r)), "hr-badge-warn")));
+                break;
+            case "new-hires":
+                ShowDrill(key, L("عُيّنوا خلال آخر سنتين", "لە دوو ساڵی ڕابردوودا دامەزراون"), "user-plus", L("تاريخ التعيين", "ڕێکەوتی دامەزراندن"),
+                    rows.Where(r => WorkforceStats.IsNewHire(r, today)).OrderByDescending(r => r.HireDate).Select(r => Row(r, Date(r.HireDate), "hr-badge-ok")));
+                break;
+            case "incomplete":
+                ShowDrill(key, L("سجلات بلا صورة أو بيانات اتصال", "تۆماری بێ وێنە یان زانیاری پەیوەندی"), "exclamation-circle", L("الناقص", "کەموکوڕی"),
+                    rows.Where(r => !r.HasPhoto || !r.HasContacts).Select(r => Row(r, Missing(r), "hr-badge-danger")));
+                break;
+            case "missing-photo":
+                ShowDrill(key, L("بلا صورة شخصية", "بێ وێنەی کەسی"), "camera", L("الحالة", "دۆخ"),
+                    rows.Where(r => !r.HasPhoto).Select(r => Row(r, L("بلا صورة", "بێ وێنە"), "hr-badge-danger")));
+                break;
+            case "missing-contacts":
+                ShowDrill(key, L("بيانات اتصال ناقصة", "زانیاری پەیوەندی ناتەواو"), "phone", L("الناقص", "کەموکوڕی"),
+                    rows.Where(r => !r.HasContacts).Select(r => Row(r, Missing(r), "hr-badge-danger")));
+                break;
+            case "missing-account":
+                ShowDrill(key, L("بلا حساب في المنظومة", "بێ هەژمار لە سیستەمدا"), "key", L("الحالة", "دۆخ"),
+                    rows.Where(r => !r.HasAccount).Select(r => Row(r, L("بلا حساب", "بێ هەژمار"), "hr-badge-warn")));
+                break;
+            case "postgrad":
+                ShowDrill(key, L("حملة الشهادات العليا", "خاوەن بڕوانامەی باڵا"), "academic-cap", L("الشهادة", "بڕوانامە"),
+                    rows.Where(r => WorkforceStats.IsPostgraduate(r.Education)).Select(r => Row(r, r.Education, "hr-badge-accent")));
+                break;
+            case "supervisory":
+                ShowDrill(key, L("شاغلو المناصب", "خاوەن پۆستەکان"), "briefcase", DimLabel(WorkforceDimension.Position),
+                    rows.Where(r => r.Position is not null).Select(r => Row(r, r.Position!, "hr-badge-accent")));
+                break;
+            case "honored":
+                ShowDrill(key, L("المكرّمون بكتب شكر", "ڕێزلێنراوان بە نامەی سوپاس"), "gift", L("عدد الكتب", "ژمارەی نامەکان"),
+                    rows.Where(r => r.Letters > 0).OrderByDescending(r => r.Letters).Select(r => Row(r, L($"{r.Letters:N0} كتاب", $"{r.Letters:N0} نامە"), "hr-badge-ok")));
+                break;
+            case "trained":
+                ShowDrill(key, L("موظفون تدرّبوا", "فەرمانبەرانی ڕاهێنراو"), "academic-cap", L("عدد الدورات", "ژمارەی خولەکان"),
+                    rows.Where(r => r.Courses > 0).OrderByDescending(r => r.Courses).Select(r => Row(r, L($"{r.Courses:N0} دورة", $"{r.Courses:N0} خول"), "hr-badge-accent")));
+                break;
+            case "penalized":
+                ShowDrill(key, L("موظفون عليهم عقوبات", "فەرمانبەرانی سزادراو"), "shield-exclamation", L("عدد العقوبات", "ژمارەی سزاکان"),
+                    rows.Where(r => r.Penalties > 0).OrderByDescending(r => r.Penalties).Select(r => Row(r, L($"{r.Penalties:N0} عقوبة", $"{r.Penalties:N0} سزا"), "hr-badge-danger")));
+                break;
+            case "martyr":
+                ShowDrill(key, L("ذوو الشهداء", "کەسوکاری شەهیدان"), "shield-check", L("السجل", "تۆمار"),
+                    rows.Where(r => r.HasMartyr).Select(r => Row(r, L("مسجل", "تۆمارکراوە"))));
+                break;
+            case "vehicles":
+                ShowDrill(key, L("لديهم مركبات مسجلة", "خاوەن ئۆتۆمبێلی تۆمارکراو"), "truck", L("المركبات", "ئۆتۆمبێلەکان"),
+                    rows.Where(r => r.Vehicles > 0).Select(r => Row(r, L($"{r.Vehicles:N0} (مخولة {r.AuthorizedVehicles:N0})", $"{r.Vehicles:N0} (ڕێگەپێدراو {r.AuthorizedVehicles:N0})"))));
+                break;
+        }
+    }
+
+    private string Missing(WorkforceRow r) => string.Join("، ", new[]
+    {
+        r.HasPhoto ? null : L("الصورة", "وێنە"), r.HasPhone ? null : L("الهاتف", "تەلەفۆن"), r.HasEmail ? null : L("البريد", "ئیمەیڵ")
+    }.Where(x => x is not null));
+
+    private void OpenMissing(string meter)
+    {
+        if (stats is null) return;
+        Func<WorkforceRow, bool> has = meter switch
+        {
+            "photo" => r => r.HasPhoto,
+            "phone" => r => r.HasPhone,
+            "email" => r => r.HasEmail,
+            "account" => r => r.HasAccount,
+            "card" => r => r.HasNationalCard,
+            "passport" => r => r.HasPassport,
+            "residence" => r => r.Governorate is not null,
+            _ => _ => true
+        };
+        var label = MeterLabel(stats.Records.First(m => m.Key == meter));
+        ShowDrill($"missing-{meter}", L($"بلا {label}", $"بێ {label}"), "exclamation-circle", L("الناقص", "کەموکوڕی"),
+            stats.Rows.Where(r => !has(r)).Select(r => Row(r, label, "hr-badge-danger")));
+    }
+
+    private void OpenRetirementYear(int year)
+    {
+        if (stats is null) return;
+        var first = year == Today.Year;
+        var title = first
+            ? L($"يبلغون سن التقاعد في {year} أو تجاوزوه", $"لە {year} دەگەنە تەمەنی خانەنشینی یان تێیان پەڕاندووە")
+            : L($"يبلغون سن التقاعد في {year}", $"لە {year} دەگەنە تەمەنی خانەنشینی");
+        ShowDrill($"retire-{year}", title, "clock", L("تاريخ بلوغ السن", "ڕێکەوتی گەیشتن بە تەمەن"),
+            stats.Rows.Where(r => r.BirthDate is { } b && (first ? b.AddYears(WorkforceStats.RetirementAge).Year <= year : b.AddYears(WorkforceStats.RetirementAge).Year == year))
+                .OrderBy(r => r.BirthDate)
+                .Select(r => Row(r, Date(r.BirthDate!.Value.AddYears(WorkforceStats.RetirementAge)), r.Position is null ? "hr-badge-warn" : "hr-badge-danger")));
+    }
+
+    private void OpenGradeStage((string Grade, int Stage) cell)
+    {
+        if (stats is null) return;
+        var grade = VizHeatmap.GradeLabel(cell.Grade, Ku);
+        ShowDrill($"grade-{cell.Grade}-{cell.Stage}", L($"{grade}، المرحلة {cell.Stage}", $"{grade}، قۆناغی {cell.Stage}"), "chart-bar", DimLabel(WorkforceDimension.JobTitle),
+            stats.Rows.Where(r => WorkforceStats.NormalizeGradeCode(r.GradeCode, r.Grade) == cell.Grade
+                                  && WorkforceStats.NormalizeStageNumber(r.StageNumber, r.StageCode, r.Stage) == cell.Stage)
+                .Select(r => Row(r, r.Position ?? r.Status)));
+    }
+
+    private void CloseReportModal()
+    {
+        isReportModalOpen = false;
+        currentModalRows = [];
+        modalSearchTerm = string.Empty;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (revealReportResults && isReportModalOpen)
+        {
+            revealReportResults = false;
+            // Moving focus is a courtesy; a dropped connection or a closed modal must not throw.
+            try { await JSRuntime.InvokeVoidAsync("hrDashboard.reveal", reportResultsHeading); }
+            catch (Exception ex) when (ex is JSException or JSDisconnectedException or TaskCanceledException or InvalidOperationException) { }
+        }
+    }
+
+    private async Task ExportModalReportCsv()
+    {
+        if (isExporting || FilteredModalEmployees.Count == 0) return;
+        isExporting = true;
+        exportFeedback = L("جارٍ تجهيز جميع نتائج البحث للتنزيل…", "هەموو ئەنجامەکانی گەڕان بۆ داگرتن ئامادە دەکرێن…");
+        exportFailed = false;
+        try
+        {
+            var rows = FilteredModalEmployees.ToList();
+            var sb = new System.Text.StringBuilder();
+            sb.Append('﻿');
+            sb.AppendLine($"{L("التقرير", "ڕاپۆرت")},{EscapeCsv(activeReportTitle)}");
+            sb.AppendLine($"{L("النطاق", "چوارچێوە")},{EscapeCsv(loadedScopeDescription)}");
+            sb.AppendLine($"{L("آخر تحديث", "دوایین نوێکردنەوە")},{lastRefreshedAt:yyyy/MM/dd HH:mm}");
+            sb.AppendLine($"{L("البحث داخل التقرير", "گەڕان لەناو ڕاپۆرتدا")},{EscapeCsv(string.IsNullOrWhiteSpace(modalSearchTerm) ? L("جميع النتائج", "هەموو ئەنجامەکان") : modalSearchTerm)}");
+            sb.AppendLine($"{L("عدد النتائج", "ژمارەی ئەنجامەکان")},{rows.Count}");
+            sb.AppendLine($"{L("الرقم الوظيفي,الاسم,التشكيل الإداري,العنوان الوظيفي", "ژمارەی وەزیفی,ناو,پێکهاتەی کارگێڕی,ناونیشانی وەزیفی")},{EscapeCsv(activeReportDetailHeader)}");
+            foreach (var row in rows)
+                sb.AppendLine($"{EscapeCsv(row.EmployeeId)},{EscapeCsv(row.Name)},{EscapeCsv(row.Formation)},{EscapeCsv(row.JobTitle)},{EscapeCsv(row.DetailValue)}");
+            var base64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
+            await JSRuntime.InvokeVoidAsync("hrDashboard.downloadCsv", base64, $"HR_Report_{activeReportKey}_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+            exportFeedback = L($"أُرسل ملف يضم {rows.Count:N0} نتيجة إلى المتصفح. إن لم يظهر، تحقّق من قائمة التنزيلات.",
+                $"فایلێک بە {rows.Count:N0} ئەنجامەوە نێردرا بۆ وێبگەڕ. ئەگەر دەرنەکەوت، لیستی داگرتنەکان بپشکنە.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export report CSV.");
+            exportFailed = true;
+            exportFeedback = L("تعذّر تنزيل التقرير. أعد المحاولة من زر التصدير. بقي البحث وموضعك في التقرير محفوظين.",
+                "داگرتنی ڕاپۆرت سەرنەکەوت. لە دوگمەی هەناردەوە دووبارە هەوڵبدەرەوە. گەڕان و شوێنەکەت لە ڕاپۆرتدا پارێزراون.");
+        }
+        finally { isExporting = false; }
+    }
+
+    // Quoted, with inner quotes doubled; a value that a spreadsheet would read as a formula
+    // (=, +, -, @, tab, carriage return) is led with an apostrophe so it opens as text.
+    internal static string EscapeCsv(string val)
+    {
+        if (string.IsNullOrEmpty(val)) return "\"\"";
+        if (val[0] is '=' or '+' or '-' or '@' or '\t' or '\r') val = "'" + val;
+        return $"\"{val.Replace("\"", "\"\"")}\"";
+    }
+}

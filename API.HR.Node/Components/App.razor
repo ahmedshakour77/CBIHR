@@ -1,0 +1,97 @@
+@using System.Linq
+@using Microsoft.AspNetCore.Http
+@inject IHttpContextAccessor HttpContextAccessor
+@{
+    var http = HttpContextAccessor.HttpContext;
+    var cookies = http?.Request.Cookies;
+    // Every value is validated against the same allow-list hr-prefs.js uses.
+    // An unknown cookie must fall back, not reach the markup: [data-theme="system"]
+    // matches no rule, so the page would paint in default light and then jump.
+    static string Pick(string? value, string fallback, params string[] allowed)
+        => value is not null && allowed.Contains(value) ? value : fallback;
+
+    var navMode = Pick(cookies?["hr-nav-mode"], "side", "side", "top", "floating");
+    var font = Pick(cookies?["hr-font"], "plex", "plex", "cairo", "tajawal", "noto", "alexandria");
+    var fontSize = Pick(cookies?["hr-font-size"], "md", "sm", "md", "lg", "xl");
+    var density = Pick(cookies?["hr-density"], "comfortable", "compact", "comfortable", "spacious");
+    var brand = Pick(cookies?["hr-brand"], "purple", "purple", "indigo", "blue", "teal", "green",
+                     "olive", "gold", "copper", "crimson", "rose", "slate");
+
+    // "system" is the default and cannot be resolved on the server. Leaving
+    // data-theme off lets the prefers-color-scheme block in hr-tokens.css paint
+    // the correct theme immediately; hr-prefs.js then pins the attribute.
+    var mode = Pick(cookies?["hr-theme"], "system", "light", "dark", "system");
+
+    // Declare the real language before first paint (WCAG 3.1.1). Sorani
+    // Kurdish is "ckb" to assistive tech; "ku" would mean Kurmanji. Both
+    // supported languages are right-to-left.
+    var lang = Pick(cookies?["hr-lang"], "ar", "ar", "ku");
+    var htmlLang = lang == "ku" ? "ckb" : "ar";
+    var theme = mode == "system" ? null : mode;
+}
+<!DOCTYPE html>
+<html lang="@htmlLang" dir="rtl" class="h-full"
+      data-lang="@lang"
+      data-nav-mode="@navMode"
+      data-theme="@theme"
+      data-brand="@(brand == "purple" ? null : brand)"
+      data-font="@font"
+      data-font-size="@fontSize"
+      data-density="@density">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    @* A placeholder only. hr-prefs.js rewrites this from the computed --accent
+       and --ground, so the browser chrome follows the chosen brand instead of
+       staying purple in all eleven palettes. *@
+    <meta name="theme-color" content="@(theme == "dark" ? "#160921" : "#3B1E54")" />
+    <base href="/" />
+
+    <!-- Design System: hr-prefs.js applies theme/font/brand before first paint -->
+    <script src="@Assets["js/hr-prefs.js"]"></script>
+
+    @* Typography. hr-prefs.js injects the one Arabic family the employee
+       actually chose, plus Inter for tabular figures — so only the default
+       family is requested here, and the other four never ship. *@
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    @* Cascade order is load-bearing. Tokens first; app.css for the Blazor
+       and form-validation defaults; hr-components.css for the personalization
+       layer and the hr-*__* components; hr-ui.css last, because it owns the
+       hr-* classes the application is actually built from — when it loaded
+       before hr-components.css, that file's own .hr-btn / .hr-card / .hr-input
+       base rules outranked it and, among other things, rendered every
+       .hr-btn-sm at full size. *@
+    <link rel="stylesheet" href="@Assets["css/hr-tokens.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["css/leaflet.css"]" />
+    <link rel="stylesheet" href="@Assets["css/hr-components.css"]" />
+    <link rel="stylesheet" href="@Assets["hr-ui.css"]" />
+    <link rel="stylesheet" href="@Assets["API.HR.Node.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+
+<body class="hr-root">
+    <Routes />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    @* Fingerprinted, so browsers cache them for good and still pick up every deploy.
+       leaflet.js, hr-residence-map.js, hr-orgchart.js, apexcharts.min.js and
+       hr-formation-charts.js are not here: the pages
+       that use them load them on demand through hrLoadScript (hr-prefs.js). *@
+    <script src="@Assets["js/lang.js"]"></script>
+    <script src="@Assets["js/cmd-palette.js"]"></script>
+    <script src="@Assets["js/passkey-helper.js"]"></script>
+    <script src="@Assets["js/hr-dialogs.js"]"></script>
+    <script src="@Assets["js/home-dashboard.js"]"></script>
+    <script src="@Assets["js/portal-pdf.js"]"></script>
+    <script src="lib/tesseract/tesseract.min.js"></script>
+    <script src="@Assets["js/passport-ocr.js"]"></script>
+    <script src="@Assets["js/passkey-submit.js"]" type="module"></script>
+</body>
+
+</html>

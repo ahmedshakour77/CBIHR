@@ -1,0 +1,1413 @@
+@page "/admin/birthdays"
+@page "/birthdays"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+@using System.Globalization
+@using Microsoft.EntityFrameworkCore
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Common
+@using API.HR.Node.Services.ProfilePhotos
+@using API.HR.Node.Components.Layout
+
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JSRuntime
+@inject IUserAvatarService AvatarService
+@inject API.HR.Node.Services.DesignSystem.IToastService Toast
+
+<PageTitle>تقويم أعياد الميلاد والتصنيف الديمغرافي | إدارة النظام</PageTitle>
+
+<div class="hr-stack">
+    <!-- Breadcrumbs & Pagehead -->
+    <header class="hr-pagehead hr-no-print">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>الرئيسية</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">أعياد الميلاد والمناسبات</span>
+            </nav>
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-block-start:var(--s-2);flex-wrap:wrap;">
+                <h1 class="hr-h1">تقويم أعياد الميلاد والتحليل الديمغرافي</h1>
+                <span class="hr-badge hr-badge-accent" style="font-size:var(--fs-caption);gap:0.25rem;">
+                    <Icon Name="lock-closed" Size="xs" />
+                    <span>صلاحيات الإدارة (Admin)</span>
+                </span>
+            </div>
+            <p class="hr-sub hr-measure" style="margin-block-start:var(--s-1)">
+                استعراض تحليلي وإداري لتواريخ ميلاد كوادر المؤسسة، مع التصنيف الفلكي والجيلي، ورصد حالات التزامن في أيام وسنوات التولد.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="PrintPage" title="طباعة كشف أعياد الميلاد الرسمي">
+                <Icon Name="printer" Size="xs" />
+                <span>طباعة الكشف</span>
+            </button>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ReloadDataAsync" disabled="@isLoading">
+                <Icon Name="arrow-path" Size="xs" />
+                <span>تحديث</span>
+            </button>
+        </div>
+    </header>
+
+    @if (isLoading)
+    {
+        <div class="hr-stack" aria-hidden="true">
+            <div class="hr-skeleton" style="height:6rem;border-radius:var(--r-lg)"></div>
+            <div class="hr-grid-kpi">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="hr-skeleton" style="height:7rem;border-radius:var(--r-lg)"></div>
+                }
+            </div>
+            <div class="hr-skeleton" style="height:20rem;border-radius:var(--r-lg)"></div>
+        </div>
+        <p class="hr-sr" aria-live="polite">جارٍ تحليل وتجهيز سجلات أعياد الميلاد والصور…</p>
+    }
+    else
+    {
+        @* --- 1. CELEBRATION BANNER FOR TODAY'S BIRTHDAYS --- *@
+        @if (todayBirthdays.Count > 0)
+        {
+            <div class="hr-card" style="padding:var(--s-4) var(--s-5);background:radial-gradient(ellipse at top right, color-mix(in srgb, var(--series-4) 14%, var(--surface)), var(--surface));border:1px solid var(--series-4);border-radius:var(--r-lg);box-shadow:var(--shadow-md);">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);">
+                    <div style="display:flex;align-items:center;gap:var(--s-3);">
+                        <span class="hr-iconplate" style="background:var(--warn-tint);color:var(--warn);width:3rem;height:3rem;border-radius:var(--r-full);font-size:1.4rem;" aria-hidden="true">
+                            🎂
+                        </span>
+                        <div>
+                            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                <strong style="font-size:1.15rem;color:var(--text);font-weight:800;">
+                                    يصادف اليوم ذكرى ميلاد @todayBirthdays.Count من كوادرنا
+                                </strong>
+                                <span class="hr-badge hr-badge-ok">@today.ToString("dd MMMM", ArabicCulture)</span>
+                            </div>
+                            <p class="hr-meta" style="margin-block-start:0.25rem;">
+                                تتقدم إدارة المنظومة بأسمى آيات التهاني والتبريكات، متمنين لهم دوام التوفيق والتميز المهني والصحي.
+                            </p>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                        @foreach (var emp in todayBirthdays)
+                        {
+                            <div style="display:flex;align-items:center;gap:0.5rem;background:var(--surface);padding:4px 10px 4px 6px;border-radius:var(--r-full);border:1px solid var(--series-4);box-shadow:var(--shadow-sm);">
+                                <div style="width:2rem;height:2rem;border-radius:50%;overflow:hidden;position:relative;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:var(--fs-caption);color: var(--accent-text);">
+                                    @if (!string.IsNullOrEmpty(emp.PhotoUrl))
+                                    {
+                                        <img src="@emp.PhotoUrl" alt="@emp.Name" style="width:100%;height:100%;object-fit:cover;" />
+                                    }
+                                    else
+                                    {
+                                        <span>@AvatarInitials.FromName(emp.Name)</span>
+                                    }
+                                </div>
+                                <span style="font-weight:700;font-size:var(--fs-control);color:var(--text);">@emp.Name</span>
+                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="padding:2px 6px;" @onclick="() => OpenGreetingModal(emp)" title="نسخ رسالة التهنئة">
+                                    <Icon Name="gift" Size="xs" />
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* --- 2. KPI METRIC CARDS --- *@
+        <div class="hr-grid-kpi">
+            @* 1. Today's Birthdays *@
+            <div class="hr-card hr-stat @(todayBirthdays.Count > 0 ? "hr-stat-ok" : "hr-stat-a")">
+                <div class="hr-stat-label">
+                    <span>مواليد اليوم</span>
+                    <span class="hr-iconplate @(todayBirthdays.Count > 0 ? "hr-iconplate-ok" : "hr-plate-a")" aria-hidden="true">
+                        <Icon Name="sparkles" Size="sm" />
+                    </span>
+                </div>
+                <strong class="hr-stat-figure">
+                    @todayBirthdays.Count <span class="hr-stat-unit">موظف</span>
+                </strong>
+                <p class="hr-stat-foot">
+                    اليوم: <span class="hr-num">@today.ToString("yyyy/MM/dd")</span>
+                </p>
+            </div>
+
+            @* 2. This Month *@
+            <div class="hr-card hr-stat hr-stat-b">
+                <div class="hr-stat-label">
+                    <span>مواليد هذا الشهر</span>
+                    <span class="hr-iconplate hr-plate-b" aria-hidden="true">
+                        <Icon Name="calendar-days" Size="sm" />
+                    </span>
+                </div>
+                <strong class="hr-stat-figure">
+                    @thisMonthBirthdays.Count <span class="hr-stat-unit">موظف</span>
+                </strong>
+                <p class="hr-stat-foot">
+                    شهر: <strong>@ZodiacAndGenerationHelper.FormatMonthArabic(today.Month)</strong>
+                </p>
+            </div>
+
+            @* 3. Most Common Zodiac Sign *@
+            <div class="hr-card hr-stat hr-stat-c">
+                <div class="hr-stat-label">
+                    <span>البرج الأكثر شيوعاً</span>
+                    <span class="hr-iconplate hr-plate-c" aria-hidden="true">
+                        <Icon Name="sun" Size="sm" />
+                    </span>
+                </div>
+                <strong class="hr-stat-figure hr-stat-figure-text">
+                    @(topZodiac?.NameAr ?? "—") <span style="font-size:1.1rem;color: var(--accent-text);">@(topZodiac?.Symbol)</span>
+                </strong>
+                <p class="hr-stat-foot">
+                    @topZodiacCount موظفاً ينتمون لبرج @(topZodiac?.NameAr)
+                </p>
+            </div>
+
+            @* 4. Dominant Generation *@
+            <div class="hr-card hr-stat hr-stat-d">
+                <div class="hr-stat-label">
+                    <span>الجيل السائد</span>
+                    <span class="hr-iconplate hr-plate-d" aria-hidden="true">
+                        <Icon Name="users" Size="sm" />
+                    </span>
+                </div>
+                <strong class="hr-stat-figure hr-stat-figure-text" style="font-size:1.15rem;">
+                    @(topGeneration?.NameAr ?? "—")
+                </strong>
+                <p class="hr-stat-foot">
+                    يمثلون نسبة <span class="hr-num">@topGenPercentage%</span> من كوادر المؤسسة
+                </p>
+            </div>
+        </div>
+
+        @* --- 3. FILTER & TOOLBAR SECTION --- *@
+        <div class="hr-card hr-no-print" style="padding:var(--s-3) var(--s-4);">
+            <div style="display:flex;flex-direction:column;gap:var(--s-3);">
+                @* Top Row: View Mode Tabs & Quick Range Filter *@
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);">
+                    @* Primary View Modes *@
+                    <div class="hr-chips" role="tablist">
+                        <button type="button"
+                                class="hr-chip @(viewMode == BirthdayViewMode.Upcoming ? "is-selected" : "")"
+                                @onclick="() => viewMode = BirthdayViewMode.Upcoming">
+                            <Icon Name="clock" Size="xs" />
+                            <span>الترتيب الزمني (الأقرب قادماً)</span>
+                        </button>
+
+                        <button type="button"
+                                class="hr-chip @(viewMode == BirthdayViewMode.ByMonth ? "is-selected" : "")"
+                                @onclick="() => viewMode = BirthdayViewMode.ByMonth">
+                            <Icon Name="calendar-days" Size="xs" />
+                            <span>التقويم السنوي (12 شهراً)</span>
+                        </button>
+
+                        <button type="button"
+                                class="hr-chip @(viewMode == BirthdayViewMode.ByYearAndGen ? "is-selected" : "")"
+                                @onclick="() => viewMode = BirthdayViewMode.ByYearAndGen">
+                            <Icon Name="academic-cap" Size="xs" />
+                            <span>التحليل الديمغرافي والجيلي</span>
+                        </button>
+
+                        <button type="button"
+                                class="hr-chip @(viewMode == BirthdayViewMode.Cohorts ? "is-selected" : "")"
+                                @onclick="() => viewMode = BirthdayViewMode.Cohorts">
+                            <Icon Name="squares-2x2" Size="xs" />
+                            <span>المطابقات والتزامن الوظيفي</span>
+                        </button>
+                    </div>
+
+                    @* Quick Timeframe Filter Pills *@
+                    <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;">
+                        <button type="button"
+                                class="hr-btn @(quickRange == "all" ? "hr-btn-primary" : "hr-btn-quiet") hr-btn-xs"
+                                @onclick='() => SetQuickRange("all")'>
+                            كافة المواعيد
+                        </button>
+                        <button type="button"
+                                class="hr-btn @(quickRange == "today" ? "hr-btn-primary" : "hr-btn-quiet") hr-btn-xs"
+                                @onclick='() => SetQuickRange("today")'>
+                            اليوم (@todayBirthdays.Count)
+                        </button>
+                        <button type="button"
+                                class="hr-btn @(quickRange == "week" ? "hr-btn-primary" : "hr-btn-quiet") hr-btn-xs"
+                                @onclick='() => SetQuickRange("week")'>
+                            خلال 7 أيام (@countNext7Days)
+                        </button>
+                        <button type="button"
+                                class="hr-btn @(quickRange == "month30" ? "hr-btn-primary" : "hr-btn-quiet") hr-btn-xs"
+                                @onclick='() => SetQuickRange("month30")'>
+                            خلال 30 يوماً (@countNext30Days)
+                        </button>
+                        <button type="button"
+                                class="hr-btn @(quickRange == "current_month" ? "hr-btn-primary" : "hr-btn-quiet") hr-btn-xs"
+                                @onclick='() => SetQuickRange("current_month")'>
+                            هذا الشهر (@thisMonthBirthdays.Count)
+                        </button>
+                    </div>
+                </div>
+
+                @* Bottom Row: Instant Search & Granular Dropdown Filters *@
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);padding-block-start:var(--s-2);border-block-start:1px dashed var(--line);">
+                    <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;flex:1;">
+                        @* Search Input *@
+                        <div style="position:relative;min-width:min(220px, 100%);flex:1;max-width:320px;">
+                            <input aria-label="البحث في أعياد الميلاد" type="search"
+                                   class="hr-input hr-input-sm"
+                                   placeholder="بحث باسم أو رقم الموظف أو العنوان الوظيفي…"
+                                   @bind="searchQuery"
+                                   @bind:event="oninput" />
+                        </div>
+
+                        @* Month Filter *@
+                        <select aria-label="تصفية حسب الشهر" class="hr-input hr-input-sm" style="width:auto;min-width:130px;" @bind="filterMonth">
+                            <option value="0">كافة الأشهر</option>
+                            @for (var m = 1; m <= 12; m++)
+                            {
+                                <option value="@m">@ZodiacAndGenerationHelper.FormatMonthArabic(m)</option>
+                            }
+                        </select>
+
+                        @* Zodiac Filter *@
+                        <select aria-label="تصفية حسب البرج" class="hr-input hr-input-sm" style="width:auto;min-width:140px;" @bind="filterZodiac">
+                            <option value="">كافة الأبراج</option>
+                            @foreach (var z in allZodiacNames)
+                            {
+                                <option value="@z.NameAr">@z.Symbol @z.NameAr (@z.Element)</option>
+                            }
+                        </select>
+
+                        @* Generation Filter *@
+                        <select aria-label="تصفية حسب الجيل" class="hr-input hr-input-sm" style="width:auto;min-width:140px;" @bind="filterGeneration">
+                            <option value="">كافة الأجيال</option>
+                            @foreach (var gen in allGenerationsList)
+                            {
+                                <option value="@gen.NameAr">@gen.NameAr (@gen.YearsRange)</option>
+                            }
+                        </select>
+
+                        @* Formation / Department Filter *@
+                        @if (distinctFormations.Count > 1)
+                        {
+                            <select aria-label="تصفية حسب التشكيل" class="hr-input hr-input-sm" style="width:auto;min-width:140px;" @bind="filterFormation">
+                                <option value="">كافة التشكيلات</option>
+                                @foreach (var f in distinctFormations)
+                                {
+                                    <option value="@f">@f</option>
+                                }
+                            </select>
+                        }
+
+                        @* Sort Order *@
+                        <select aria-label="ترتيب القائمة" class="hr-input hr-input-sm" style="width:auto;min-width:160px;" @bind="sortOrder">
+                            <option value="upcoming">الأقرب قادماً (زمنياً)</option>
+                            <option value="calendar">حسب يوم وشهر الميلاد</option>
+                            <option value="age_desc">الأكبر سناً أولاً</option>
+                            <option value="age_asc">الأصغر سناً أولاً</option>
+                            <option value="name_asc">أبجدياً (اسم الموظف)</option>
+                        </select>
+                    </div>
+
+                    @* Result Count & Reset Button *@
+                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                        <span class="hr-meta" style="font-size:var(--fs-label);white-space:nowrap;">
+                            عرض <strong>@GetFilteredEmployees().Count</strong> من أصل <strong>@allEmployeesWithBirthdays.Count</strong>
+                        </span>
+
+                        @if (HasActiveFilters)
+                        {
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="ResetFilters">
+                                <Icon Name="x-mark" Size="xs" />
+                                <span>إعادة تعيين</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* --- 4. VIEW MODE CONTENT --- *@
+
+        @* ==================== VIEW 1: UPCOMING TIMELINE ==================== *@
+        @if (viewMode == BirthdayViewMode.Upcoming)
+        {
+            var filteredUpcoming = GetFilteredEmployees();
+
+            <div class="hr-stack">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                    <h2 class="hr-h3" style="display:flex;align-items:center;gap:0.5rem;">
+                        <Icon Name="clock" Size="sm" />
+                        <span>جدول أعياد الميلاد المرتب زمنياً</span>
+                        <span class="hr-badge hr-badge-accent">@filteredUpcoming.Count موظفاً</span>
+                    </h2>
+                    <span class="hr-meta">مرتبة بحسب الأيام المتبقية حتى حلول المناسبة</span>
+                </div>
+
+                @if (filteredUpcoming.Count == 0)
+                {
+                    <div class="hr-card hr-empty" style="padding:var(--s-8);">
+                        <span class="hr-empty-art" aria-hidden="true"><Icon Name="cake" Size="lg" /></span>
+                        <p class="hr-h3">لم يتم العثور على سجلات مطابقة للبحث أو الفلترة</p>
+                        <p class="hr-sub">يرجى تعديل معايير التصفية أو الضغط على إعادة تعيين الفلاتر.</p>
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" style="margin-block-start:var(--s-3);" @onclick="ResetFilters">
+                            إعادة تعيين الفلاتر
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(min(330px, 100%), 1fr));gap:var(--s-4);">
+                        @foreach (var item in filteredUpcoming)
+                        {
+                            var isToday = item.DaysUntilNext == 0;
+                            var isThisWeek = item.DaysUntilNext > 0 && item.DaysUntilNext <= 7;
+
+                            <div class="hr-card" style="padding:var(--s-4);border-radius:var(--r-lg);display:flex;flex-direction:column;justify-content:space-between;border:1.5px solid @(isToday ? "var(--series-4)" : isThisWeek ? "var(--accent)" : "var(--line)");background:@(isToday ? "radial-gradient(ellipse at top right, color-mix(in srgb, var(--series-4) 10%, var(--surface)), var(--surface))" : "var(--surface)");box-shadow:@(isToday ? "var(--shadow-md)" : "var(--shadow-sm)");transition:transform 0.15s ease, box-shadow 0.15s ease;">
+                                <div>
+                                    @* Card Header with Elegant Photo Presentation *@
+                                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s-2);margin-block-end:var(--s-3);flex-wrap:wrap;">
+                                        <div style="display:flex;align-items:center;gap:var(--s-3);">
+                                            @* Photo Container with Festive Badge *@
+                                            <div style="position:relative;width:3.25rem;height:3.25rem;flex-shrink:0;">
+                                                <div style="width:100%;height:100%;border-radius:50%;overflow:hidden;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;border:2px solid @(isToday ? "var(--series-4)" : isThisWeek ? "var(--accent)" : "var(--line)");box-shadow:@(isToday ? "0 0 0 2px color-mix(in srgb, var(--series-4) 40%, transparent)" : "none");">
+                                                    @if (!string.IsNullOrEmpty(item.PhotoUrl))
+                                                    {
+                                                        <img src="@item.PhotoUrl" alt="@item.Name" loading="lazy" style="width:100%;height:100%;object-fit:cover;" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <div style="font-weight:800;font-size:0.95rem;color: var(--accent-text);">
+                                                            @AvatarInitials.FromName(item.Name)
+                                                        </div>
+                                                    }
+                                                </div>
+                                                @if (isToday)
+                                                {
+                                                    <span style="position:absolute;bottom:-2px;inset-inline-end:-2px;background:var(--series-4);color:var(--series-on);border-radius:50%;width:1.25rem;height:1.25rem;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-sm);font-size:var(--fs-caption);" title="عيد ميلاد اليوم">
+                                                        🎂
+                                                    </span>
+                                                }
+                                                else if (isThisWeek)
+                                                {
+                                                    <span style="position:absolute;bottom:-2px;inset-inline-end:-2px;background:var(--accent);color:var(--text-on-accent);border-radius:50%;width:1.2rem;height:1.2rem;display:flex;align-items:center;justify-content:center;font-size:var(--fs-caption);" title="خلال هذا الأسبوع">
+                                                        ✨
+                                                    </span>
+                                                }
+                                            </div>
+
+                                            <div>
+                                                <a href="employee-profile/@item.EmployeeID" class="hr-link" style="font-weight:800;font-size:1.02rem;color:var(--text);display:block;line-height:1.3;">
+                                                    @item.Name
+                                                </a>
+                                                <span class="hr-meta" style="font-size:var(--fs-caption);">
+                                                    <span class="hr-num">@item.EmployeeID</span> · @(item.JobTitle ?? "موظف")
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        @* Countdown Badge *@
+                                        @if (isToday)
+                                        {
+                                            <span class="hr-badge hr-badge-warn" style="font-weight:700;">
+                                                اليوم! 🎂
+                                            </span>
+                                        }
+                                        else if (isThisWeek)
+                                        {
+                                            <span class="hr-badge hr-badge-warn" style="font-weight:700;">
+                                                بعد @item.DaysUntilNext @(item.DaysUntilNext == 2 ? "يومين" : "أيام")
+                                            </span>
+                                        }
+                                        else if (item.DaysUntilNext <= 30)
+                                        {
+                                            <span class="hr-badge hr-badge-accent">
+                                                بعد @item.DaysUntilNext يوماً
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-badge">
+                                                بعد @item.DaysUntilNext يوماً
+                                            </span>
+                                        }
+                                    </div>
+
+                                    @* Birthday Date & Age *@
+                                    <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--s-2) var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);margin-block-end:var(--s-3);flex-wrap:wrap;gap:var(--s-2);">
+                                        <div style="display:flex;align-items:center;gap:0.35rem;">
+                                            <Icon Name="calendar-days" Size="xs" />
+                                            <strong class="hr-num" style="font-size:var(--fs-control);">@item.BirthDate?.ToString("yyyy/MM/dd")</strong>
+                                            <span class="hr-meta" style="font-size:var(--fs-caption);">(@item.BirthDate?.ToString("dd MMMM", ArabicCulture))</span>
+                                        </div>
+                                        <div class="hr-badge" style="font-size:var(--fs-caption);background:var(--surface);font-weight:700;">
+                                            العمر: <strong class="hr-num" style="margin-inline-start:3px;">@item.Age سنة</strong>
+                                        </div>
+                                    </div>
+
+                                    @* Badges: Zodiac and Generation *@
+                                    <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-block-end:var(--s-2);">
+                                        @* Zodiac Badge *@
+                                        <span class="hr-badge" style="border:1px solid @item.Zodiac.ElementColor;background:color-mix(in srgb, @item.Zodiac.ElementColor 10%, var(--surface));color:var(--text);font-size:var(--fs-caption);" title="@item.Zodiac.Trait - عنصر: @item.Zodiac.Element">
+                                            <span style="color:@item.Zodiac.ElementColor;font-weight:800;font-size:0.95rem;">@item.Zodiac.Symbol</span>
+                                            <span>برج @item.Zodiac.NameAr</span>
+                                            <span style="font-size:var(--fs-caption);color:var(--text-muted);">(@item.Zodiac.Element)</span>
+                                        </span>
+
+                                        @* Generation Badge *@
+                                        <span class="hr-badge @item.Generation.TagClass" style="font-size:var(--fs-caption);" title="@item.Generation.Description (@item.Generation.YearsRange)">
+                                            @item.Generation.NameAr
+                                        </span>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(item.Formation))
+                                    {
+                                        <div class="hr-meta" style="font-size:var(--fs-caption);margin-block-start:0.25rem;">
+                                            <Icon Name="building-office-2" Size="xs" />
+                                            <span>@item.Formation</span>
+                                        </div>
+                                    }
+                                </div>
+
+                                @* Bottom Actions *@
+                                <div style="display:flex;align-items:center;justify-content:space-between;padding-block-start:var(--s-2);margin-block-start:var(--s-3);border-block-start:1px dashed var(--line);flex-wrap:wrap;gap:var(--s-2);">
+                                    <span class="hr-meta" style="font-size:var(--fs-caption);">
+                                        المناسبة القادمة: <span class="hr-num">@item.NextBirthdayDate.ToString("yyyy/MM/dd")</span>
+                                    </span>
+                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick="() => OpenGreetingModal(item)" title="نسخ رسالة التهنئة الإدارية">
+                                        <Icon Name="gift" Size="xs" />
+                                        <span>تهنئة</span>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @* ==================== VIEW 2: BY MONTH (12 شهراً) ==================== *@
+        @if (viewMode == BirthdayViewMode.ByMonth)
+        {
+            <div class="hr-stack">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                    <div>
+                        <h2 class="hr-h3">التقويم السنوي الموزع على أشهر السنة</h2>
+                        <p class="hr-meta">استعراض الكوادر وتفاصيل أعياد الميلاد والأبراج موزعة على كافة أشهر العام</p>
+                    </div>
+
+                    <div class="hr-chips" role="tablist">
+                        <button type="button" class="hr-chip @(selectedMonthView == 0 ? "is-selected" : "")" @onclick="() => selectedMonthView = 0">
+                            كافة الأشهر الـ 12
+                        </button>
+                        <button type="button" class="hr-chip @(selectedMonthView == today.Month ? "is-selected" : "")" @onclick="() => selectedMonthView = today.Month">
+                            الشهر الحالي (@ZodiacAndGenerationHelper.FormatMonthArabic(today.Month))
+                        </button>
+                    </div>
+                </div>
+
+                @* 12 Months Summary Cards *@
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(210px, 100%), 1fr));gap:var(--s-3);">
+                    @for (var m = 1; m <= 12; m++)
+                    {
+                        var monthNum = m;
+                        var count = allEmployeesWithBirthdays.Count(e => e.BirthDate?.Month == monthNum);
+                        var isCurrent = monthNum == today.Month;
+                        var isSelected = selectedMonthView == monthNum;
+
+                        <div class="hr-card"
+                             style="padding:var(--s-3);border-radius:var(--r-md);cursor:pointer;border:1.5px solid @(isSelected ? "var(--accent)" : isCurrent ? "var(--series-4)" : "var(--line)");background:@(isSelected ? "color-mix(in srgb, var(--accent) 8%, var(--surface))" : isCurrent ? "color-mix(in srgb, var(--series-4) 10%, var(--surface))" : "var(--surface)");"
+                             @onclick="() => selectedMonthView = (selectedMonthView == monthNum ? 0 : monthNum)">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                                <strong style="font-size:0.95rem;color:var(--text);">@ZodiacAndGenerationHelper.FormatMonthArabic(monthNum)</strong>
+                                <span class="hr-badge @(count > 0 ? "hr-badge-accent" : "")" style="font-weight:800;font-size:var(--fs-label);">
+                                    @count
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-block-start:var(--s-2);font-size:var(--fs-caption);flex-wrap:wrap;gap:var(--s-2);">
+                                <span class="hr-meta">الشهر @monthNum</span>
+                                @if (isCurrent)
+                                {
+                                    <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);">الشهر الحالي</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @* Months Detailed Tables *@
+                @for (var m = 1; m <= 12; m++)
+                {
+                    var monthNum = m;
+                    if (selectedMonthView != 0 && selectedMonthView != monthNum)
+                    {
+                        continue;
+                    }
+
+                    var monthEmployees = GetFilteredEmployees()
+                        .Where(e => e.BirthDate?.Month == monthNum)
+                        .OrderBy(e => e.BirthDate?.Day)
+                        .ToList();
+
+                    if (monthEmployees.Count > 0 || selectedMonthView == monthNum)
+                    {
+                        var isCurrent = monthNum == today.Month;
+
+                        <div class="hr-card" style="margin-block-start:var(--s-3);border-radius:var(--r-lg);">
+                            <div class="hr-card-head" style="display:flex;align-items:center;justify-content:space-between;padding:var(--s-3) var(--s-4);background:var(--surface-sunken);flex-wrap:wrap;gap:var(--s-2);">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span class="hr-iconplate @(isCurrent ? "hr-plate-ok" : "hr-plate-b")" style="width:2rem;height:2rem;" aria-hidden="true">
+                                        <Icon Name="calendar-days" Size="xs" />
+                                    </span>
+                                    <h3 class="hr-h3">
+                                        شهر @ZodiacAndGenerationHelper.FormatMonthArabic(monthNum)
+                                        <span class="hr-badge" style="margin-inline-start:0.5rem;">@monthEmployees.Count موظفاً</span>
+                                    </h3>
+                                </div>
+                                @if (isCurrent)
+                                {
+                                    <span class="hr-badge hr-badge-ok">الشهر الحالي</span>
+                                }
+                            </div>
+
+                            <div class="hr-card-body" style="padding:0;">
+                                @if (monthEmployees.Count == 0)
+                                {
+                                    <p class="hr-sub" style="padding:var(--s-4);text-align:center;">لا توجد سجلات أعياد ميلاد مسجلة في هذا الشهر مطابقة لمعايير البحث.</p>
+                                }
+                                else
+                                {
+                                    <div class="hr-tablewrap">
+                                        <table class="hr-table">
+                                            <thead>
+                                                <tr>
+                                                    <th scope="col" style="width:50px;">الصورة</th>
+                                                    <th scope="col">يوم الميلاد</th>
+                                                    <th scope="col">الموظف</th>
+                                                    <th scope="col">الرقم الوظيفي</th>
+                                                    <th scope="col">تاريخ الميلاد الكامل</th>
+                                                    <th scope="col">العمر الحالي</th>
+                                                    <th scope="col">البرج الفلكي</th>
+                                                    <th scope="col">الجيل</th>
+                                                    <th scope="col">التشكيل</th>
+                                                    <th scope="col" style="width:80px;">إجراء</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var emp in monthEmployees)
+                                                {
+                                                    var isTodayEmp = emp.DaysUntilNext == 0;
+
+                                                    <tr style="@(isTodayEmp ? "background:var(--warn-tint);font-weight:700;" : "")">
+                                                        <td>
+                                                            <div style="width:2.25rem;height:2.25rem;border-radius:50%;overflow:hidden;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;border:1.5px solid @(isTodayEmp ? "var(--series-4)" : "var(--line)");">
+                                                                @if (!string.IsNullOrEmpty(emp.PhotoUrl))
+                                                                {
+                                                                    <img src="@emp.PhotoUrl" alt="@emp.Name" loading="lazy" style="width:100%;height:100%;object-fit:cover;" />
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span style="font-weight:800;font-size:var(--fs-caption);color: var(--accent-text);">
+                                                                        @AvatarInitials.FromName(emp.Name)
+                                                                    </span>
+                                                                }
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <strong class="hr-num" style="color: var(--accent-text);font-size:0.95rem;">
+                                                                @emp.BirthDate?.Day @ZodiacAndGenerationHelper.FormatMonthArabic(monthNum)
+                                                            </strong>
+                                                            @if (isTodayEmp)
+                                                            {
+                                                                <span class="hr-badge hr-badge-ok" style="margin-inline-start:4px;font-size:var(--fs-caption);">اليوم 🎂</span>
+                                                            }
+                                                        </td>
+                                                        <td>
+                                                            <a href="employee-profile/@emp.EmployeeID" class="hr-link hr-cell-strong">
+                                                                @emp.Name
+                                                            </a>
+                                                        </td>
+                                                        <td><span class="hr-num">@emp.EmployeeID</span></td>
+                                                        <td><span class="hr-num">@emp.BirthDate?.ToString("yyyy/MM/dd")</span></td>
+                                                        <td><span class="hr-num">@emp.Age سنة</span></td>
+                                                        <td>
+                                                            <span class="hr-badge" style="border:1px solid @emp.Zodiac.ElementColor;font-size:var(--fs-caption);">
+                                                                <span style="color:@emp.Zodiac.ElementColor;font-weight:800;">@emp.Zodiac.Symbol</span>
+                                                                <span>@emp.Zodiac.NameAr</span>
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <span class="hr-badge @emp.Generation.TagClass" style="font-size:var(--fs-caption);">
+                                                                @emp.Generation.NameAr
+                                                            </span>
+                                                        </td>
+                                                        <td>@(emp.Formation ?? "—")</td>
+                                                        <td>
+                                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick="() => OpenGreetingModal(emp)" title="تهنئة">
+                                                                <Icon Name="gift" Size="xs" />
+                                                                <span>تهنئة</span>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        @* ==================== VIEW 3: BY YEAR & GENERATION ==================== *@
+        @if (viewMode == BirthdayViewMode.ByYearAndGen)
+        {
+            <div class="hr-stack">
+                <div>
+                    <h2 class="hr-h3">التحليل الديمغرافي والجيلي لكوادر المؤسسة</h2>
+                    <p class="hr-meta">تحليل سنوات التولد مقسمة إلى الفئات الجيلية المعتمدة إحصائياً ونسب تمثيلها المؤسسي</p>
+                </div>
+
+                @* Generations Summary Cards *@
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(280px, 100%), 1fr));gap:var(--s-4);">
+                    @{
+                        var genGroups = allEmployeesWithBirthdays
+                            .GroupBy(e => e.Generation.NameAr)
+                            .OrderByDescending(g => g.Count())
+                            .ToList();
+                    }
+
+                    @foreach (var grp in genGroups)
+                    {
+                        var sample = grp.First().Generation;
+                        var count = grp.Count();
+                        var pct = allEmployeesWithBirthdays.Count > 0 ? (count * 100.0 / allEmployeesWithBirthdays.Count) : 0;
+
+                        <div class="hr-card" style="padding:var(--s-4);border-radius:var(--r-lg);border-inline-start:4px solid @sample.Color;">
+                            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-block-end:var(--s-2);flex-wrap:wrap;gap:var(--s-2);">
+                                <div>
+                                    <strong style="font-size:1.1rem;color:var(--text);display:block;">@sample.NameAr</strong>
+                                    <span class="hr-meta" style="font-size:var(--fs-caption);">@sample.NameEn · (@sample.YearsRange)</span>
+                                </div>
+                                <span class="hr-badge" style="font-weight:800;font-size:var(--fs-body);">
+                                    @count موظف
+                                </span>
+                            </div>
+
+                            <p class="hr-meta" style="font-size:var(--fs-label);margin-block-end:var(--s-3);">
+                                @sample.Description
+                            </p>
+
+                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                <div style="flex:1;height:8px;background:var(--surface-sunken);border-radius:var(--r-full);overflow:hidden;">
+                                    <div style="width:@pct.ToString("F1", CultureInfo.InvariantCulture)%;height:100%;background:@sample.Color;border-radius:var(--r-full);"></div>
+                                </div>
+                                <span class="hr-num" style="font-size:var(--fs-label);font-weight:800;color:var(--text);">@pct.ToString("F1")%</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                @* Detailed Cohort by Generation Tables *@
+                @foreach (var grp in genGroups)
+                {
+                    var sample = grp.First().Generation;
+                    var emps = GetFilteredEmployees()
+                        .Where(e => e.Generation.NameAr == sample.NameAr)
+                        .OrderBy(e => e.BirthDate?.Year)
+                        .ThenBy(e => e.BirthDate?.Month)
+                        .ToList();
+
+                    if (emps.Count > 0)
+                    {
+                        <div class="hr-card" style="margin-block-start:var(--s-3);border-radius:var(--r-lg);">
+                            <div class="hr-card-head" style="display:flex;align-items:center;justify-content:space-between;padding:var(--s-3) var(--s-4);background:var(--surface-sunken);flex-wrap:wrap;gap:var(--s-2);">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span class="hr-iconplate" style="background:color-mix(in srgb, @sample.Color 15%, transparent);color:@sample.Color;width:2rem;height:2rem;" aria-hidden="true">
+                                        <Icon Name="academic-cap" Size="xs" />
+                                    </span>
+                                    <h3 class="hr-h3">
+                                        @sample.NameAr (@sample.YearsRange)
+                                        <span class="hr-badge" style="margin-inline-start:0.5rem;">@emps.Count موظفاً</span>
+                                    </h3>
+                                </div>
+                            </div>
+
+                            <div class="hr-card-body" style="padding:0;">
+                                <div class="hr-tablewrap" style="max-height:420px;overflow-y:auto;">
+                                    <table class="hr-table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" style="width:50px;">الصورة</th>
+                                                <th scope="col">سنة التولد</th>
+                                                <th scope="col">الموظف</th>
+                                                <th scope="col">الرقم الوظيفي</th>
+                                                <th scope="col">تاريخ الميلاد الكامل</th>
+                                                <th scope="col">العمر الحالي</th>
+                                                <th scope="col">البرج الفلكي</th>
+                                                <th scope="col">التشكيل الإداري</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var emp in emps)
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <div style="width:2rem;height:2rem;border-radius:50%;overflow:hidden;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;border:1px solid var(--line);">
+                                                            @if (!string.IsNullOrEmpty(emp.PhotoUrl))
+                                                            {
+                                                                <img src="@emp.PhotoUrl" alt="@emp.Name" loading="lazy" style="width:100%;height:100%;object-fit:cover;" />
+                                                            }
+                                                            else
+                                                            {
+                                                                <span style="font-weight:800;font-size:var(--fs-caption);color: var(--accent-text);">
+                                                                    @AvatarInitials.FromName(emp.Name)
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                    </td>
+                                                    <td><strong class="hr-num" style="color: var(--accent-text);">@emp.BirthDate?.Year</strong></td>
+                                                    <td>
+                                                        <a href="employee-profile/@emp.EmployeeID" class="hr-link hr-cell-strong">
+                                                            @emp.Name
+                                                        </a>
+                                                    </td>
+                                                    <td><span class="hr-num">@emp.EmployeeID</span></td>
+                                                    <td><span class="hr-num">@emp.BirthDate?.ToString("yyyy/MM/dd")</span></td>
+                                                    <td><span class="hr-num">@emp.Age سنة</span></td>
+                                                    <td>
+                                                        <span class="hr-badge" style="border:1px solid @emp.Zodiac.ElementColor;font-size:var(--fs-caption);">
+                                                            <span style="color:@emp.Zodiac.ElementColor;font-weight:800;">@emp.Zodiac.Symbol</span>
+                                                            <span>@emp.Zodiac.NameAr</span>
+                                                        </span>
+                                                    </td>
+                                                    <td>@(emp.Formation ?? "—")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        @* ==================== VIEW 4: SYNCHRONIZATION & COHORTS ==================== *@
+        @if (viewMode == BirthdayViewMode.Cohorts)
+        {
+            <div class="hr-stack">
+                <div>
+                    <h2 class="hr-h3">المطابقات والتزامن الوظيفي</h2>
+                    <p class="hr-meta">تحليل حالات التزامن في يوم وشهر الميلاد، وتوزيع الكوادر حسب سنة التولد والأبراج الفلكية المشتركة</p>
+                </div>
+
+                @* Sub-Tabs for Cohorts *@
+                <div class="hr-tabs-nav" style="border-block-end:1px solid var(--line);margin-block-end:var(--s-4);">
+                    <div class="hr-tabs" role="tablist">
+                        <button type="button" class="hr-tab @(cohortSubView == "exact_day" ? "is-active" : "")" @onclick='() => cohortSubView = "exact_day"'>
+                            <Icon Name="sparkles" Size="xs" />
+                            <span>تطابق اليوم والشهر (المواليد المتزامنة)</span>
+                        </button>
+                        <button type="button" class="hr-tab @(cohortSubView == "same_year" ? "is-active" : "")" @onclick='() => cohortSubView = "same_year"'>
+                            <Icon Name="academic-cap" Size="xs" />
+                            <span>أفواج سنة الميلاد المشتركة</span>
+                        </button>
+                        <button type="button" class="hr-tab @(cohortSubView == "zodiac" ? "is-active" : "")" @onclick='() => cohortSubView = "zodiac"'>
+                            <Icon Name="sun" Size="xs" />
+                            <span>التوزيع الفلكي حسب الأبراج الـ 12</span>
+                        </button>
+                    </div>
+                </div>
+
+                @* 1. Exact Day Twins (تطابق اليوم والشهر) *@
+                @if (cohortSubView == "exact_day")
+                {
+                    var dayTwins = GetFilteredEmployees()
+                        .Where(e => e.BirthDate.HasValue)
+                        .GroupBy(e => new { Month = e.BirthDate!.Value.Month, Day = e.BirthDate!.Value.Day })
+                        .Where(g => g.Count() >= 2)
+                        .OrderBy(g => g.Key.Month)
+                        .ThenBy(g => g.Key.Day)
+                        .ToList();
+
+                    <div class="hr-stack">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                            <h3 class="hr-h4">الموظفون المشتركون في نفس يوم وشهر الميلاد</h3>
+                            <span class="hr-badge hr-badge-ok">@dayTwins.Count يوماً مشتركاً بين موظفين متعددين</span>
+                        </div>
+
+                        @if (dayTwins.Count == 0)
+                        {
+                            <div class="hr-card hr-empty" style="padding:var(--s-6);">
+                                <p class="hr-sub">لا توجد حالات تطابق في نفس اليوم والشهر ضمن نتائج التصفية الحالية.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(min(360px, 100%), 1fr));gap:var(--s-4);">
+                                @foreach (var grp in dayTwins)
+                                {
+                                    var sampleDate = grp.First().BirthDate!.Value;
+                                    var zodiac = grp.First().Zodiac;
+
+                                    <div class="hr-card" style="padding:var(--s-4);border-radius:var(--r-lg);border:1.5px solid color-mix(in srgb, var(--accent) 35%, var(--line));background:var(--surface);">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:var(--s-3);padding-block-end:var(--s-2);border-block-end:1px dashed var(--line);flex-wrap:wrap;gap:var(--s-2);">
+                                            <div style="display:flex;align-items:center;gap:0.5rem;">
+                                                <span class="hr-iconplate hr-plate-a" style="width:2.25rem;height:2.25rem;font-size:1.1rem;" aria-hidden="true">
+                                                    📅
+                                                </span>
+                                                <div>
+                                                    <strong style="font-size:1rem;color:var(--text);display:block;">
+                                                        @sampleDate.ToString("dd MMMM", ArabicCulture)
+                                                    </strong>
+                                                    <span class="hr-meta" style="font-size:var(--fs-caption);">
+                                                        @zodiac.Symbol برج @zodiac.NameAr (@zodiac.Element)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span class="hr-badge hr-badge-accent" style="font-weight:800;">
+                                                @grp.Count() موظفين
+                                            </span>
+                                        </div>
+
+                                        <div style="display:flex;flex-direction:column;gap:var(--s-2);">
+                                            @foreach (var emp in grp.OrderBy(e => e.BirthDate?.Year))
+                                            {
+                                                <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--s-2) var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);flex-wrap:wrap;gap:var(--s-2);">
+                                                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                                                        <div style="width:2.25rem;height:2.25rem;border-radius:50%;overflow:hidden;background:var(--surface);display:flex;align-items:center;justify-content:center;border:1px solid var(--line);flex-shrink:0;">
+                                                            @if (!string.IsNullOrEmpty(emp.PhotoUrl))
+                                                            {
+                                                                <img src="@emp.PhotoUrl" alt="@emp.Name" loading="lazy" style="width:100%;height:100%;object-fit:cover;" />
+                                                            }
+                                                            else
+                                                            {
+                                                                <span style="font-weight:800;font-size:var(--fs-caption);color: var(--accent-text);">
+                                                                    @AvatarInitials.FromName(emp.Name)
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                        <div>
+                                                            <a href="employee-profile/@emp.EmployeeID" class="hr-link" style="font-weight:700;font-size:var(--fs-body);">
+                                                                @emp.Name
+                                                            </a>
+                                                            <div class="hr-meta" style="font-size:var(--fs-caption);">
+                                                                @(emp.JobTitle ?? "موظف") · @(emp.Formation ?? "")
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div style="display:flex;flex-direction:column;align-items:flex-end;">
+                                                        <strong class="hr-num" style="font-size:var(--fs-control);color: var(--accent-text);">
+                                                            @emp.BirthDate?.Year
+                                                        </strong>
+                                                        <span class="hr-meta" style="font-size:var(--fs-caption);">(@emp.Age سنة)</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+                @* 2. Same Birth Year Cohorts (أفواج سنة الميلاد المشتركة) *@
+                @if (cohortSubView == "same_year")
+                {
+                    var yearGroups = GetFilteredEmployees()
+                        .Where(e => e.BirthDate.HasValue)
+                        .GroupBy(e => e.BirthDate!.Value.Year)
+                        .OrderByDescending(g => g.Key)
+                        .ToList();
+
+                    <div class="hr-stack">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                            <h3 class="hr-h4">أفواج الكوادر حسب سنة التولد</h3>
+                            <span class="hr-badge">@yearGroups.Count فوجاً سنوياً</span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(min(320px, 100%), 1fr));gap:var(--s-3);">
+                            @foreach (var grp in yearGroups)
+                            {
+                                var year = grp.Key;
+                                var gen = ZodiacAndGenerationHelper.GetGeneration(year);
+
+                                <div class="hr-card" style="padding:var(--s-3) var(--s-4);border-radius:var(--r-md);">
+                                    <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:var(--s-2);flex-wrap:wrap;gap:var(--s-2);">
+                                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                                            <strong class="hr-num" style="font-size:1.25rem;color: var(--accent-text);font-weight:900;">@year</strong>
+                                            <span class="hr-badge @gen.TagClass" style="font-size:var(--fs-caption);">@gen.NameAr</span>
+                                        </div>
+                                        <span class="hr-badge hr-badge-ok">@grp.Count() موظفاً</span>
+                                    </div>
+
+                                    <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-block-start:var(--s-2);">
+                                        @foreach (var emp in grp.OrderBy(e => e.BirthDate?.Month).ThenBy(e => e.BirthDate?.Day))
+                                        {
+                                            <a href="employee-profile/@emp.EmployeeID"
+                                               class="hr-chip"
+                                               style="font-size:var(--fs-caption);padding:3px 8px;text-decoration:none;display:inline-flex;align-items:center;gap:4px;"
+                                               title="مواليد @emp.BirthDate?.ToString("yyyy/MM/dd") - برج @emp.Zodiac.NameAr">
+                                                @if (!string.IsNullOrEmpty(emp.PhotoUrl))
+                                                {
+                                                    <img src="@emp.PhotoUrl" alt="" style="width:1.1rem;height:1.1rem;border-radius:50%;object-fit:cover;" />
+                                                }
+                                                <span>@emp.Name</span>
+                                                <span class="hr-meta" style="font-size:var(--fs-caption);">(@emp.BirthDate?.ToString("MM/dd"))</span>
+                                            </a>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @* 3. Zodiac Companions (التوزيع الفلكي حسب الأبراج الـ 12) *@
+                @if (cohortSubView == "zodiac")
+                {
+                    var zodiacGroups = GetFilteredEmployees()
+                        .GroupBy(e => e.Zodiac.NameAr)
+                        .OrderByDescending(g => g.Count())
+                        .ToList();
+
+                    <div class="hr-stack">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                            <h3 class="hr-h4">توزيع الكوادر حسب الأبراج الفلكية الـ 12</h3>
+                            <span class="hr-badge hr-badge-accent">@zodiacGroups.Count برجاً ممثلاً</span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(min(320px, 100%), 1fr));gap:var(--s-4);">
+                            @foreach (var grp in zodiacGroups)
+                            {
+                                var zodiac = grp.First().Zodiac;
+                                var count = grp.Count();
+                                var pct = allEmployeesWithBirthdays.Count > 0 ? (count * 100.0 / allEmployeesWithBirthdays.Count) : 0;
+
+                                <div class="hr-card" style="padding:var(--s-4);border-radius:var(--r-lg);border-block-start:3px solid @zodiac.ElementColor;">
+                                    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-block-end:var(--s-2);flex-wrap:wrap;gap:var(--s-2);">
+                                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                                            <span style="font-size:1.75rem;color:@zodiac.ElementColor;line-height:1;">@zodiac.Symbol</span>
+                                            <div>
+                                                <strong style="font-size:1.1rem;color:var(--text);display:block;">برج @zodiac.NameAr</strong>
+                                                <span class="hr-meta" style="font-size:var(--fs-caption);">@zodiac.NameEn · @zodiac.DateRange</span>
+                                            </div>
+                                        </div>
+                                        <span class="hr-badge" style="font-weight:800;font-size:var(--fs-control);">
+                                            @count موظفاً (@pct.ToString("F0")%)
+                                        </span>
+                                    </div>
+
+                                    <div style="display:flex;align-items:center;gap:0.5rem;margin-block:var(--s-2);">
+                                        <span class="hr-badge" style="background:color-mix(in srgb, @zodiac.ElementColor 12%, transparent);color:@zodiac.ElementColor;font-size:var(--fs-caption);font-weight:700;">
+                                            عنصر: @zodiac.Element
+                                        </span>
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">@zodiac.Trait</span>
+                                    </div>
+
+                                    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-block-start:var(--s-3);max-height:160px;overflow-y:auto;padding-block-end:4px;">
+                                        @foreach (var emp in grp.OrderBy(e => e.BirthDate?.Month).ThenBy(e => e.BirthDate?.Day))
+                                        {
+                                            <a href="employee-profile/@emp.EmployeeID"
+                                               class="hr-chip"
+                                               style="font-size:var(--fs-caption);padding:2px 8px;text-decoration:none;display:inline-flex;align-items:center;gap:4px;"
+                                               title="@emp.Name - مواليد @emp.BirthDate?.ToString("yyyy/MM/dd")">
+                                                @if (!string.IsNullOrEmpty(emp.PhotoUrl))
+                                                {
+                                                    <img src="@emp.PhotoUrl" alt="" style="width:1.1rem;height:1.1rem;border-radius:50%;object-fit:cover;" />
+                                                }
+                                                <span>@emp.Name</span>
+                                                <span class="hr-meta" style="font-size:var(--fs-caption);">(@emp.BirthDate?.ToString("MM/dd"))</span>
+                                            </a>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@* ==================== MODAL: OFFICIAL ADMINISTRATIVE GREETING ==================== *@
+@if (showGreetingModal && greetingTarget != null)
+{
+    <div class="hr-modal-scrim" @onclick="() => showGreetingModal = false">
+        <div class="hr-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="greeting-modal-title" tabindex="-1" @onkeydown="OnGreetingModalKeyDown">
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true">
+                        <Icon Name="sparkles" Size="sm" />
+                    </span>
+                    <div class="hr-modal-titles">
+                        <h2 id="greeting-modal-title" class="hr-h3">رسالة التهنئة الإدارية الرسمية</h2>
+                        <p class="hr-meta">الموظف: <strong>@greetingTarget.Name</strong> (الرقم: @greetingTarget.EmployeeID)</p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="() => showGreetingModal = false" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body hr-stack">
+                <div class="hr-card" style="padding:var(--s-3);background:var(--surface-sunken);border:1px solid var(--line);display:flex;align-items:center;gap:var(--s-3);">
+                    <div style="width:3.5rem;height:3.5rem;border-radius:50%;overflow:hidden;background:var(--surface);display:flex;align-items:center;justify-content:center;border:1.5px solid var(--line);flex-shrink:0;">
+                        @if (!string.IsNullOrEmpty(greetingTarget.PhotoUrl))
+                        {
+                            <img src="@greetingTarget.PhotoUrl" alt="@greetingTarget.Name" style="width:100%;height:100%;object-fit:cover;" />
+                        }
+                        else
+                        {
+                            <span style="font-weight:800;font-size:1.1rem;color: var(--accent-text);">
+                                @AvatarInitials.FromName(greetingTarget.Name)
+                            </span>
+                        }
+                    </div>
+                    <div style="flex:1;">
+                        <strong style="display:block;font-size:1rem;color:var(--text);">@greetingTarget.Name</strong>
+                        <span class="hr-meta" style="font-size:var(--fs-label);">
+                            @(greetingTarget.JobTitle ?? "موظف") · @(greetingTarget.Formation ?? "المؤسسة")
+                        </span>
+                        <div style="display:flex;align-items:center;gap:0.5rem;margin-block-start:4px;font-size:var(--fs-caption);">
+                            <span>تاريخ الميلاد: <strong class="hr-num">@greetingTarget.BirthDate?.ToString("yyyy/MM/dd")</strong></span>
+                            <span>·</span>
+                            <span>@greetingTarget.Zodiac.Symbol برج @greetingTarget.Zodiac.NameAr</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-label" for="greeting-text">صيغة التهنئة الإدارية المقترحة</label>
+                    <textarea id="greeting-text" class="hr-input" rows="5" @bind="greetingMessageText"></textarea>
+                </div>
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showGreetingModal = false">
+                    إغلاق
+                </button>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="CopyGreetingText">
+                    <Icon Name="clipboard-document" Size="xs" />
+                    <span>نسخ نص التهنئة للحافظة</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private enum BirthdayViewMode
+    {
+        Upcoming,
+        ByMonth,
+        ByYearAndGen,
+        Cohorts
+    }
+
+    private sealed record EmployeeBirthdayItem(
+        int Id,
+        string EmployeeID,
+        string Name,
+        DateOnly? BirthDate,
+        string? JobTitle,
+        string? Formation,
+        string? Gender,
+        int Age,
+        int DaysUntilNext,
+        DateOnly NextBirthdayDate,
+        ZodiacSignInfo Zodiac,
+        GenerationInfo Generation,
+        string? PhotoUrl = null);
+
+    private BirthdayViewMode viewMode = BirthdayViewMode.Upcoming;
+    private string cohortSubView = "exact_day";
+    private bool isLoading = true;
+    private DateOnly today;
+    private readonly CultureInfo ArabicCulture = new("ar-IQ");
+
+    private List<EmployeeBirthdayItem> allEmployeesWithBirthdays = [];
+    private List<EmployeeBirthdayItem> todayBirthdays = [];
+    private List<EmployeeBirthdayItem> thisMonthBirthdays = [];
+
+    // KPI stats
+    private ZodiacSignInfo? topZodiac;
+    private int topZodiacCount = 0;
+    private GenerationInfo? topGeneration;
+    private double topGenPercentage = 0;
+    private int countNext7Days = 0;
+    private int countNext30Days = 0;
+
+    // Filters
+    private string searchQuery = "";
+    private string quickRange = "all";
+    private int filterMonth = 0;
+    private string filterZodiac = "";
+    private string filterGeneration = "";
+    private string filterFormation = "";
+    private string sortOrder = "upcoming";
+    private int selectedMonthView = 0;
+
+    private List<ZodiacSignInfo> allZodiacNames = [];
+    private List<GenerationInfo> allGenerationsList = [];
+    private List<string> distinctFormations = [];
+
+    // Greeting Modal
+    private bool showGreetingModal = false;
+    private EmployeeBirthdayItem? greetingTarget;
+    private string greetingMessageText = "";
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery)
+        || quickRange != "all"
+        || filterMonth != 0
+        || !string.IsNullOrWhiteSpace(filterZodiac)
+        || !string.IsNullOrWhiteSpace(filterGeneration)
+        || !string.IsNullOrWhiteSpace(filterFormation)
+        || sortOrder != "upcoming";
+
+    protected override async Task OnInitializedAsync()
+    {
+        today = DateOnly.FromDateTime(DateTime.Now);
+
+        allZodiacNames = new List<DateOnly>
+        {
+            new(2000, 3, 25), new(2000, 4, 25), new(2000, 5, 25), new(2000, 6, 25),
+            new(2000, 7, 25), new(2000, 8, 25), new(2000, 9, 25), new(2000, 10, 25),
+            new(2000, 11, 25), new(2000, 12, 25), new(2000, 1, 25), new(2000, 2, 25)
+        }.Select(d => ZodiacAndGenerationHelper.GetZodiacSign(d)).ToList();
+
+        allGenerationsList = new List<int> { 2015, 2005, 1990, 1975, 1955, 1940 }
+            .Select(y => ZodiacAndGenerationHelper.GetGeneration(y))
+            .DistinctBy(g => g.NameAr)
+            .ToList();
+
+        await ReloadDataAsync();
+    }
+
+    private async Task ReloadDataAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var emps = await db.Employees
+                .AsNoTracking()
+                .Where(e => e.BirthDate.HasValue)
+                .Include(e => e.JobTitle)
+                .Include(e => e.Formation)
+                .Include(e => e.Gender)
+                .ToListAsync();
+
+            // Concurrent resolution of employee profile photo thumbnails
+            var avatarTasks = emps.Select(async e =>
+            {
+                var photo = await AvatarService.GetAvatarDataUrlAsync(e.EmployeeID, null);
+                return (e.EmployeeID, photo);
+            });
+            var avatarResults = await Task.WhenAll(avatarTasks);
+            var photoDict = avatarResults.Where(x => !string.IsNullOrEmpty(x.photo)).ToDictionary(x => x.EmployeeID, x => x.photo);
+
+            allEmployeesWithBirthdays = emps.Select(e =>
+            {
+                var bDate = e.BirthDate!.Value;
+                var age = ZodiacAndGenerationHelper.CalculateAge(bDate, today);
+                var daysUntil = ZodiacAndGenerationHelper.DaysUntilBirthday(bDate, today);
+
+                var nextBday = new DateOnly(today.Year, bDate.Month, Math.Min(bDate.Day, DateTime.DaysInMonth(today.Year, bDate.Month)));
+                if (nextBday < today)
+                {
+                    nextBday = new DateOnly(today.Year + 1, bDate.Month, Math.Min(bDate.Day, DateTime.DaysInMonth(today.Year + 1, bDate.Month)));
+                }
+
+                var zodiac = ZodiacAndGenerationHelper.GetZodiacSign(bDate);
+                var gen = ZodiacAndGenerationHelper.GetGeneration(bDate.Year);
+
+                photoDict.TryGetValue(e.EmployeeID, out var photoUrl);
+
+                return new EmployeeBirthdayItem(
+                    e.Id,
+                    e.EmployeeID,
+                    e.Name,
+                    bDate,
+                    e.JobTitle?.Name,
+                    e.Formation?.Name,
+                    e.Gender?.Name,
+                    age,
+                    daysUntil,
+                    nextBday,
+                    zodiac,
+                    gen,
+                    photoUrl);
+            }).ToList();
+
+            distinctFormations = allEmployeesWithBirthdays
+                .Select(e => e.Formation)
+                .Where(f => !string.IsNullOrWhiteSpace(f))
+                .Select(f => f!)
+                .Distinct()
+                .OrderBy(f => f)
+                .ToList();
+
+            // Calculate KPIs
+            todayBirthdays = allEmployeesWithBirthdays.Where(e => e.DaysUntilNext == 0).ToList();
+            countNext7Days = allEmployeesWithBirthdays.Count(e => e.DaysUntilNext <= 7);
+            countNext30Days = allEmployeesWithBirthdays.Count(e => e.DaysUntilNext <= 30);
+            thisMonthBirthdays = allEmployeesWithBirthdays.Where(e => e.BirthDate?.Month == today.Month).ToList();
+
+            if (allEmployeesWithBirthdays.Count > 0)
+            {
+                var topZGrp = allEmployeesWithBirthdays
+                    .GroupBy(e => e.Zodiac.NameAr)
+                    .OrderByDescending(g => g.Count())
+                    .FirstOrDefault();
+
+                if (topZGrp != null)
+                {
+                    topZodiac = topZGrp.First().Zodiac;
+                    topZodiacCount = topZGrp.Count();
+                }
+
+                var topGGrp = allEmployeesWithBirthdays
+                    .GroupBy(e => e.Generation.NameAr)
+                    .OrderByDescending(g => g.Count())
+                    .FirstOrDefault();
+
+                if (topGGrp != null)
+                {
+                    topGeneration = topGGrp.First().Generation;
+                    topGenPercentage = Math.Round(topGGrp.Count() * 100.0 / allEmployeesWithBirthdays.Count, 1);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر تحميل سجلات أعياد الميلاد: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SetQuickRange(string range)
+    {
+        quickRange = range;
+    }
+
+    private List<EmployeeBirthdayItem> GetFilteredEmployees()
+    {
+        IEnumerable<EmployeeBirthdayItem> query = allEmployeesWithBirthdays;
+
+        // Quick Range filter
+        query = quickRange switch
+        {
+            "today" => query.Where(e => e.DaysUntilNext == 0),
+            "week" => query.Where(e => e.DaysUntilNext <= 7),
+            "month30" => query.Where(e => e.DaysUntilNext <= 30),
+            "current_month" => query.Where(e => e.BirthDate?.Month == today.Month),
+            _ => query
+        };
+
+        // Text Search
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            query = query.Where(e =>
+                e.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || e.EmployeeID.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || (e.JobTitle != null && e.JobTitle.Contains(q, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        // Month Filter
+        if (filterMonth > 0)
+        {
+            query = query.Where(e => e.BirthDate?.Month == filterMonth);
+        }
+
+        // Zodiac Filter
+        if (!string.IsNullOrWhiteSpace(filterZodiac))
+        {
+            query = query.Where(e => e.Zodiac.NameAr == filterZodiac);
+        }
+
+        // Generation Filter
+        if (!string.IsNullOrWhiteSpace(filterGeneration))
+        {
+            query = query.Where(e => e.Generation.NameAr == filterGeneration);
+        }
+
+        // Formation Filter
+        if (!string.IsNullOrWhiteSpace(filterFormation))
+        {
+            query = query.Where(e => e.Formation == filterFormation);
+        }
+
+        // Sorting
+        query = sortOrder switch
+        {
+            "calendar" => query.OrderBy(e => e.BirthDate?.Month).ThenBy(e => e.BirthDate?.Day),
+            "age_desc" => query.OrderByDescending(e => e.Age),
+            "age_asc" => query.OrderBy(e => e.Age),
+            "name_asc" => query.OrderBy(e => e.Name),
+            _ => query.OrderBy(e => e.DaysUntilNext)
+        };
+
+        return query.ToList();
+    }
+
+    private void ResetFilters()
+    {
+        searchQuery = "";
+        quickRange = "all";
+        filterMonth = 0;
+        filterZodiac = "";
+        filterGeneration = "";
+        filterFormation = "";
+        sortOrder = "upcoming";
+        selectedMonthView = 0;
+    }
+
+    private void OpenGreetingModal(EmployeeBirthdayItem emp)
+    {
+        greetingTarget = emp;
+        greetingMessageText = $"حضرة الزميل {emp.Name} المحترم،\n\nبمناسبة ذكرى ميلادكم الميمون، يطيب لإدارة المؤسسة وزملائكم في العمل أن نتقدم إليكم بأسمى عبارات التهنئة وأطيب الأمنيات، متمنين لكم دوام التوفيق والنجاح وموفور الصحة والعطاء في مسيرتكم المهنية والشخصية.\n\nوكل عام وأنتم بخير.";
+        showGreetingModal = true;
+    }
+
+    private void OnGreetingModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") showGreetingModal = false;
+    }
+
+    private async Task CopyGreetingText()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", greetingMessageText);
+            Toast.Success("تم نسخ نص التهنئة الإدارية للحافظة بنجاح.");
+            showGreetingModal = false;
+        }
+        catch
+        {
+            Toast.Danger("تعذر النسخ التلقائي للحافظة. يمكنك تحديد النص ونسخه يدوياً.");
+        }
+    }
+
+    private async Task PrintPage()
+    {
+        await JSRuntime.InvokeVoidAsync("print");
+    }
+}

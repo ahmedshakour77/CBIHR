@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&family=Cairo:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="../../wwwroot/css/hr-tokens.css"><link rel="stylesheet" href="../../wwwroot/css/hr-components.css"><meta charset="utf-8">
+<style>
+body{margin:0}
+.stage{padding:16px;display:grid;gap:12px;justify-items:center}
+.vp{display:flex;gap:6px}
+.frame{inline-size:100%;transition:max-inline-size .22s cubic-bezier(.2,.7,.25,1)}
+.ico{inline-size:18px;block-size:18px;color:var(--accent-text)}
+</style></head>
+<body class="hr-root">
+<div class="stage">
+<div class="hr-seg vp" role="radiogroup" aria-label="حجم الشاشة">
+  <label><input type="radio" name="vp" value="100%" checked><span>سطح المكتب</span></label>
+  <label><input type="radio" name="vp" value="760px"><span>جهاز لوحي</span></label>
+  <label><input type="radio" name="vp" value="390px"><span>هاتف</span></label>
+</div>
+<div class="frame" id="frame">
+<article class="hr-profile" aria-label="الملف التعريفي">
+
+  <header class="hr-card hr-profile__head">
+    <div class="hr-avatar" aria-hidden="true">س</div>
+    <div style="min-inline-size:0">
+      <h1 class="hr-profile__name">سارة محمد العبيدي</h1>
+      <p class="hr-profile__role">محللة موارد بشرية أولى · قسم التخطيط الوظيفي · دائرة الموارد البشرية</p>
+      <div class="hr-profile__meta">
+        <span class="hr-badge hr-badge--ok">على رأس العمل</span>
+        <span class="hr-badge hr-badge--plain"><span class="hr-num">EMP-2331</span></span>
+        <span class="hr-badge hr-badge--brand hr-badge--plain">الدرجة الرابعة · المرحلة 3</span>
+      </div>
+    </div>
+    <div class="hr-profile__actions">
+      <button class="hr-btn hr-btn--secondary">تحديث بياناتي</button>
+      <button class="hr-btn hr-btn--primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>تقديم طلب</button>
+    </div>
+  </header>
+
+  <section class="hr-kpis" aria-label="ملخص">
+    <div class="hr-card hr-kpi"><div class="hr-kpi__label">رصيد الإجازات</div><div class="hr-kpi__value">18</div><div class="hr-kpi__foot">يوم متبقٍ من 36</div></div>
+    <div class="hr-card hr-kpi"><div class="hr-kpi__label">مدة الخدمة</div><div class="hr-kpi__value">4.3</div><div class="hr-kpi__foot">سنوات منذ 2022/05/12</div></div>
+    <div class="hr-card hr-kpi"><div class="hr-kpi__label">نسبة الالتزام بالدوام</div><div class="hr-kpi__value">96%</div><div class="hr-kpi__foot">آخر 90 يوماً</div></div>
+    <div class="hr-card hr-kpi"><div class="hr-kpi__label">طلبات مفتوحة</div><div class="hr-kpi__value">2</div><div class="hr-kpi__foot">إجازة · تحديث مؤهل</div></div>
+  </section>
+
+  <div class="hr-profile__body">
+    <div class="hr-card hr-profile__main">
+      <div class="hr-tabs" role="tablist" aria-label="أقسام الملف">
+        <button class="hr-tab" role="tab" aria-selected="true" aria-controls="p-over">نظرة عامة</button>
+        <button class="hr-tab" role="tab" aria-selected="false" aria-controls="p-pers" tabindex="-1">البيانات الشخصية</button>
+        <button class="hr-tab" role="tab" aria-selected="false" aria-controls="p-job" tabindex="-1">الوظيفة</button>
+        <button class="hr-tab" role="tab" aria-selected="false" aria-controls="p-edu" tabindex="-1">المؤهلات</button>
+        <button class="hr-tab" role="tab" aria-selected="false" aria-controls="p-leave" tabindex="-1">الإجازات والدوام</button>
+        <button class="hr-tab" role="tab" aria-selected="false" aria-controls="p-pay" tabindex="-1">الراتب</button>
+        <button class="hr-tab" role="tab" aria-selected="false" aria-controls="p-docs" tabindex="-1">المستندات</button>
+      </div>
+
+      <div class="hr-panel" id="p-over" role="tabpanel">
+        <section class="hr-section"><h2 class="hr-section__title">المعلومات الأساسية</h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>البريد الوظيفي</dt><dd class="hr-num">s.alobaidi@org.iq</dd></div>
+            <div><dt>الهاتف</dt><dd class="hr-num" dir="ltr" style="text-align:end">+964 770 000 0000</dd></div>
+            <div><dt>المدير المباشر</dt><dd>علي حسن الجبوري</dd></div>
+            <div><dt>تاريخ المباشرة</dt><dd class="hr-num">2022/05/12</dd></div>
+            <div><dt>نوع التعيين</dt><dd>دائم (ملاك)</dd></div>
+            <div><dt>موقع العمل</dt><dd>المقر الرئيسي · بغداد</dd></div>
+          </dl>
+        </section>
+        <section class="hr-section"><h2 class="hr-section__title">اكتمال الملف</h2>
+          <div style="display:flex;align-items:center;gap:12px"><div class="hr-progress" style="flex:1" role="progressbar" aria-valuenow="92" aria-valuemin="0" aria-valuemax="100" aria-label="اكتمال الملف"><span style="inline-size:92%"></span></div><b class="hr-num">92%</b></div>
+          <p class="hr-muted" style="margin:8px 0 0;font-size:.8125rem">ينقص: جهة اتصال للطوارئ. <button class="hr-btn hr-btn--ghost hr-btn--sm">إضافة الآن</button></p>
+        </section>
+      </div>
+
+      <div class="hr-panel" id="p-pers" role="tabpanel" hidden>
+        <section class="hr-section"><h2 class="hr-section__title">الهوية</h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>الاسم الرباعي واللقب</dt><dd>سارة محمد جاسم العبيدي</dd></div>
+            <div><dt>الاسم بالإنكليزية</dt><dd class="hr-num" dir="ltr" style="text-align:end">Sara M. Al-Obaidi</dd></div>
+            <div><dt>تاريخ الميلاد</dt><dd class="hr-num">1994/03/08</dd></div>
+            <div><dt>الجنس</dt><dd>أنثى</dd></div>
+            <div><dt>الحالة الاجتماعية</dt><dd>متزوجة</dd></div>
+            <div><dt>رقم البطاقة الوطنية</dt><dd><span class="hr-mask"><span class="hr-num">•••• •••• 4821</span><button type="button">إظهار</button></span></dd></div>
+          </dl>
+        </section>
+        <section class="hr-section"><h2 class="hr-section__title">الاتصال والعنوان</h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>الهاتف الشخصي</dt><dd class="hr-num" dir="ltr" style="text-align:end">+964 780 000 0000</dd></div>
+            <div><dt>البريد الشخصي</dt><dd class="hr-num">sara@example.com</dd></div>
+            <div><dt>العنوان</dt><dd>بغداد · الكرادة · محلة 903</dd></div>
+            <div><dt>جهة اتصال الطوارئ</dt><dd><span class="hr-badge hr-badge--warn">غير مُدخلة</span></dd></div>
+          </dl>
+        </section>
+      </div>
+
+      <div class="hr-panel" id="p-job" role="tabpanel" hidden>
+        <section class="hr-section"><h2 class="hr-section__title">الموقع التنظيمي</h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>الدائرة</dt><dd>الموارد البشرية</dd></div>
+            <div><dt>القسم</dt><dd>التخطيط الوظيفي</dd></div>
+            <div><dt>الشعبة</dt><dd>تحليل القوى العاملة</dd></div>
+            <div><dt>العنوان الوظيفي</dt><dd>محللة موارد بشرية أولى</dd></div>
+            <div><dt>الدرجة والمرحلة</dt><dd>الرابعة · 3</dd></div>
+            <div><dt>الشفت</dt><dd>صباحي · <span class="hr-num">08:00–15:00</span></dd></div>
+          </dl>
+        </section>
+        <section class="hr-section"><h2 class="hr-section__title">المسار الوظيفي</h2>
+          <ol class="hr-timeline">
+            <li><div><b>ترفيع إلى الدرجة الرابعة</b><div class="hr-muted hr-num" style="font-size:.8125rem">2025/01/01 · أمر إداري 118</div></div></li>
+            <li><div><b>نقل إلى قسم التخطيط الوظيفي</b><div class="hr-muted hr-num" style="font-size:.8125rem">2023/09/15</div></div></li>
+            <li><div><b>تعيين · محللة موارد بشرية</b><div class="hr-muted hr-num" style="font-size:.8125rem">2022/05/12</div></div></li>
+          </ol>
+        </section>
+      </div>
+
+      <div class="hr-panel" id="p-edu" role="tabpanel" hidden>
+        <section class="hr-section"><h2 class="hr-section__title">الشهادات</h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>الشهادة</dt><dd>بكالوريوس</dd></div>
+            <div><dt>الاختصاص</dt><dd>إدارة أعمال</dd></div>
+            <div><dt>الجهة المانحة</dt><dd>جامعة بغداد</dd></div>
+            <div><dt>سنة التخرج</dt><dd class="hr-num">2016</dd></div>
+            <div><dt>التقدير</dt><dd>جيد جداً</dd></div>
+            <div><dt>حالة التدقيق</dt><dd><span class="hr-badge hr-badge--ok">مُصدّقة</span></dd></div>
+          </dl>
+        </section>
+        <section class="hr-section"><h2 class="hr-section__title">الدورات</h2>
+          <ul class="hr-doclist">
+            <li><span class="hr-doc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2Z"/></svg></span><div><b>تحليل البيانات للموارد البشرية</b><small class="hr-num">40 ساعة · 2025</small></div></li>
+            <li><span class="hr-doc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2Z"/></svg></span><div><b>إدارة الأداء المؤسسي</b><small class="hr-num">24 ساعة · 2024</small></div></li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="hr-panel" id="p-leave" role="tabpanel" hidden>
+        <section class="hr-section"><h2 class="hr-section__title">الأرصدة</h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>اعتيادية</dt><dd class="hr-num">18 / 36 يوم</dd></div>
+            <div><dt>مرضية</dt><dd class="hr-num">30 / 30 يوم</dd></div>
+            <div><dt>زمنية هذا الشهر</dt><dd class="hr-num">3:30 / 7:00 ساعة</dd></div>
+          </dl>
+        </section>
+        <section class="hr-section"><h2 class="hr-section__title">آخر الطلبات</h2>
+          <ul class="hr-doclist">
+            <li><div><b>إجازة اعتيادية · 3 أيام</b><small class="hr-num">LV-2026-0911 · 2026/10/05</small></div><span class="hr-badge hr-badge--warn">بانتظار الموافقة</span></li>
+            <li><div><b>إجازة زمنية · ساعتان</b><small class="hr-num">LV-2026-0874 · 2026/09/10</small></div><span class="hr-badge hr-badge--ok">مُعتمد</span></li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="hr-panel" id="p-pay" role="tabpanel" hidden>
+        <section class="hr-section"><h2 class="hr-section__title">الراتب <span class="hr-badge hr-badge--plain" style="font-size:.75rem">حساس · يُسجَّل الاطلاع</span></h2>
+          <dl class="hr-fields hr-fields--3">
+            <div><dt>الراتب الاسمي</dt><dd><span class="hr-mask"><span class="hr-num">••••••</span><button type="button">إظهار</button></span></dd></div>
+            <div><dt>المخصصات</dt><dd><span class="hr-mask"><span class="hr-num">••••••</span><button type="button">إظهار</button></span></dd></div>
+            <div><dt>الحساب المصرفي</dt><dd class="hr-num">IQ•• •••• •••• 0192</dd></div>
+          </dl>
+        </section>
+        <section class="hr-section"><h2 class="hr-section__title">كشوف الراتب</h2>
+          <ul class="hr-doclist">
+            <li><div><b>أيلول 2026</b><small class="hr-num">PDF · 84 KB</small></div><button class="hr-btn hr-btn--secondary hr-btn--sm" style="margin-inline-start:auto">تنزيل</button></li>
+            <li><div><b>آب 2026</b><small class="hr-num">PDF · 83 KB</small></div><button class="hr-btn hr-btn--secondary hr-btn--sm" style="margin-inline-start:auto">تنزيل</button></li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="hr-panel" id="p-docs" role="tabpanel" hidden>
+        <ul class="hr-doclist">
+          <li><span class="hr-doc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg></span><div><b>الأمر الإداري بالتعيين</b><small class="hr-num">2022/05/10</small></div><span class="hr-badge hr-badge--ok">ساري</span></li>
+          <li><span class="hr-doc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg></span><div><b>البطاقة الوطنية</b><small class="hr-num">تنتهي 2026/11/02</small></div><span class="hr-badge hr-badge--warn">تنتهي قريباً</span></li>
+          <li><span class="hr-doc-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg></span><div><b>تصديق الشهادة</b><small class="hr-num">2022/06/01</small></div><span class="hr-badge hr-badge--ok">ساري</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <aside class="hr-rail" aria-label="معلومات جانبية">
+      <div class="hr-card"><div class="hr-card__head"><h2 class="hr-card__title">المدير المباشر</h2></div>
+        <div class="hr-card__body"><div class="hr-person"><div class="hr-avatar">ع</div><div><b>علي حسن الجبوري</b><div class="hr-muted" style="font-size:.8125rem">مدير قسم التخطيط الوظيفي</div></div></div></div></div>
+      <div class="hr-card"><div class="hr-card__head"><h2 class="hr-card__title">يحتاج انتباهك</h2></div>
+        <div class="hr-card__body"><ul class="hr-doclist">
+          <li><div><b>البطاقة الوطنية</b><small>تنتهي خلال 39 يوماً</small></div><span class="hr-badge hr-badge--warn">تجديد</span></li>
+          <li><div><b>جهة اتصال للطوارئ</b><small>غير مُدخلة</small></div><span class="hr-badge hr-badge--warn">إكمال</span></li>
+        </ul></div></div>
+      <div class="hr-card"><div class="hr-card__head"><h2 class="hr-card__title">آخر النشاطات</h2></div>
+        <div class="hr-card__body"><ol class="hr-timeline">
+          <li><div>تقديم طلب إجازة اعتيادية<div class="hr-muted" style="font-size:.75rem">قبل ساعتين</div></div></li>
+          <li><div>اعتماد إجازة زمنية<div class="hr-muted" style="font-size:.75rem">2026/09/10</div></div></li>
+          <li><div>تحديث رقم الهاتف<div class="hr-muted" style="font-size:.75rem">2026/08/28</div></div></li>
+        </ol></div></div>
+    </aside>
+  </div>
+</article>
+</div>
+</div>
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('[role=tab]'));
+  function sel(t){tabs.forEach(function(x){var on=x===t;x.setAttribute('aria-selected',on);x.tabIndex=on?0:-1;document.getElementById(x.getAttribute('aria-controls')).hidden=!on;});t.focus();t.scrollIntoView({block:'nearest',inline:'nearest'});}
+  tabs.forEach(function(t,i){t.addEventListener('click',function(){sel(t)});t.addEventListener('keydown',function(e){var k=e.key,n=null;if(k==='ArrowLeft')n=tabs[(i+1)%tabs.length];if(k==='ArrowRight')n=tabs[(i-1+tabs.length)%tabs.length];if(k==='Home')n=tabs[0];if(k==='End')n=tabs[tabs.length-1];if(n){e.preventDefault();sel(n);}});});
+  document.querySelectorAll('.hr-mask button').forEach(function(b){b.addEventListener('click',function(){var s=b.previousElementSibling;if(b.dataset.on){s.textContent=b.dataset.m;b.textContent='إظهار';delete b.dataset.on;}else{b.dataset.m=s.textContent;s.textContent=s.textContent.indexOf('4821')>-1?'1994 0312 4821':'1,250,000 د.ع';b.textContent='إخفاء';b.dataset.on=1;}});});
+  var fr=document.getElementById('frame');
+  document.querySelectorAll('input[name=vp]').forEach(function(r){r.addEventListener('change',function(){fr.style.maxInlineSize=r.value;});});
+})();
+</script>
+</body>
+</html>

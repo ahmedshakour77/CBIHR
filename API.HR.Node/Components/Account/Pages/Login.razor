@@ -1,0 +1,712 @@
+@page "/Account/Login"
+@layout API.HR.Node.Components.Layout.AuthLayout
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Security
+@using API.HR.Node.Components.Account
+@using API.HR.Node.Components.Account.Shared
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IActiveDirectoryAuthService AdAuthService
+@inject IServiceScopeFactory ScopeFactory
+@inject ILogger<Login> Logger
+@inject IConfiguration Configuration
+@inject IdentityRedirectManager RedirectManager
+@inject LoginThrottle Throttle
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject API.HR.Node.Services.Network.IAmlConnectivityService AmlNet
+
+<PageTitle>@L("تسجيل الدخول | نظام إدارة الموارد البشرية", "چوونەژوورەوە | سیستەمی بەڕێوەبردنی سەرچاوە مرۆییەکان")</PageTitle>
+
+@*
+    Sign-in.
+
+    IMPORTANT — why the password toggle is not an @onclick handler.
+
+    Components/Account/Pages/_Imports.razor carries [ExcludeFromInteractiveRouting],
+    so every Identity page renders statically. That is not a style choice: cookie
+    sign-in needs to write response headers, which a live Blazor circuit has
+    already flushed. Adding @rendermode InteractiveServer here makes
+    SignInManager.PasswordSignInAsync throw at runtime.
+
+    So form submission and validation stay pure Blazor (EditForm + a
+    ValidationMessageStore + @code), and the view-only toggle runs in
+    js/hr-login.js, which reads its labels from data attributes so they follow the
+    page's language. Nothing on this page is an inline script.
+
+    The theme toggle is no longer this page's problem. js/hr-prefs.js owns the flag
+    on <html data-theme> for the whole application and picks any
+    [data-hr-theme-toggle] control up through a delegated listener, so the
+    control works on a statically rendered page and the choice survives the full
+    page reloads the Identity flow performs. This page used to carry its own
+    copy of that logic, against its own storage key.
+
+    What the redesign settled, beyond the paint:
+
+      · The page resolves against hr-ui.css tokens like every other surface.
+        It used to carry a second palette and a hand-maintained copy of a
+        utility framework, so the first thing anyone saw belonged to a
+        different product than the one behind it.
+      · No control sits on the photograph any more. The institution gets the
+        image; the form gets an opaque surface, where contrast is a token
+        decision rather than a gamble against whatever pixels fall behind a
+        field.
+      · One h1, and it is the task: "تسجيل الدخول" in <main>, where a screen reader
+        lands when it skips to the content. The panel's system name is styled as a
+        title but is not a heading. The page used to declare two h1s, then one in
+        the side panel, so the main region opened on an h2.
+      · The marketing block is gone. These are staff on the internal network
+        with no alternative system; three feature cards and a product pitch
+        were furniture between them and the task.
+      · The "system status: online" light is gone. Nothing measured it: it was
+        hard-coded, so it would have kept claiming the system was up during an
+        outage. A status indicator that cannot be wrong is decoration.
+
+    What hardening settled:
+
+      · A directory (aml.lan) sign-in is held to the same account rules as a local one:
+        a locked or disabled account is refused, and two-step verification is asked for.
+      · Failed attempts are counted per account name on both paths (LoginThrottle), and
+        the form is limited per IP in Program.cs, so a wrong domain password is no longer free.
+      · The fine print says every attempt is logged; every attempt now is, by account
+        name only. Emails, display names and other employees' records stay out of the log.
+*@
+
+<div id="loginRoot" class="hr-auth">
+
+    @* ---------- the institution ---------- *@
+    <aside class="hr-auth-brandside hr-auth-enter" aria-label="@L("الجهة المالكة للمنظومة", "خاوەنی سیستەمەکە")">
+        <img class="hr-auth-photo"
+             src="img/build.jpg"
+             alt=""
+             aria-hidden="true"
+             width="1600" height="1067"
+             fetchpriority="high" decoding="async" />
+        <div class="hr-auth-scrim" aria-hidden="true"></div>
+
+        <div class="hr-auth-org">
+            <div style="display:flex;align-items:center;gap:0.6rem;">
+                <span class="hr-auth-seal" aria-hidden="true" title="@L("البنك المركزي العراقي", "بانکی ناوەندیی عێراق")">
+                    <img src="img/logo.png" alt="" width="204" height="204" decoding="async" />
+                </span>
+                @if (AmlNet.IsAmlConnected)
+                {
+                    <span class="hr-auth-seal hr-auth-seal-aml" aria-hidden="true" title="@L("مكتب مكافحة غسل الأموال وتمويل الإرهاب (متصل عبر aml.lan)", "نووسینگەی بەرەنگاربوونەوەی سپیکردنەوەی پارە و دارایی تیرۆر")">
+                        <img src="img/aml-logo.png" alt="شعار مكتب مكافحة غسل الأموال" width="204" height="204" decoding="async" />
+                    </span>
+                }
+            </div>
+            <span class="hr-auth-org-text">
+                <span class="hr-auth-org-name">@L("البنك المركزي العراقي", "بانکی ناوەندیی عێراق")</span>
+                <span class="hr-auth-org-unit">
+                    @L("مكتب مكافحة غسل الأموال وتمويل الإرهاب", "نووسینگەی بەرەنگاربوونەوەی سپیکردنەوەی پارە و دارایی تیرۆر")
+                    @if (AmlNet.IsAmlConnected)
+                    {
+                        <span class="hr-badge hr-badge-ok" style="font-size:0.65rem;padding:0.1rem 0.4rem;margin-inline-start:0.35rem;vertical-align:middle;">
+                            aml.lan ✓
+                        </span>
+                    }
+                </span>
+            </span>
+        </div>
+
+        <div class="hr-auth-lede">
+            <p class="hr-auth-title">@L("نظام إدارة الموارد البشرية", "سیستەمی بەڕێوەبردنی سەرچاوە مرۆییەکان")</p>
+            <p class="hr-auth-say">
+                @L("سجلات الموظفين والتشكيلات والملفات الإدارية الرسمية، في منظومة واحدة على الشبكة الداخلية.",
+                   "تۆمارەکانی فەرمانبەران و پێکهاتەکان و دۆسیە کارگێڕییە فەرمییەکان، لە یەک سیستەمدا لەسەر تۆڕی ناوخۆیی.")
+            </p>
+        </div>
+
+        <p class="hr-auth-fineprint">
+            @L("الدخول مقصور على منتسبي المكتب المخوّلين. تُسجَّل جميع محاولات الدخول.",
+               "چوونەژوورەوە تەنها بۆ کارمەندە ڕێگەپێدراوەکانی نووسینگەکەیە. هەموو هەوڵەکانی چوونەژوورەوە تۆمار دەکرێن.")
+        </p>
+    </aside>
+
+    @* ---------- the credentials ---------- *@
+    <main class="hr-auth-formside">
+        <div class="hr-auth-form hr-auth-enter" style="--d:90ms">
+
+            @* js/hr-prefs.js owns the flag and relabels this control for the current theme and
+               language. Both glyphs ship and CSS reveals the applicable one — correct on first
+               paint, no round trip. *@
+            <div class="hr-auth-top">
+                <button type="button"
+                        class="hr-btn hr-btn-quiet hr-btn-icon hr-theme-toggle"
+                        data-hr-theme-toggle
+                        aria-label="@L("التحويل إلى النمط الداكن", "گۆڕین بۆ شێوازی تاریک")"
+                        title="@L("التحويل إلى النمط الداكن", "گۆڕین بۆ شێوازی تاریک")">
+                    <svg class="hr-theme-icon-light" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                    </svg>
+                    <svg class="hr-theme-icon-dark" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                    </svg>
+                </button>
+            </div>
+
+            <h1 class="hr-auth-h">@L("تسجيل الدخول", "چوونەژوورەوە")</h1>
+            @* One form takes both kinds of account; the provider buttons, when configured, are the only other way in. *@
+            <p class="hr-auth-sub">
+                @if (externalLogins.Count > 0)
+                {
+                    @L("تابع بأحد الحسابات أدناه، أو أدخل اسم مستخدم الدومين وكلمة مروره.",
+                       "بە یەکێک لە هەژمارەکانی خوارەوە بەردەوام بە، یان ناوی بەکارهێنەر و وشەی نهێنیی دۆمەینەکەت بنووسە.")
+                }
+                else
+                {
+                    @L("أدخل اسم مستخدم الدومين وكلمة مروره، أو بيانات حسابك المحلي في المنظومة.",
+                       "ناوی بەکارهێنەر و وشەی نهێنیی دۆمەینەکەت بنووسە، یان زانیارییەکانی هەژماری ناوخۆییت لە سیستەمەکەدا.")
+                }
+            </p>
+
+            <div class="hr-auth-body">
+
+                @if (!string.IsNullOrEmpty(statusMessage))
+                {
+                    <div class="hr-alert hr-auth-alert @(statusIsError ? "hr-alert-danger" : "hr-alert-ok")"
+                         role="alert">
+                        <div class="hr-alert-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+                                @if (statusIsError)
+                                {
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                                }
+                                else
+                                {
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                }
+                            </svg>
+                        </div>
+                        <div class="hr-alert-content">
+                            <div class="hr-alert-body"><p>@statusMessage</p></div>
+                        </div>
+                    </div>
+                }
+
+                @* Organisational sign-on leads: no password typed is no password phished. *@
+                @if (externalLogins.Count > 0)
+                {
+                    <div class="hr-auth-sso">
+                        @foreach (var provider in externalLogins)
+                        {
+                            <form action="Account/PerformExternalLogin" method="post">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+                                <input type="hidden" name="provider" value="@provider.Name" />
+
+                                <button type="submit" data-submit class="hr-btn hr-btn-secondary hr-btn-block">
+                                    <span class="hr-spinner auth-busy-only" aria-hidden="true"></span>
+                                    @if (string.Equals(provider.Name, "Microsoft", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <svg class="auth-idle-only" viewBox="0 0 23 23" width="16" height="16" aria-hidden="true">
+                                            <path fill="#f35325" d="M1 1h10v10H1z" />
+                                            <path fill="#81bc06" d="M12 1h10v10H12z" />
+                                            <path fill="#05a6f0" d="M1 12h10v10H1z" />
+                                            <path fill="#ffba08" d="M12 12h10v10H12z" />
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg class="auth-idle-only" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21" />
+                                        </svg>
+                                    }
+                                    <span>@L($"المتابعة باستخدام {provider.DisplayName}", $"بەردەوامبوون بە {provider.DisplayName}")</span>
+                                </button>
+                            </form>
+                        }
+                    </div>
+
+                    <div class="hr-auth-or" aria-hidden="true">
+                        <span>@L("أو ببيانات الدخول", "یان بە زانیارییەکانی چوونەژوورەوە")</span>
+                    </div>
+                }
+
+                <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
+                    @* Each field names its error by id only while there is one, so the reference
+                       is never left pointing at an element that is not on the page. *@
+                    <div class="hr-field">
+                        <label class="hr-field-label" for="login-username">@L("اسم المستخدم أو البريد الإلكتروني", "ناوی بەکارهێنەر یان ئیمەیڵ")</label>
+                        <div class="hr-auth-inputwrap">
+                            <span class="hr-auth-glyph" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                                </svg>
+                            </span>
+                            @* Account names and addresses are Latin: typed left to right so
+                               "user@aml.lan" never reorders, aligned to the page's reading edge. *@
+                            <InputText id="login-username" @bind-Value="Input.UserNameOrEmail"
+                                       type="text" dir="ltr" autocomplete="username" autocapitalize="none" spellcheck="false"
+                                       aria-describedby="@(HasError(nameof(InputModel.UserNameOrEmail)) ? "login-username-error" : null)"
+                                       class="hr-input hr-auth-latin" />
+                        </div>
+                        <ValidationMessage For="() => Input.UserNameOrEmail" id="login-username-error" />
+                    </div>
+
+                    <div class="hr-field">
+                        <label class="hr-field-label" for="login-password">@L("كلمة المرور", "وشەی نهێنی")</label>
+                        <div class="hr-auth-inputwrap">
+                            <span class="hr-auth-glyph" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                </svg>
+                            </span>
+
+                            <InputText id="login-password" @bind-Value="Input.Password"
+                                       type="password" autocomplete="current-password"
+                                       dir="ltr"
+                                       aria-describedby="@(HasError(nameof(InputModel.Password)) ? "login-password-error" : null)"
+                                       class="hr-input hr-auth-latin hr-input-reveal" />
+
+                            <button type="button" data-toggle-password
+                                    aria-pressed="false" aria-controls="login-password"
+                                    data-label-show="@L("إظهار كلمة المرور", "پیشاندانی وشەی نهێنی")"
+                                    data-label-hide="@L("إخفاء كلمة المرور", "شاردنەوەی وشەی نهێنی")"
+                                    aria-label="@L("إظهار كلمة المرور", "پیشاندانی وشەی نهێنی")" title="@L("إظهار كلمة المرور", "پیشاندانی وشەی نهێنی")"
+                                    class="hr-auth-reveal">
+                                <svg data-eye-open viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                </svg>
+                                <svg data-eye-closed viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+                                </svg>
+                            </button>
+                        </div>
+                        <ValidationMessage For="() => Input.Password" id="login-password-error" />
+                    </div>
+
+                    <div class="hr-auth-row">
+                        <label class="hr-check">
+                            <InputCheckbox @bind-Value="Input.RememberMe" />
+                            <span>@L("تذكّرني على هذا الجهاز", "لەسەر ئەم ئامێرە لەبیرم بێت")</span>
+                        </label>
+
+                        @* This app sends no email and cannot change a directory password, so the old
+                           link to an email reset led nowhere. The answer is who resets which account. *@
+                        <details class="hr-auth-help">
+                            <summary><span class="hr-link">@L("نسيت كلمة المرور؟", "وشەی نهێنیت لەبیرچووە؟")</span></summary>
+                            <ul class="hr-auth-help-list">
+                                <li>
+                                    <strong>@L("حساب الدومين:", "هەژماری دۆمەین:")</strong>
+                                    @L("كلمة مروره هي نفسها كلمة مرور دخول الحاسوب، ويعيد تعيينها قسم تقنية المعلومات.",
+                                       "وشەی نهێنییەکەی هەمان وشەی نهێنیی چوونەژوورەوەی کۆمپیوتەرە، و بەشی تەکنەلۆژیای زانیاری نوێی دەکاتەوە.")
+                                </li>
+                                <li>
+                                    <strong>@L("الحساب المحلي في المنظومة:", "هەژماری ناوخۆیی لە سیستەمدا:")</strong>
+                                    @L("يعيد تعيينها مسؤول المنظومة.", "بەڕێوەبەری سیستەم نوێی دەکاتەوە.")
+                                </li>
+                            </ul>
+                        </details>
+                    </div>
+
+                    <button type="submit" data-submit class="hr-btn hr-btn-primary hr-btn-lg hr-btn-block hr-auth-submit">
+                        <span class="hr-spinner auth-busy-only" aria-hidden="true"></span>
+                        <span>@L("تسجيل الدخول", "چوونەژوورەوە")</span>
+                    </button>
+
+                    <div class="hr-auth-or" aria-hidden="true" style="margin-block: .875rem;">
+                        <span>@L("أو باستخدام مفاتيح المرور", "یان بە کلیلی تێپەڕین")</span>
+                    </div>
+
+                    <PasskeySubmit Operation="PasskeyOperation.Request"
+                                   Name="PasskeyInput"
+                                   EmailName="Input.UserNameOrEmail"
+                                   class="hr-btn hr-btn-secondary hr-btn-lg hr-btn-block hr-auth-passkey-btn">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-inline-end: .5rem;" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0 1 19.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 0 0 4.5 10.5a7.464 7.464 0 0 1-1.15 3.993m1.989 3.559A11.209 11.209 0 0 0 8.25 10.5a3.75 3.75 0 1 1 7.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 0 1-3.6 9.75m6.633-4.596a18.666 18.666 0 0 1-2.485 5.33" />
+                        </svg>
+                        <span>@L("الدخول بالبصمة ومفتاح المرور (Passkey)", "چوونەژوورەوە بە پەنجەمۆر و کلیلی تێپەڕین (Passkey)")</span>
+                    </PasskeySubmit>
+                </EditForm>
+            </div>
+
+            <p class="hr-auth-foot">
+                © @DateTime.Now.Year @L("البنك المركزي العراقي · جميع الحقوق محفوظة", "بانکی ناوەندیی عێراق · هەموو مافەکان پارێزراون")
+            </p>
+        </div>
+    </main>
+</div>
+
+<script src="js/hr-login.js"></script>
+
+@code {
+    private EditContext editContext = default!;
+    private ValidationMessageStore validation = default!;
+    private string? statusMessage;
+    private bool statusIsError;
+    private IList<AuthenticationScheme> externalLogins = new List<AuthenticationScheme>();
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private PasskeyInputModel PasskeyInput { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    /// <summary>Set by the per-IP limiter in Program.cs when it turns a sign-in post away.</summary>
+    [SupplyParameterFromQuery(Name = "throttled")]
+    private int? Throttled { get; set; }
+
+    private string L(string ar, string ku) => Lang.IsKurdish ? ku : ar;
+
+    private HashSet<string> LocalOnlyAccounts =>
+        new(Configuration.GetSection("Authentication:LocalOnlyAccounts").Get<string[]>() ?? ["systemadmin", "systemadmin@hr.node"],
+            StringComparer.OrdinalIgnoreCase);
+
+    private bool HasError(string field) => editContext.GetValidationMessages(editContext.Field(field)).Any();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (HttpContext.User.Identity?.IsAuthenticated == true)
+        {
+            RedirectManager.RedirectTo(ReturnUrl ?? "/");
+            return;
+        }
+
+        Input ??= new();
+        PasskeyInput ??= new();
+        editContext = new EditContext(Input);
+        validation = new ValidationMessageStore(editContext);
+
+        // Rendered from the real scheme list, so the page never advertises a
+        // provider that is not actually configured.
+        externalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).ToList();
+
+        if (HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+        }
+
+        if (Throttled == 1)
+        {
+            SetStatus(L("محاولات دخول كثيرة من هذا الجهاز. انتظر دقيقة ثم أعد المحاولة.",
+                        "هەوڵی چوونەژوورەوەی زۆر لەم ئامێرەوە. خولەکێک چاوەڕێ بکە و دووبارە هەوڵبدەرەوە."), isError: true);
+        }
+
+        // StatusMessage.razor styles itself with Bootstrap classes this app never
+        // loads, and picks severity from an English "Error" prefix, so an Arabic
+        // failure renders as a success. The carried status is read here instead.
+        var carried = HttpContext.Request.Cookies[IdentityRedirectManager.StatusCookieName];
+        if (!string.IsNullOrEmpty(carried))
+        {
+            HttpContext.Response.Cookies.Delete(IdentityRedirectManager.StatusCookieName);
+            SetStatus(carried, carried.StartsWith("Error", StringComparison.OrdinalIgnoreCase)
+                              || carried.StartsWith("خطأ", StringComparison.Ordinal));
+        }
+    }
+
+    private void SetStatus(string message, bool isError)
+    {
+        statusMessage = message;
+        statusIsError = isError;
+    }
+
+    // Required-field checks in the page's language. DataAnnotations would fix them in one.
+    private bool Validate()
+    {
+        validation.Clear();
+        if (string.IsNullOrWhiteSpace(Input.UserNameOrEmail))
+            validation.Add(editContext.Field(nameof(InputModel.UserNameOrEmail)), L("اسم المستخدم أو البريد الإلكتروني مطلوب", "ناوی بەکارهێنەر یان ئیمەیڵ پێویستە"));
+        if (string.IsNullOrEmpty(Input.Password))
+            validation.Add(editContext.Field(nameof(InputModel.Password)), L("كلمة المرور مطلوبة", "وشەی نهێنی پێویستە"));
+        editContext.NotifyValidationStateChanged();
+        return !editContext.GetValidationMessages().Any();
+    }
+
+    public async Task LoginUser()
+    {
+        if (!string.IsNullOrEmpty(PasskeyInput?.Error))
+        {
+            Logger.LogWarning("Passkey sign-in error: {Error}", PasskeyInput.Error);
+            SetStatus(L($"تعذّر تسجيل الدخول بمفتاح المرور: {PasskeyInput.Error}",
+                        $"چوونەژوورەوە بە کلیلی تێپەڕین سەرکەوتوو نەبوو: {PasskeyInput.Error}"), isError: true);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(PasskeyInput?.CredentialJson))
+        {
+            var passkeyResult = await SignInManager.PasskeySignInAsync(PasskeyInput.CredentialJson);
+            if (passkeyResult.Succeeded)
+            {
+                Logger.LogInformation("Passkey sign-in succeeded.");
+                RedirectManager.RedirectTo(ReturnUrl);
+                return;
+            }
+
+            if (passkeyResult.IsLockedOut)
+            {
+                Logger.LogWarning("Passkey sign-in refused: account locked.");
+                RedirectManager.RedirectTo("Account/Lockout");
+                return;
+            }
+
+            SetStatus(L("تعذّر تسجيل الدخول بمفتاح المرور، أو أن المفتاح غير مقترن بحساب مسجل.",
+                        "چوونەژوورەوە بە کلیلی تێپەڕین سەرکەوتوو نەبوو یان کلیلەکە بە هەژمارێکی تۆمارکراوەوە پەیوەست نەکراوە."), isError: true);
+            return;
+        }
+
+        if (!Validate())
+        {
+            return;
+        }
+
+        var rawInput = Input.UserNameOrEmail.Trim();
+        var password = Input.Password;
+
+        // An account name that has used up its attempts is not checked at all, so the
+        // directory is not asked again and its own lockout is not brought any closer.
+        if (Throttle.IsBlocked(rawInput, out var retryAfter))
+        {
+            Logger.LogWarning("Sign-in refused for '{Account}': too many failed attempts.", LoginThrottle.Normalize(rawInput));
+            var minutes = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalMinutes));
+            SetStatus(L($"توقّف الدخول بهذا الحساب مؤقتاً بعد محاولات فاشلة متكررة. أعد المحاولة بعد {minutes} دقيقة.",
+                        $"چوونەژوورەوە بەم هەژمارە بۆ ماوەیەک ڕاگیراوە دوای چەند هەوڵێکی سەرنەکەوتوو. دوای {minutes} خولەک دووبارە هەوڵبدەرەوە."), isError: true);
+            return;
+        }
+
+        // Accounts listed in Authentication:LocalOnlyAccounts skip the directory, so the
+        // built-in administrator can still sign in when aml.lan is unreachable.
+        bool isLocalAdmin = LocalOnlyAccounts.Contains(rawInput);
+
+        // 1. Check Active Directory (aml.lan) credentials
+        if (!isLocalAdmin && AdAuthService.ValidateCredentials(rawInput, password, out var adUser))
+        {
+            Logger.LogInformation("[AD sign-in] '{Username}' verified by the directory.", adUser!.Username);
+
+            // Mandatory EmployeeEmails verification
+            EmployeeEmail? empEmail = null;
+            var candidateEmails = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                adUser.Email,
+                $"{adUser.Username}@aml.lan"
+            };
+
+            if (rawInput.Contains('@'))
+            {
+                candidateEmails.Add(rawInput);
+            }
+
+            var candidateList = candidateEmails.Select(e => e.Trim().ToLower()).Distinct().ToList();
+            var usernamePrefix = adUser.Username.Trim().ToLower() + "@";
+
+            try
+            {
+                using var scope = ScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+                // Direct query on EmployeeEmails without INNER JOIN on Employees
+                empEmail = await db.EmployeeEmails
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(ee =>
+                        candidateList.Contains(ee.Email.Trim().ToLower())
+                        || ee.Email.Trim().ToLower().StartsWith(usernamePrefix)
+                        || ee.Email.Trim().ToLower() == adUser.Username.Trim().ToLower()
+                        || ee.EmployeeID.Trim() == adUser.Username.Trim());
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[AD sign-in] Employee record lookup failed for '{Username}'.", adUser.Username);
+                SetStatus(L("حدث خطأ أثناء التحقق من بيانات الموظف. يرجى المحاولة لاحقاً.",
+                            "هەڵەیەک ڕوویدا لە کاتی پشکنینی زانیاری فەرمانبەر. تکایە دواتر هەوڵبدەرەوە."), isError: true);
+                return;
+            }
+
+            // If not found in EmployeeEmails: STOP and block login immediately
+            if (empEmail == null)
+            {
+                Logger.LogWarning("[AD sign-in] '{Username}' has no matching employee email record; access refused.", adUser.Username);
+                SetStatus(L("هذا البريد غير مسجل في قائمة عناوين الموظفين المصرح لهم أو تم حذفه من النظام. يرجى مراجعة إدارة الموارد البشرية.",
+                            "ئەم ئیمەیڵە لە لیستی ناونیشانی فەرمانبەرە ڕێگەپێدراوەکاندا تۆمار نەکراوە یان لە سیستەمەکە سڕاوەتەوە. تکایە سەردانی بەڕێوەبەرایەتی سەرچاوە مرۆییەکان بکە."), isError: true);
+                return;
+            }
+
+            // Find existing ApplicationUser in AspNetUsers by username or email
+            var user = await UserManager.FindByNameAsync(adUser.Username)
+                    ?? await UserManager.FindByEmailAsync(empEmail.Email)
+                    ?? await UserManager.FindByNameAsync(empEmail.Email)
+                    ?? await UserManager.FindByEmailAsync(adUser.Email)
+                    ?? await UserManager.FindByNameAsync(adUser.Email);
+
+            // If user doesn't exist in AspNetUsers yet, auto-provision
+            if (user == null)
+            {
+                user = new ApplicationUser
+                {
+                    UserName = adUser.Username,
+                    Email = empEmail.Email,
+                    EmailConfirmed = true,
+                    EmployeeID = empEmail.EmployeeID
+                };
+
+                var createRes = await UserManager.CreateAsync(user);
+                if (createRes.Succeeded)
+                {
+                    await UserManager.AddToRoleAsync(user, "Employee");
+                    Logger.LogInformation("[AD sign-in] Provisioned an account for '{Username}' (EmployeeID {EmployeeID}) with role 'Employee'.",
+                        adUser.Username, empEmail.EmployeeID);
+                }
+                else
+                {
+                    Logger.LogWarning("[AD sign-in] Could not provision an account for '{Username}': {Errors}",
+                        adUser.Username, string.Join(", ", createRes.Errors.Select(e => e.Code)));
+                    SetStatus(L("حدث خطأ أثناء تهيئة حساب المستخدم في النظام.",
+                                "هەڵەیەک ڕوویدا لە کاتی ئامادەکردنی هەژماری بەکارهێنەر لە سیستەمەکەدا."), isError: true);
+                    return;
+                }
+            }
+            else
+            {
+                // User already exists: sync EmployeeID and Email with current EmployeeEmails record
+                bool needsUpdate = false;
+                if (user.EmployeeID != empEmail.EmployeeID)
+                {
+                    user.EmployeeID = empEmail.EmployeeID;
+                    needsUpdate = true;
+                }
+
+                if (!string.Equals(user.Email, empEmail.Email, StringComparison.OrdinalIgnoreCase))
+                {
+                    user.Email = empEmail.Email;
+                    needsUpdate = true;
+                }
+
+                if (needsUpdate)
+                {
+                    var updateRes = await UserManager.UpdateAsync(user);
+                    if (updateRes.Succeeded)
+                        Logger.LogInformation("[AD sign-in] Re-linked '{Username}' to EmployeeID {EmployeeID}.", user.UserName, user.EmployeeID);
+                    else
+                        Logger.LogWarning("[AD sign-in] Could not re-link '{Username}': {Errors}",
+                            user.UserName, string.Join(", ", updateRes.Errors.Select(e => e.Code)));
+                }
+            }
+
+            // The directory vouched for the password; the account's own rules still apply.
+            // A locked or disabled account is refused, and two-step verification is asked for,
+            // exactly as on the local path below.
+            if (await UserManager.IsLockedOutAsync(user))
+            {
+                Logger.LogWarning("[AD sign-in] '{Username}' refused: the account is locked or disabled.", user.UserName);
+                RedirectManager.RedirectTo("Account/Lockout");
+                return;
+            }
+
+            if (!await SignInManager.CanSignInAsync(user))
+            {
+                Logger.LogWarning("[AD sign-in] '{Username}' refused: the account is not allowed to sign in.", user.UserName);
+                SetStatus(L("هذا الحساب غير مفعّل للدخول. يرجى مراجعة مسؤول المنظومة.",
+                            "ئەم هەژمارە بۆ چوونەژوورەوە چالاک نییە. تکایە سەردانی بەڕێوەبەری سیستەم بکە."), isError: true);
+                return;
+            }
+
+            Throttle.Reset(rawInput);
+
+            if (await UserManager.GetTwoFactorEnabledAsync(user) && !await SignInManager.IsTwoFactorClientRememberedAsync(user))
+            {
+                await BeginTwoFactorAsync(user);
+                Logger.LogInformation("[AD sign-in] '{Username}' sent to two-step verification.", user.UserName);
+                RedirectManager.RedirectTo(
+                    "Account/LoginWith2fa",
+                    new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+                return;
+            }
+
+            await SignInManager.SignInAsync(user, isPersistent: Input.RememberMe);
+            Logger.LogInformation("[AD sign-in] '{Username}' signed in.", user.UserName);
+            await CompleteLoginRedirect(user);
+            return;
+        }
+
+        // 2. Fall back to local ASP.NET Core Identity authentication
+        var localUser = await UserManager.FindByNameAsync(rawInput)
+                     ?? await UserManager.FindByEmailAsync(rawInput);
+
+        var loginIdentity = localUser?.UserName ?? rawInput;
+        var result = await SignInManager.PasswordSignInAsync(loginIdentity, password, Input.RememberMe, lockoutOnFailure: true);
+
+        if (result.Succeeded)
+        {
+            Throttle.Reset(rawInput);
+            Logger.LogInformation("'{Account}' signed in with a local account.", loginIdentity);
+            localUser ??= await UserManager.FindByNameAsync(loginIdentity);
+            await CompleteLoginRedirect(localUser);
+            return;
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            Throttle.Reset(rawInput);
+            RedirectManager.RedirectTo(
+                "Account/LoginWith2fa",
+                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+            return;
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("'{Account}' refused: the local account is locked out.", loginIdentity);
+            RedirectManager.RedirectTo("Account/Lockout");
+            return;
+        }
+        else
+        {
+            // Neither the directory nor a local account accepted this password.
+            var remaining = Throttle.RecordFailure(rawInput);
+            Logger.LogInformation("Failed sign-in for '{Account}' ({Remaining} attempts left before a pause).", LoginThrottle.Normalize(rawInput), remaining);
+            var message = L("اسم المستخدم أو كلمة المرور غير صحيحة. أعد المحاولة، أو افتح «نسيت كلمة المرور؟» لمعرفة من يعيد تعيينها.",
+                            "ناوی بەکارهێنەر یان وشەی نهێنی هەڵەیە. دووبارە هەوڵبدەرەوە، یان «وشەی نهێنیت لەبیرچووە؟» بکەرەوە بۆ زانینی کێ نوێی دەکاتەوە.");
+            if (remaining is > 0 and <= 2)
+            {
+                message += L($" تبقّت {remaining} محاولة قبل إيقاف الدخول مؤقتاً لهذا الحساب.",
+                             $" {remaining} هەوڵ ماوە پێش ئەوەی چوونەژوورەوە بەم هەژمارە بۆ ماوەیەک ڕابگیرێت.");
+            }
+            SetStatus(message, isError: true);
+        }
+    }
+
+    // Hands a directory-verified user to Account/LoginWith2fa. This is the cookie that
+    // SignInManager writes itself when a password sign-in needs a second step (its
+    // StoreTwoFactorInfo is not public): the user id as the Name claim under the
+    // two-factor scheme, which GetTwoFactorAuthenticationUserAsync reads back.
+    private async Task BeginTwoFactorAsync(ApplicationUser user)
+    {
+        var identity = new ClaimsIdentity(IdentityConstants.TwoFactorUserIdScheme);
+        identity.AddClaim(new Claim(ClaimTypes.Name, await UserManager.GetUserIdAsync(user)));
+        await HttpContext.SignInAsync(IdentityConstants.TwoFactorUserIdScheme, new ClaimsPrincipal(identity));
+    }
+
+    private async Task CompleteLoginRedirect(ApplicationUser? loggedUser)
+    {
+        var targetUrl = ReturnUrl;
+        if (string.IsNullOrWhiteSpace(targetUrl) || targetUrl == "/" || targetUrl == "")
+        {
+            if (loggedUser != null)
+            {
+                var roles = await UserManager.GetRolesAsync(loggedUser);
+                var isStaff = roles.Any(r => r is "Admin" or "HRManager" or "FormationManager" or "Supervisor");
+                targetUrl = isStaff ? "" : "portal";
+            }
+        }
+        RedirectManager.RedirectTo(targetUrl);
+    }
+
+    private sealed class InputModel
+    {
+        public string UserNameOrEmail { get; set; } = "";
+
+        public string Password { get; set; } = "";
+
+        public bool RememberMe { get; set; }
+    }
+}

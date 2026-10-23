@@ -1,0 +1,824 @@
+@page "/employee-contacts"
+@page "/employee-contacts/{EmployeeIdParam}"
+@page "/employees/{EmployeeIdParam}/contacts"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using API.HR.Node.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+@inject ILogger<EmployeeContacts> Logger
+
+<PageTitle>وسائل التواصل | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Contact details for one employee.
+
+    The page has three permission modes — admin, own profile, read-only —
+    and which one is active changes what the page can do, so it is stated
+    at the top in words rather than implied by whether buttons happen to
+    be present.
+
+    Both lists cap at five entries. The cap is shown as a count next to
+    each heading, and the add row disappears once it is reached, with the
+    reason said out loud instead of leaving a disabled control unexplained.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">مساحة العمل</span>
+            <h1 class="hr-h1">وسائل التواصل والملف الرقمي</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                حتى خمسة عناوين بريد وخمسة أرقام هاتف لكل موظف، مع تحديد الرئيسي في كل قائمة.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            @if (isAdmin)
+            {
+                <span class="hr-badge hr-badge-accent">
+                    <Icon Name="shield-check" Size="xs" />
+                    <span>صلاحيات كاملة</span>
+                </span>
+            }
+            else if (isReadOnlyView)
+            {
+                <span class="hr-badge hr-badge-warn">
+                    <Icon Name="eye" Size="xs" />
+                    <span>معاينة فقط</span>
+                </span>
+            }
+            else
+            {
+                <span class="hr-badge hr-badge-ok">
+                    <Icon Name="user" Size="xs" />
+                    <span>ملفك الشخصي</span>
+                </span>
+            }
+        </div>
+    </header>
+
+    @if (isAdmin)
+    {
+        <section class="hr-card">
+            <div class="hr-card-body">
+                <label class="hr-field-label" for="emp-lookup">اختيار موظف</label>
+                <div class="hr-lookup">
+                    <div class="hr-search">
+                        <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <input id="emp-lookup"
+                               type="search"
+                               class="hr-input"
+                               role="combobox"
+                               aria-expanded="@(searchResults.Count > 0 ? "true" : "false")"
+                               aria-controls="emp-lookup-results"
+                               aria-autocomplete="list"
+                               autocomplete="off"
+                               placeholder="الاسم أو الرقم الوظيفي"
+                               value="@searchEmployeeInput"
+                               @oninput="OnSearchEmployeeInput" />
+                    </div>
+
+                    @if (searchResults.Count > 0)
+                    {
+                        <ul id="emp-lookup-results" class="hr-popover hr-lookup-list hr-scroll" role="listbox">
+                            @foreach (var res in searchResults)
+                            {
+                                <li @key="res.EmployeeID">
+                                    <button type="button" class="hr-menu-item" role="option" aria-selected="false"
+                                            @onclick="() => SelectEmployee(res.EmployeeID)">
+                                        <span class="hr-truncate">@res.Name</span>
+                                        <span class="hr-num hr-lookup-id">@res.EmployeeID</span>
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+                <p class="hr-help">ابحث لفتح ملف موظف آخر وتعديل وسائل تواصله.</p>
+            </div>
+        </section>
+    }
+
+    @if (isReadOnlyView)
+    {
+        <div class="hr-alert hr-alert-warn" role="note">
+            <Icon Name="lock-closed" Size="sm" />
+            <div>
+                <p class="hr-alert-title">وضع المعاينة</p>
+                <p style="margin-block-start:.25rem">
+                    تقتصر صلاحية التعديل على ملفك الوظيفي الشخصي. يمكنك الاطلاع على هذه البيانات دون تغييرها.
+                </p>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="hr-alert @(isStatusError ? "hr-alert-danger" : "hr-alert-ok")" role="alert">
+            <Icon Name="@(isStatusError ? "exclamation-triangle" : "check-circle")" Size="sm" />
+            <div class="hr-alert-grow"><p class="hr-wrap-any">@statusMessage</p></div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                    @onclick="() => statusMessage = null" aria-label="إخفاء الرسالة">
+                <Icon Name="x-mark" Size="sm" />
+            </button>
+        </div>
+    }
+
+    @if (linkedEmployee is null)
+    {
+        <div class="hr-card">
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="identification" Size="lg" /></span>
+                <p class="hr-h3">لم يُحدَّد موظف</p>
+                <p class="hr-sub hr-measure-sm">
+                    @(isAdmin
+                        ? "ابحث عن موظف بالأعلى لفتح ملف وسائل التواصل الخاص به."
+                        : "حسابك غير مرتبط بسجل موظف. راجع مسؤول النظام لإتمام الربط.")
+                </p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <section class="hr-card" aria-labelledby="emp-heading">
+            <div class="hr-card-body">
+                <div class="hr-idcell">
+                    <span class="hr-avatar hr-avatar-lg" aria-hidden="true">@AvatarInitials.FromName(linkedEmployee.Name)</span>
+                    <div class="hr-idcell-text">
+                        <h2 id="emp-heading" class="hr-h2 hr-truncate">@linkedEmployee.Name</h2>
+                        <p class="hr-meta" style="margin-block-start:.25rem">
+                            الرقم الوظيفي <span class="hr-num">@linkedEmployee.EmployeeID</span>
+                        </p>
+                    </div>
+
+                    @if (!isReadOnlyView)
+                    {
+                        @if (isAccountLinkedToThisEmployee)
+                        {
+                            <span class="hr-badge hr-badge-ok">
+                                <Icon Name="check-circle" Size="xs" />
+                                <span>حسابك مرتبط بهذا السجل</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                    @onclick="LinkAccountToThisEmployee" disabled="@isSaving">
+                                <Icon Name="link" Size="xs" />
+                                <span>ربط حسابي بهذا السجل</span>
+                            </button>
+                        }
+                    }
+                </div>
+
+                <dl class="hr-deflist" style="margin-block-start:1.25rem">
+                    <div class="hr-deflist-row">
+                        <dt>التشكيل الإداري</dt>
+                        <dd>@Or(linkedEmployee.Formation?.Name)</dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>العنوان الوظيفي</dt>
+                        <dd>@Or(linkedEmployee.JobTitle?.Name)</dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>الدرجة والمرحلة</dt>
+                        <dd>
+                            <span class="hr-badge">@Or(linkedEmployee.Grade?.Name)</span>
+                            <span class="hr-badge">@Or(linkedEmployee.Stage?.Name)</span>
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+
+        <div class="hr-grid-pair">
+
+            @* ---------- emails ---------- *@
+            <section class="hr-card" aria-labelledby="emails-heading">
+                <div class="hr-card-head">
+                    <div class="hr-idcell">
+                        <span class="hr-iconplate" aria-hidden="true"><Icon Name="envelope" Size="sm" /></span>
+                        <div class="hr-idcell-text">
+                            <h2 id="emails-heading" class="hr-h2">البريد الإلكتروني</h2>
+                            <p class="hr-meta" style="margin-block-start:.25rem">
+                                <span class="hr-num">@employeeEmails.Count</span> من <span class="hr-num">5</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-card-body">
+                    @if (employeeEmails.Count == 0)
+                    {
+                        <p class="hr-contactempty">لا توجد عناوين بريد مسجّلة.</p>
+                    }
+                    else
+                    {
+                        <ul class="hr-contactlist">
+                            @foreach (var email in employeeEmails)
+                            {
+                                <li class="hr-contactrow" @key="email.Id">
+                                    <span class="hr-contactrow-value hr-wrap-any" dir="ltr">@email.Email</span>
+
+                                    @if (email.IsPrimary)
+                                    {
+                                        <span class="hr-badge hr-badge-accent">
+                                            <Icon Name="check" Size="xs" />
+                                            <span>رئيسي</span>
+                                        </span>
+                                    }
+                                    else if (!isReadOnlyView)
+                                    {
+                                        <div class="hr-rowactions">
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm"
+                                                    @onclick="() => SetPrimaryEmail(email.Id)">
+                                                جعله رئيسياً
+                                            </button>
+                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => AskDeleteEmail(email)"
+                                                    aria-label="@($"حذف البريد {email.Email}")" title="حذف">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        </div>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                @if (!isReadOnlyView)
+                {
+                    <div class="hr-card-foot">
+                        @if (employeeEmails.Count < 5)
+                        {
+                            <div class="hr-addrow">
+                                <div class="hr-addrow-field">
+                                    <label class="hr-sr" for="new-email">بريد إلكتروني جديد</label>
+                                    <input id="new-email" type="email" class="hr-input" dir="ltr" autocomplete="off"
+                                           placeholder="name@cbi.iq" @bind="newEmailInput" />
+                                </div>
+                                <button type="button" class="hr-btn hr-btn-primary"
+                                        @onclick="AddEmail" disabled="@(string.IsNullOrWhiteSpace(newEmailInput) || isSaving)">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة</span>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="hr-meta">بلغت القائمة الحد الأقصى (<span class="hr-num">5</span>). احذف عنواناً لإضافة آخر.</p>
+                        }
+                    </div>
+                }
+            </section>
+
+            @* ---------- phones ---------- *@
+            <section class="hr-card" aria-labelledby="phones-heading">
+                <div class="hr-card-head">
+                    <div class="hr-idcell">
+                        <span class="hr-iconplate" aria-hidden="true"><Icon Name="phone" Size="sm" /></span>
+                        <div class="hr-idcell-text">
+                            <h2 id="phones-heading" class="hr-h2">أرقام الهاتف</h2>
+                            <p class="hr-meta" style="margin-block-start:.25rem">
+                                <span class="hr-num">@employeePhones.Count</span> من <span class="hr-num">5</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-card-body">
+                    @if (employeePhones.Count == 0)
+                    {
+                        <p class="hr-contactempty">لا توجد أرقام هاتف مسجّلة.</p>
+                    }
+                    else
+                    {
+                        <ul class="hr-contactlist">
+                            @foreach (var phone in employeePhones)
+                            {
+                                <li class="hr-contactrow" @key="phone.Id">
+                                    <span class="hr-contactrow-value hr-num" dir="ltr">@phone.PhoneNumber</span>
+
+                                    @if (phone.IsPrimary)
+                                    {
+                                        <span class="hr-badge hr-badge-accent">
+                                            <Icon Name="check" Size="xs" />
+                                            <span>رئيسي</span>
+                                        </span>
+                                    }
+                                    else if (!isReadOnlyView)
+                                    {
+                                        <div class="hr-rowactions">
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm"
+                                                    @onclick="() => SetPrimaryPhone(phone.Id)">
+                                                جعله رئيسياً
+                                            </button>
+                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => AskDeletePhone(phone)"
+                                                    aria-label="@($"حذف الرقم {phone.PhoneNumber}")" title="حذف">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        </div>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                @if (!isReadOnlyView)
+                {
+                    <div class="hr-card-foot">
+                        @if (employeePhones.Count < 5)
+                        {
+                            <div class="hr-addrow">
+                                <div class="hr-addrow-field">
+                                    <label class="hr-sr" for="new-phone">رقم هاتف جديد</label>
+                                    <input id="new-phone" type="tel" inputmode="tel" class="hr-input" dir="ltr" autocomplete="off"
+                                           placeholder="07XXXXXXXXX" @bind="newPhoneInput" />
+                                </div>
+                                <button type="button" class="hr-btn hr-btn-primary"
+                                        @onclick="AddPhone" disabled="@(string.IsNullOrWhiteSpace(newPhoneInput) || isSaving)">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة</span>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="hr-meta">بلغت القائمة الحد الأقصى (<span class="hr-num">5</span>). احذف رقماً لإضافة آخر.</p>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+<ConfirmDialog IsOpen="@(pendingEmail is not null)"
+               Title="حذف عنوان بريد"
+               Subject="@pendingEmail?.Email"
+               Message="سيُحذف هذا العنوان من ملف الموظف نهائياً."
+               ConfirmText="حذف"
+               IsBusy="@isSaving"
+               OnConfirm="ConfirmDeleteEmail"
+               OnCancel="() => pendingEmail = null" />
+
+<ConfirmDialog IsOpen="@(pendingPhone is not null)"
+               Title="حذف رقم هاتف"
+               Subject="@pendingPhone?.PhoneNumber"
+               Message="سيُحذف هذا الرقم من ملف الموظف نهائياً."
+               ConfirmText="حذف"
+               IsBusy="@isSaving"
+               OnConfirm="ConfirmDeletePhone"
+               OnCancel="() => pendingPhone = null" />
+
+@code {
+    [Parameter]
+    public string? EmployeeIdParam { get; set; }
+
+    private ApplicationUser? currentUser;
+    private Employee? linkedEmployee;
+    private List<EmployeeEmail> employeeEmails = [];
+    private List<EmployeePhone> employeePhones = [];
+
+    private string? searchEmployeeInput;
+    private List<Employee> searchResults = [];
+
+    private string? newEmailInput;
+    private string? newPhoneInput;
+
+    private string? statusMessage;
+    private bool isStatusError;
+    private bool isSaving;
+    private bool isAdmin;
+    private bool isReadOnlyView;
+
+    private EmployeeEmail? pendingEmail;
+    private EmployeePhone? pendingPhone;
+
+    private bool isAccountLinkedToThisEmployee =>
+        currentUser?.EmployeeID != null && currentUser.EmployeeID == linkedEmployee?.EmployeeID;
+
+    private static string Or(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userClaims = authState.User;
+        if (userClaims.Identity?.IsAuthenticated == true)
+        {
+            currentUser = await UserManager.GetUserAsync(userClaims);
+            isAdmin = userClaims.IsInRole("Admin") ||
+                      userClaims.IsInRole("HRAdmin") ||
+                      (currentUser?.UserName != null && currentUser.UserName.Equals("systemadmin", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadEmployeeData();
+    }
+
+    private async Task OnSearchEmployeeInput(ChangeEventArgs e)
+    {
+        if (!isAdmin) return;
+
+        searchEmployeeInput = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(searchEmployeeInput))
+        {
+            searchResults.Clear();
+            return;
+        }
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var term = searchEmployeeInput.Trim();
+            searchResults = await dbContext.Employees
+                .AsNoTracking()
+                .Where(emp => emp.EmployeeID.Contains(term) || emp.Name.Contains(term))
+                .Take(7)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to search employees.");
+        }
+    }
+
+    private void SelectEmployee(string empId)
+    {
+        searchResults.Clear();
+        searchEmployeeInput = null;
+        NavigationManager.NavigateTo($"/employee-contacts/{empId}");
+    }
+
+    private async Task LoadEmployeeData()
+    {
+        try
+        {
+            var targetEmpId = EmployeeIdParam?.Trim();
+
+            // Default fallback to currently logged in user's linked EmployeeID if no param provided
+            if (string.IsNullOrEmpty(targetEmpId))
+            {
+                targetEmpId = currentUser?.EmployeeID;
+            }
+
+            if (string.IsNullOrEmpty(targetEmpId))
+            {
+                linkedEmployee = null;
+                employeeEmails.Clear();
+                employeePhones.Clear();
+                isReadOnlyView = false;
+                return;
+            }
+
+            // Security Check: If non-admin user accesses another employee's contacts -> enforce Read-Only view
+            if (!isAdmin && currentUser?.EmployeeID != targetEmpId)
+            {
+                isReadOnlyView = true;
+            }
+            else
+            {
+                isReadOnlyView = false;
+            }
+
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            linkedEmployee = await dbContext.Employees
+                .AsNoTracking()
+                .Include(e => e.Formation)
+                .Include(e => e.JobTitle)
+                .Include(e => e.Grade)
+                .Include(e => e.Stage)
+                .FirstOrDefaultAsync(e => e.EmployeeID == targetEmpId);
+
+            if (linkedEmployee != null)
+            {
+                employeeEmails = await dbContext.EmployeeEmails
+                    .AsNoTracking()
+                    .Where(e => e.EmployeeID == linkedEmployee.EmployeeID)
+                    .OrderByDescending(e => e.IsPrimary)
+                    .ThenBy(e => e.CreatedAt)
+                    .ToListAsync();
+
+                employeePhones = await dbContext.EmployeePhones
+                    .AsNoTracking()
+                    .Where(p => p.EmployeeID == linkedEmployee.EmployeeID)
+                    .OrderByDescending(p => p.IsPrimary)
+                    .ThenBy(p => p.CreatedAt)
+                    .ToListAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load employee contacts data.");
+        }
+    }
+
+    private async Task LinkAccountToThisEmployee()
+    {
+        if (isReadOnlyView || currentUser == null || linkedEmployee == null) return;
+
+        isSaving = true;
+        statusMessage = null;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var userToUpdate = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == currentUser.Id);
+            if (userToUpdate != null)
+            {
+                userToUpdate.EmployeeID = linkedEmployee.EmployeeID;
+                await dbContext.SaveChangesAsync();
+                currentUser.EmployeeID = linkedEmployee.EmployeeID;
+                ShowStatus($"تم ربط حسابك بالموظف {linkedEmployee.Name} — الرقم {linkedEmployee.EmployeeID}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to link account to employee.");
+            ShowStatus("حدث خطأ أثناء ربط الحساب.", isError: true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task AddEmail()
+    {
+        if (isReadOnlyView || linkedEmployee == null || string.IsNullOrWhiteSpace(newEmailInput)) return;
+
+        if (employeeEmails.Count >= 5)
+        {
+            ShowStatus("لا يمكن إضافة أكثر من 5 عناوين بريد للموظف.", isError: true);
+            return;
+        }
+
+        var emailStr = newEmailInput.Trim().ToLowerInvariant();
+        if (!new EmailAddressAttribute().IsValid(emailStr))
+        {
+            ShowStatus("صيغة البريد الإلكتروني غير صحيحة. تأكد من وجود @ واسم النطاق.", isError: true);
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            if (await dbContext.EmployeeEmails.AnyAsync(e => e.Email == emailStr))
+            {
+                ShowStatus("هذا البريد الإلكتروني مستخدم بالفعل لموظف آخر.", isError: true);
+                return;
+            }
+
+            bool isFirst = employeeEmails.Count == 0;
+            dbContext.EmployeeEmails.Add(new EmployeeEmail
+            {
+                EmployeeID = linkedEmployee.EmployeeID,
+                Email = emailStr,
+                IsPrimary = isFirst,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+            newEmailInput = null;
+            ShowStatus("تمت إضافة البريد الإلكتروني.");
+            await LoadEmployeeData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to add email.");
+            ShowStatus("حدث خطأ أثناء إضافة البريد الإلكتروني.", isError: true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task SetPrimaryEmail(int emailId)
+    {
+        if (isReadOnlyView || linkedEmployee == null) return;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var allEmails = await dbContext.EmployeeEmails.Where(e => e.EmployeeID == linkedEmployee.EmployeeID).ToListAsync();
+            foreach (var email in allEmails)
+            {
+                email.IsPrimary = (email.Id == emailId);
+            }
+
+            await dbContext.SaveChangesAsync();
+            ShowStatus("تم تعيين البريد الرئيسي.");
+            await LoadEmployeeData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to set primary email.");
+            ShowStatus("تعذّر تعيين البريد الرئيسي.", isError: true);
+        }
+    }
+
+    // The primary entry is the one other systems read, so it cannot be
+    // removed while it holds that role — the reason is stated rather than
+    // hidden behind a disabled control.
+    private void AskDeleteEmail(EmployeeEmail email)
+    {
+        if (email.IsPrimary)
+        {
+            ShowStatus("لا يمكن حذف البريد الرئيسي. عيّن بريداً رئيسياً آخر أولاً.", isError: true);
+            return;
+        }
+
+        pendingEmail = email;
+    }
+
+    private async Task ConfirmDeleteEmail()
+    {
+        if (isReadOnlyView || linkedEmployee == null || pendingEmail is null) return;
+
+        isSaving = true;
+        var emailId = pendingEmail.Id;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var target = await dbContext.EmployeeEmails.FirstOrDefaultAsync(e => e.Id == emailId && e.EmployeeID == linkedEmployee.EmployeeID);
+            if (target != null)
+            {
+                if (target.IsPrimary)
+                {
+                    ShowStatus("لا يمكن حذف البريد الرئيسي. عيّن بريداً رئيسياً آخر أولاً.", isError: true);
+                    return;
+                }
+
+                dbContext.EmployeeEmails.Remove(target);
+                await dbContext.SaveChangesAsync();
+                ShowStatus("تم حذف البريد الإلكتروني.");
+                pendingEmail = null;
+                await LoadEmployeeData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete email.");
+            ShowStatus("تعذّر حذف البريد الإلكتروني.", isError: true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task AddPhone()
+    {
+        if (isReadOnlyView || linkedEmployee == null || string.IsNullOrWhiteSpace(newPhoneInput)) return;
+
+        if (employeePhones.Count >= 5)
+        {
+            ShowStatus("لا يمكن إضافة أكثر من 5 أرقام هاتف للموظف.", isError: true);
+            return;
+        }
+
+        var phoneStr = newPhoneInput.Trim();
+        isSaving = true;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            bool isFirst = employeePhones.Count == 0;
+            dbContext.EmployeePhones.Add(new EmployeePhone
+            {
+                EmployeeID = linkedEmployee.EmployeeID,
+                PhoneNumber = phoneStr,
+                IsPrimary = isFirst,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+
+            await dbContext.SaveChangesAsync();
+            newPhoneInput = null;
+            ShowStatus("تمت إضافة رقم الهاتف.");
+            await LoadEmployeeData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to add phone.");
+            ShowStatus("حدث خطأ أثناء إضافة رقم الهاتف.", isError: true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task SetPrimaryPhone(int phoneId)
+    {
+        if (isReadOnlyView || linkedEmployee == null) return;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var allPhones = await dbContext.EmployeePhones.Where(p => p.EmployeeID == linkedEmployee.EmployeeID).ToListAsync();
+            foreach (var phone in allPhones)
+            {
+                phone.IsPrimary = (phone.Id == phoneId);
+            }
+
+            await dbContext.SaveChangesAsync();
+            ShowStatus("تم تعيين الرقم الرئيسي.");
+            await LoadEmployeeData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to set primary phone.");
+            ShowStatus("تعذّر تعيين الرقم الرئيسي.", isError: true);
+        }
+    }
+
+    private void AskDeletePhone(EmployeePhone phone)
+    {
+        if (phone.IsPrimary)
+        {
+            ShowStatus("لا يمكن حذف الرقم الرئيسي. عيّن رقماً رئيسياً آخر أولاً.", isError: true);
+            return;
+        }
+
+        pendingPhone = phone;
+    }
+
+    private async Task ConfirmDeletePhone()
+    {
+        if (isReadOnlyView || linkedEmployee == null || pendingPhone is null) return;
+
+        isSaving = true;
+        var phoneId = pendingPhone.Id;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var target = await dbContext.EmployeePhones.FirstOrDefaultAsync(p => p.Id == phoneId && p.EmployeeID == linkedEmployee.EmployeeID);
+            if (target != null)
+            {
+                if (target.IsPrimary)
+                {
+                    ShowStatus("لا يمكن حذف الرقم الرئيسي. عيّن رقماً رئيسياً آخر أولاً.", isError: true);
+                    return;
+                }
+
+                dbContext.EmployeePhones.Remove(target);
+                await dbContext.SaveChangesAsync();
+                ShowStatus("تم حذف رقم الهاتف.");
+                pendingPhone = null;
+                await LoadEmployeeData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete phone.");
+            ShowStatus("تعذّر حذف رقم الهاتف.", isError: true);
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ShowStatus(string msg, bool isError = false)
+    {
+        statusMessage = msg;
+        isStatusError = isError;
+    }
+}

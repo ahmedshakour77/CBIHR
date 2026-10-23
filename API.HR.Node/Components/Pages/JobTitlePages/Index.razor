@@ -1,0 +1,1704 @@
+@page "/jobtitles"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using Microsoft.EntityFrameworkCore
+@using API.HR.Node.Data
+@using API.HR.Node.Services
+@using API.HR.Node.Services.Localization
+@implements IAsyncDisposable
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager NavigationManager
+@inject IToastService Toast
+@inject ILanguageService Lang
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>استحقاق العناوين والترقيات الوظيفية | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+    @* Page Header *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>الرئيسية</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb hr-crumb-current">استحقاق العناوين والترقيات</span>
+            </nav>
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-block-start: var(--s-1); flex-wrap: wrap;">
+                <h1 class="hr-h1" style="margin: 0;">استحقاق العناوين والترقيات الوظيفية</h1>
+                <span class="hr-badge hr-badge--accent" style="font-size: var(--fs-caption); font-weight: 600;">
+                    <Icon Name="sparkles" Size="xs" />
+                    <span>محرك الاحتساب الذكي الجديد</span>
+                </span>
+            </div>
+            <p class="hr-sub hr-measure" style="margin-block-start: var(--s-1); color: var(--text-muted);">
+                احتساب استحقاق الترقية وتغيير العنوان بالسلم الوظيفي، وتطبيق أثر كتب الشكر بما لا يزيد عن 3 أشهر من تاريخ آخر علاوة (السنة الوظيفية)، مع حصر أثر العقوبات ضمن فترة العنوان الحالي.
+            </p>
+        </div>
+        <div class="hr-pagehead-actions" role="group">
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadDataAsync" disabled="@isLoading" title="إعادة احتساب وتحديث البيانات">
+                <Icon Name="arrow-path" Size="sm" Class="@(isLoading ? "hr-spin" : "")" />
+                <span>إعادة احتساب</span>
+            </button>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="ExportCsvAsync" disabled="@(FilteredPredictions.Count == 0)" title="تصدير النتائج إلى ملف CSV">
+                <Icon Name="document-arrow-down" Size="sm" />
+                <span>تصدير CSV</span>
+            </button>
+            <a href="/data-import" class="hr-btn hr-btn-secondary" title="مركز استيراد ملفات الإكسل">
+                <Icon Name="arrow-up-tray" Size="sm" />
+                <span>استيراد بيانات</span>
+            </a>
+            <a href="/admin/job-classifications" class="hr-btn hr-btn-primary" title="الانتقال إلى دليل ومكنز العناوين والعوائل الوظيفية">
+                <Icon Name="briefcase" Size="sm" />
+                <span>دليل العناوين والعوائل</span>
+            </a>
+        </div>
+    </header>
+
+    @* KPI Stat Cards *@
+    <div class="hr-stat-grid" style="margin-block-end: var(--s-4);">
+        <div class="hr-stat-card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span class="hr-meta">إجمالي الموظفين الخاضعين</span>
+                <span style="color: var(--text-muted);"><Icon Name="users" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-val">@predictionsList.Count</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">كادر نشط مشمول بالتنبؤ</span>
+        </div>
+
+        <div class="hr-stat-card hr-stat-card--ok">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span class="hr-meta">مستحقون للترقية الآن</span>
+                <span style="color: var(--color-success);"><Icon Name="check-circle" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-val">@predictionsList.Count(p => p.IsDueNow)</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">أكملوا المدة واستوفوا الشروط</span>
+        </div>
+
+        <div class="hr-stat-card hr-stat-card--warn">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span class="hr-meta">قريب الاستحقاق (خلال 6 أشهر)</span>
+                <span style="color: var(--color-warning);"><Icon Name="clock" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-val">@predictionsList.Count(p => p.IsNearDue)</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">يستحقون الترفيع قريباً</span>
+        </div>
+
+        <div class="hr-stat-card hr-stat-card--accent">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span class="hr-meta">تسكين وظيفي</span>
+                <span style="color: var(--color-primary);"><Icon Name="arrow-up-right" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-val">@predictionsList.Count(p => p.IsStagnated)</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">ترقية درجة وظيفية فقط</span>
+        </div>
+
+        <div class="hr-stat-card @(predictionsList.Any(p => p.IsDismissed || p.DelayMonths > 0) ? "hr-stat-card--danger" : "")">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span class="hr-meta">أثر العقوبات والتأخير</span>
+                <span style="color: var(--color-danger);"><Icon Name="shield-exclamation" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-val">@predictionsList.Count(p => p.IsDismissed || p.DelayMonths > 0)</strong>
+            <span class="hr-sub" style="font-size: var(--fs-caption); color: var(--text-muted);">
+                @(predictionsList.Count(p => p.IsDismissed)) حرمان عزل | @(predictionsList.Count(p => p.DelayMonths > 0 && !p.IsDismissed)) تأخير
+            </span>
+        </div>
+    </div>
+
+    @* Navigation Tabs *@
+    <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border-subtle); margin-block-end: var(--s-3);">
+        <button type="button"
+                class="hr-btn @(activeTab == "predictions" ? "hr-btn-primary" : "hr-btn-quiet")"
+                style="border-bottom-left-radius: 0; border-bottom-right-radius: 0;"
+                @onclick='() => SetActiveTab("predictions")'>
+            <Icon Name="arrow-trending-up" Size="sm" />
+            <span>تنبؤ استحقاق الترقية والعنوان القادم (@predictionsList.Count)</span>
+        </button>
+        <button type="button"
+                class="hr-btn @(activeTab == "titles" ? "hr-btn-primary" : "hr-btn-quiet")"
+                style="border-bottom-left-radius: 0; border-bottom-right-radius: 0;"
+                @onclick='() => SetActiveTab("titles")'>
+            <Icon Name="list-bullet" Size="sm" />
+            <span>دليل ومكنز العناوين الوظيفية (@jobTitlesList.Count)</span>
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="hr-card" style="padding: 4rem 2rem; text-align: center; color: var(--text-muted);">
+            <div class="hr-spin" style="display: inline-block; font-size: 2rem; margin-bottom: 1rem;">
+                <Icon Name="arrow-path" Size="lg" />
+            </div>
+            <div style="font-size: 1.15rem; font-weight: 600; color: var(--text-base);">جارٍ معالجة السلم الوظيفي واحتساب استحقاقات الكادر...</div>
+            <div style="font-size: var(--fs-caption); margin-top: 0.5rem;">
+                يتم فحص تاريخ آخر علاوة، كتب الشكر (سقف 3 أشهر)، وتاريخ آخر عنوان مع العقوبات المؤخرة.
+            </div>
+        </div>
+    }
+    else if (activeTab == "predictions")
+    {
+        @* Filter & Search Toolbar *@
+        <div class="hr-card" style="padding: 1.25rem; margin-block-end: var(--s-3);">
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                @* Search Box *@
+                <div style="flex: 1 1 240px; min-width: 220px; position: relative;">
+                    <input aria-label="البحث في تنبؤات استحقاق العناوين والترقيات" type="search"
+                           class="hr-input"
+                           placeholder="ابحث بالاسم، الرقم الوظيفي، العنوان، أو التشكيل..."
+                           @bind="searchQuery"
+                           @bind:event="oninput"
+                           style="padding-inline-start: 2rem; width: 100%;" />
+                    <span style="position: absolute; inset-inline-start: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;">
+                        <Icon Name="magnifying-glass" Size="xs" />
+                    </span>
+                </div>
+
+                @* Status Filter *@
+                <div style="flex: 0 1 200px; min-width: 170px;">
+                    <select aria-label="تصفية حسب حالة الاستحقاق" class="hr-input" @bind="statusFilter">
+                        <option value="all">جميع الحالات (@predictionsList.Count)</option>
+                        <option value="due_now">مستحقون الآن (@predictionsList.Count(p => p.IsDueNow))</option>
+                        <option value="near_due">قريب الاستحقاق (خلال 6 أشهر) (@predictionsList.Count(p => p.IsNearDue))</option>
+                        <option value="stagnated">تسكين وظيفي (@predictionsList.Count(p => p.IsStagnated))</option>
+                        <option value="letters">حاصلون على كتب شكر (@predictionsList.Count(p => p.LettersCount > 0))</option>
+                        <option value="capped_letters">بلغوا سقف الـ 3 أشهر (@predictionsList.Count(p => p.IsSeniorityCapped))</option>
+                        <option value="penalties">متأثرون بعقوبات (@predictionsList.Count(p => p.DelayMonths > 0))</option>
+                        <option value="dismissed">محروم بعقوبة عزل (@predictionsList.Count(p => p.IsDismissed))</option>
+                    </select>
+                </div>
+
+                @* Grade Filter *@
+                <div style="flex: 0 1 170px; min-width: 150px;">
+                    <select aria-label="تصفية حسب الدرجة الوظيفية" class="hr-input" @bind="gradeFilter">
+                        <option value="">جميع الدرجات الوظيفية</option>
+                        @foreach (var g in availableGrades)
+                        {
+                            <option value="@g">@g</option>
+                        }
+                    </select>
+                </div>
+
+                @* Formation Filter *@
+                <div style="flex: 0 1 180px; min-width: 160px;">
+                    <select aria-label="تصفية حسب التشكيل الإداري" class="hr-input" @bind="formationFilter">
+                        <option value="">جميع التشكيلات (@availableFormations.Count)</option>
+                        @foreach (var f in availableFormations)
+                        {
+                            <option value="@f">@f</option>
+                        }
+                    </select>
+                </div>
+
+                @* Sort Dropdown *@
+                <div style="flex: 0 1 190px; min-width: 170px;">
+                    <select aria-label="ترتيب النتائج" class="hr-input" @bind="sortBy">
+                        <option value="due_asc">موعد الاستحقاق (الأقرب أولاً)</option>
+                        <option value="due_desc">موعد الاستحقاق (الأبعد أولاً)</option>
+                        <option value="name_asc">اسم الموظف (أبجدياً)</option>
+                        <option value="id_asc">الرقم الوظيفي</option>
+                        <option value="seniority_desc">أعلى قِدم من كتب الشكر</option>
+                        <option value="delay_desc">أعلى تأخير بالعقوبات</option>
+                    </select>
+                </div>
+
+                @* Reset Filter *@
+                @if (HasActiveFilters)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearFilters" title="إلغاء الفلاتر والبحث">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>إلغاء الفرز</span>
+                    </button>
+                }
+
+                <div style="margin-inline-start: auto; font-size: var(--fs-caption); color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                    <span>المطابق: <strong>@FilteredPredictions.Count</strong> من <strong>@predictionsList.Count</strong></span>
+                    <span style="opacity: 0.4;">|</span>
+                    <label style="display: flex; align-items: center; gap: 0.25rem;">
+                        <span>عرض:</span>
+                        <select aria-label="عدد السجلات في الصفحة" class="hr-input" style="padding: 0.15rem 0.5rem; width: auto; font-size: var(--fs-caption);" @bind="pageSize">
+                            <option value="15">15</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            @* Quick Technical Rule Note Banner *@
+            <div style="margin-block-start: 0.75rem; padding: 0.5rem 0.75rem; background: var(--surface-sunken); border-radius: var(--radius-sm); font-size: var(--fs-caption); color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <Icon Name="information-circle" Size="xs" Class="text-info" />
+                <span>
+                    <strong>القاعدة الفنية المعتمدة:</strong> كتب الشكر تحتسب من تاريخ <em>آخر علاوة سنوية</em> بسقف لا يزيد عن <strong>3 أشهر</strong> | العقوبات تحصر وتؤخر ضمن <em>فترة العنوان الحالي</em> (من تاريخ آخر عنوان).
+                </span>
+            </div>
+        </div>
+
+        @* Main Predictions Table *@
+        <div class="hr-card" style="padding: 0; overflow: hidden;">
+            <div class="hr-tablewrap">
+                <table class="hr-table" aria-label="جدول تنبؤ استحقاق العناوين والترقيات">
+                    <thead>
+                        <tr>
+                            <th scope="col" style="min-width: 180px;">الموظف والتشكيل</th>
+                            <th scope="col" style="min-width: 160px;">العنوان الحالي والدرجة</th>
+                            <th scope="col" style="min-width: 170px;">العنوان القادم المتوقع</th>
+                            <th scope="col" style="min-width: 140px;">تواريخ الخدمة</th>
+                            <th scope="col" style="min-width: 130px; text-align: center;">كتب الشكر (السنة)</th>
+                            <th scope="col" style="min-width: 130px; text-align: center;">العقوبات (العنوان)</th>
+                            <th scope="col" style="min-width: 150px;">موعد الاستحقاق</th>
+                            <th scope="col" style="min-width: 160px;">حالة التنبؤ</th>
+                            <th scope="col" style="min-width: 100px; text-align: center;">الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (PagedPredictions.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="9" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                                    <Icon Name="magnifying-glass" Size="md" style="opacity: 0.5; margin-bottom: 0.5rem;" />
+                                    <div>لا توجد نتائج تطابق معايير البحث والفرز المحددة</div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var p in PagedPredictions)
+                            {
+                                <tr style="@(p.IsDueNow ? "background: rgba(16, 185, 129, 0.04);" : p.IsDismissed ? "background: rgba(239, 68, 68, 0.04);" : "")">
+                                    @* Employee Column *@
+                                    <td>
+                                        <div style="font-weight: 600;">
+                                            <a href="@($"employees/{p.Employee.Id}")" class="hr-link" title="فتح الملف الشخصي للموظف">
+                                                @p.EmployeeName
+                                            </a>
+                                        </div>
+                                        <div style="display: flex; gap: 0.4rem; align-items: center; margin-block-start: 0.15rem; font-size: var(--fs-caption); color: var(--text-muted);">
+                                            <span class="hr-badge" style="padding: 0.1rem 0.35rem; font-family: var(--font-mono, monospace);">@p.EmployeeID</span>
+                                            @if (!string.IsNullOrWhiteSpace(p.FormationName))
+                                            {
+                                                <span class="hr-truncate" style="max-width: 130px;" title="@p.FormationName">@p.FormationName</span>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    @* Current Title & Grade Column *@
+                                    <td>
+                                        <div style="font-weight: 500;">@p.JobTitleName</div>
+                                        <div style="display: flex; gap: 0.25rem; align-items: center; margin-block-start: 0.15rem; font-size: var(--fs-caption);">
+                                            <span class="hr-badge">@p.GradeName</span>
+                                            <span class="hr-badge hr-badge--subtle">@p.StageName</span>
+                                        </div>
+                                    </td>
+
+                                    @* Next Title Column *@
+                                    <td>
+                                        <div style="font-weight: 600; color: var(--color-primary);">
+                                            @p.NextJobTitleName
+                                        </div>
+                                        <div style="display: flex; gap: 0.25rem; align-items: center; margin-block-start: 0.15rem; font-size: var(--fs-caption);">
+                                            @if (p.IsStagnated)
+                                            {
+                                                <span class="hr-badge hr-badge--accent" title="الموظف مسكّن عند السقف الوظيفي، والترقية تشمل الدرجة فقط">
+                                                    تسكين وظيفي
+                                                </span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(p.NextGradeName))
+                                            {
+                                                <span class="hr-badge hr-badge--subtle">@p.NextGradeName</span>
+                                            }
+                                        </div>
+                                    </td>
+
+                                    @* Dates Column *@
+                                    <td>
+                                        <div style="font-size: var(--fs-caption); display: grid; gap: 0.15rem;">
+                                            <div title="تاريخ آخر علاوة سنوية (بداية السنة الوظيفية)">
+                                                <span style="color: var(--text-muted);">آخر علاوة:</span>
+                                                <strong style="margin-inline-start: 0.25rem;">@(p.LastAllowanceDate?.ToString("yyyy/MM/dd") ?? "—")</strong>
+                                            </div>
+                                            <div title="تاريخ آخر ترقية أو عنوان وظيفي">
+                                                <span style="color: var(--text-muted);">آخر عنوان:</span>
+                                                <span style="margin-inline-start: 0.25rem;">@(p.LastJobTitleDate?.ToString("yyyy/MM/dd") ?? "—")</span>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    @* Appreciation Letters Column *@
+                                    <td style="text-align: center;">
+                                        @if (p.LettersCount > 0)
+                                        {
+                                            <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 0.15rem;">
+                                                <span class="hr-badge hr-badge--ok" title="@p.LettersDetailsTooltip">
+                                                    +@p.EffectiveSeniorityMonths شهر قِدم
+                                                </span>
+                                                @if (p.IsSeniorityCapped)
+                                                {
+                                                    <span style="font-size: 0.7rem; color: var(--color-warning); font-weight: 600;" title="تم تطبيق سقف الـ 3 أشهر وفق التعليمات من أصل @p.RawSeniorityMonths شهر">
+                                                        سقف 3 أشهر (@p.RawSeniorityMonths)
+                                                    </span>
+                                                }
+                                                <span style="font-size: 0.7rem; color: var(--text-muted);">
+                                                    @p.LettersCount كتاب بعد العلاوة
+                                                </span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--text-muted); font-size: var(--fs-caption);">0</span>
+                                        }
+                                    </td>
+
+                                    @* Penalties Column *@
+                                    <td style="text-align: center;">
+                                        @if (p.IsDismissed)
+                                        {
+                                            <span class="hr-badge hr-badge--danger" title="عقوبة عزل تمنع الترفيع نهائياً">
+                                                عقوبة عزل
+                                            </span>
+                                        }
+                                        else if (p.PenaltiesCount > 0)
+                                        {
+                                            <div style="display: inline-flex; flex-direction: column; align-items: center; gap: 0.15rem;">
+                                                <span class="hr-badge hr-badge--danger" title="@p.PenaltiesSummary">
+                                                    -@p.DelayMonths شهر تأخير
+                                                </span>
+                                                <span style="font-size: 0.7rem; color: var(--text-muted);">
+                                                    @p.PenaltiesCount عقوبة بعد العنوان
+                                                </span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--text-muted); font-size: var(--fs-caption);">0</span>
+                                        }
+                                    </td>
+
+                                    @* Predicted Due Date Column *@
+                                    <td>
+                                        @if (p.IsDismissed)
+                                        {
+                                            <span style="color: var(--color-danger); font-weight: 600; font-size: var(--fs-caption);">
+                                                محظور من الترفيع
+                                            </span>
+                                        }
+                                        else if (p.PredictedDueDate.HasValue)
+                                        {
+                                            <div style="font-family: var(--font-mono, monospace); font-weight: 700; font-size: 0.95rem; color: @(p.IsDueNow ? "var(--color-success)" : "var(--text-base)");">
+                                                @p.PredictedDueDate.Value.ToString("yyyy/MM/dd")
+                                            </div>
+                                            <div style="font-size: 0.75rem; color: var(--text-muted);">
+                                                سُلّم: @p.RequiredServiceYears سنوات (مرحلة @p.RequiredServiceYears)
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--text-muted);">—</span>
+                                        }
+                                    </td>
+
+                                    @* Prediction Status Badge Column *@
+                                    <td>
+                                        @if (p.IsDueNow)
+                                        {
+                                            <span class="hr-badge hr-badge--ok" style="font-weight: 600;">
+                                                <Icon Name="check" Size="xs" />
+                                                <span>@p.Status</span>
+                                            </span>
+                                        }
+                                        else if (p.IsNearDue)
+                                        {
+                                            <span class="hr-badge hr-badge--warn" style="font-weight: 600;">
+                                                <Icon Name="clock" Size="xs" />
+                                                <span>@p.Status</span>
+                                            </span>
+                                        }
+                                        else if (p.IsDismissed)
+                                        {
+                                            <span class="hr-badge hr-badge--danger" style="font-weight: 600;">
+                                                <Icon Name="no-symbol" Size="xs" />
+                                                <span>@p.Status</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-badge hr-badge--subtle">
+                                                @p.Status
+                                            </span>
+                                        }
+                                    </td>
+
+                                    @* Actions Column *@
+                                    <td style="text-align: center;">
+                                        <button type="button"
+                                                class="hr-btn hr-btn-secondary hr-btn-xs"
+                                                @onclick="() => OpenCalculationDetails(p)"
+                                                title="عرض التقرير الرياضي وتفاصيل الاحتساب للموظف">
+                                            <Icon Name="eye" Size="xs" />
+                                            <span>الاحتساب</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Pagination Footer *@
+            @if (totalPages > 1)
+            {
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 0.5rem;">
+                    <div style="font-size: var(--fs-caption); color: var(--text-muted);">
+                        عرض السجلات من <strong>@((currentPage - 1) * pageSize + 1)</strong> إلى <strong>@(Math.Min(currentPage * pageSize, FilteredPredictions.Count))</strong> من أصل <strong>@FilteredPredictions.Count</strong>
+                    </div>
+                    <div style="display: flex; gap: 0.25rem; align-items: center;">
+                        <button type="button"
+                                class="hr-btn hr-btn-secondary hr-btn-sm"
+                                disabled="@(currentPage == 1)"
+                                @onclick="() => ChangePage(currentPage - 1)">
+                            <Icon Name="chevron-right" Size="xs" />
+                            <span>السابق</span>
+                        </button>
+                        <span style="font-size: var(--fs-caption); padding: 0 0.5rem;">
+                            صفحة <strong>@currentPage</strong> من <strong>@totalPages</strong>
+                        </span>
+                        <button type="button"
+                                class="hr-btn hr-btn-secondary hr-btn-sm"
+                                disabled="@(currentPage == totalPages)"
+                                @onclick="() => ChangePage(currentPage + 1)">
+                            <span>التالي</span>
+                            <Icon Name="chevron-left" Size="xs" />
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        @* Tab 2: Job Titles Dictionary & Classifications *@
+        <div class="hr-card" style="padding: 1.25rem; margin-block-end: var(--s-3);">
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                <div style="flex: 1 1 240px; min-width: 220px; position: relative;">
+                    <input aria-label="البحث في دليل العناوين الوظيفية" type="search"
+                           class="hr-input"
+                           placeholder="ابحث بالرمز، العنوان، العائلة الوظيفية، أو الدرجة..."
+                           @bind="titleSearchQuery"
+                           @bind:event="oninput"
+                           style="padding-inline-start: 2rem; width: 100%;" />
+                    <span style="position: absolute; inset-inline-start: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;">
+                        <Icon Name="magnifying-glass" Size="xs" />
+                    </span>
+                </div>
+                <div style="margin-inline-start: auto; font-size: var(--fs-caption); color: var(--text-muted);">
+                    عدد العناوين: <strong>@FilteredJobTitles.Count</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card" style="padding: 0; overflow: hidden;">
+            <div class="hr-tablewrap">
+                <table class="hr-table" aria-label="جدول دليل ومكنز العناوين الوظيفية">
+                    <thead>
+                        <tr>
+                            <th scope="col" style="width: 100px;">الرمز</th>
+                            <th scope="col" style="min-width: 200px;">العنوان الوظيفي</th>
+                            <th scope="col" style="min-width: 160px;">العائلة الوظيفية</th>
+                            <th scope="col" style="min-width: 120px;">الدرجة المعتمدة</th>
+                            <th scope="col" style="min-width: 130px; text-align: center;">عدد الكادر المشغول</th>
+                            <th scope="col" style="min-width: 180px;">الكادر المرتبط</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (FilteredJobTitles.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+                                    لا توجد عناوين وظيفية مطابقة
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var jt in FilteredJobTitles)
+                            {
+                                <tr>
+                                    <td><span class="hr-badge" style="font-family: var(--font-mono, monospace);">@(jt.Code ?? "—")</span></td>
+                                    <td style="font-weight: 600;">@jt.Name</td>
+                                    <td>@(jt.JobFamily?.Name ?? "—")</td>
+                                    <td>
+                                        <span class="hr-badge hr-badge--subtle">@(jt.Grade?.Name ?? "—")</span>
+                                    </td>
+                                    <td style="text-align: center;">
+                                        <strong>@jt.Employees.Count</strong>
+                                    </td>
+                                    <td>
+                                        @if (jt.Employees.Count > 0)
+                                        {
+                                            <details>
+                                                <summary style="cursor: pointer; color: var(--color-primary); font-size: var(--fs-caption); font-weight: 500;">
+                                                    استعراض (@jt.Employees.Count موظف)
+                                                </summary>
+                                                <ul style="max-height: 120px; overflow-y: auto; padding-inline-start: 1rem; margin: 0.25rem 0; font-size: var(--fs-caption);">
+                                                    @foreach (var emp in jt.Employees.Take(25))
+                                                    {
+                                                        <li>
+                                                            <a href="@($"employees/{emp.Id}")" class="hr-link">@emp.Name</a>
+                                                            <span style="color: var(--text-muted);">(@emp.EmployeeID)</span>
+                                                        </li>
+                                                    }
+                                                    @if (jt.Employees.Count > 25)
+                                                    {
+                                                        <li style="color: var(--text-muted); font-style: italic;">... والمزيد</li>
+                                                    }
+                                                </ul>
+                                            </details>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--text-muted); font-size: var(--fs-caption);">لا يوجد كادر حالياً</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@* Calculation Breakdown Modal / Drawer *@
+@if (selectedEmployeePrediction != null)
+{
+    var p = selectedEmployeePrediction;
+    <div class="hr-modal-scrim" @onclick="CloseCalculationDetails" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; display: flex; align-items: center; justify-content: center; padding: 1rem;">
+        <div class="hr-card" @onclick:stopPropagation="true" style="width: 100%; max-width: 800px; max-height: 90vh; overflow-y: auto; background: var(--surface-raised, #fff); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); padding: 1.5rem; position: relative;">
+            
+            @* Modal Header *@
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-subtle); padding-bottom: 1rem; margin-bottom: 1.25rem;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="hr-badge hr-badge--accent">تفصيل الاحتساب الفني</span>
+                        <span class="hr-badge" style="font-family: var(--font-mono, monospace);">@p.EmployeeID</span>
+                    </div>
+                    <h2 class="hr-h2" style="margin: 0.35rem 0 0 0;">@p.EmployeeName</h2>
+                    <div style="font-size: var(--fs-caption); color: var(--text-muted); margin-top: 0.2rem;">
+                        @p.FormationName | العنوان الحالي: <strong>@p.JobTitleName</strong> (@p.GradeName - @p.StageName)
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="CloseCalculationDetails" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            @* Technical Blocks *@
+            <div style="display: grid; gap: 1rem;">
+                @* 1. Scale and Target *@
+                <div style="background: var(--surface-sunken); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                    <div style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary);">
+                        <Icon Name="chart-bar" Size="xs" />
+                        <span>1. متطلبات السلم الوظيفي والعنوان القادم</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; font-size: var(--fs-caption);">
+                        <div>سنوات الخدمة المقررة بالدرجة: <strong>@p.RequiredServiceYears سنوات</strong></div>
+                        <div>المرحلة المؤهلة للترفيع: <strong>المرحلة @p.RequiredServiceYears</strong></div>
+                        <div>العنوان القادم المتوقع: <strong>@p.NextJobTitleName</strong></div>
+                        <div>الدرجة القادمة: <strong>@p.NextGradeName</strong></div>
+                    </div>
+                </div>
+
+                @* 2. Appreciation Letters (Active Allowance Year) *@
+                <div style="background: var(--surface-sunken); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div style="font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-success);">
+                            <Icon Name="document-text" Size="xs" />
+                            <span>2. كتب الشكر والقِدم (السنة الوظيفية الحالية)</span>
+                        </div>
+                        <span class="hr-badge hr-badge--ok">
+                            القِدم المعتمد: @p.EffectiveSeniorityMonths أشهر
+                        </span>
+                    </div>
+
+                    <div style="font-size: var(--fs-caption); margin-bottom: 0.5rem; color: var(--text-muted);">
+                        تاريخ بداية السنة الوظيفية: <strong>@(p.AllowancePeriodStartDate?.ToString("yyyy/MM/dd") ?? "غير محدد")</strong> (تاريخ آخر علاوة سنوية).
+                    </div>
+
+                    @if (p.LettersAfterAllowance.Count > 0)
+                    {
+                        <div class="hr-tablewrap" style="max-height: 180px; overflow-y: auto;">
+                            <table class="hr-table" style="font-size: var(--fs-caption);">
+                                <thead>
+                                    <tr>
+                                        <th>رقم/تاريخ الكتاب</th>
+                                        <th>نوع الشكر</th>
+                                        <th>العدد</th>
+                                        <th>القِدم المحسوب</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var l in p.LettersAfterAllowance)
+                                    {
+                                        <tr>
+                                            <td>@(l.LetterNumber ?? "بدون رقم") - @(l.LetterDate?.ToString("yyyy/MM/dd") ?? "—")</td>
+                                            <td>@(l.Type?.Name ?? "كتاب شكر عام")</td>
+                                            <td>@(l.Count ?? 1)</td>
+                                            <td>+@(CalculateLetterSeniority(l)) شهر</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(16, 185, 129, 0.08); border-radius: var(--radius-sm); font-size: var(--fs-caption);">
+                            مجموع القِدم الفعلي المكتسب: <strong>@p.RawSeniorityMonths شهر</strong>.
+                            @if (p.IsSeniorityCapped)
+                            {
+                                <span style="color: var(--color-warning); font-weight: 600;">
+                                    (تم تقييده بسقف 3 أشهر كحد أقصى وفق التعليمات الرسمية).
+                                </span>
+                            }
+                            else
+                            {
+                                <span>(تم اعتماد كامل القِدم لعدم تجاوزه سقف الـ 3 أشهر).</span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="font-size: var(--fs-caption); color: var(--text-muted); padding: 0.5rem 0;">
+                            لم تسجل كتب شكر صادرة بعد تاريخ آخر علاوة.
+                        </div>
+                    }
+                </div>
+
+                @* 3. Penalties (Job Title Period) *@
+                <div style="background: var(--surface-sunken); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div style="font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-danger);">
+                            <Icon Name="shield-exclamation" Size="xs" />
+                            <span>3. العقوبات والتأخير (فترة العنوان الوظيفي الحالي)</span>
+                        </div>
+                        <span class="hr-badge @(p.IsDismissed || p.DelayMonths > 0 ? "hr-badge--danger" : "hr-badge--subtle")">
+                            @(p.IsDismissed ? "حرمان عزل" : $"تأخير {p.DelayMonths} شهر")
+                        </span>
+                    </div>
+
+                    <div style="font-size: var(--fs-caption); margin-bottom: 0.5rem; color: var(--text-muted);">
+                        تاريخ بداية فترة العنوان: <strong>@(p.TitlePeriodStartDate?.ToString("yyyy/MM/dd") ?? "غير محدد")</strong> (تاريخ آخر تغيير للعنوان الوظيفي).
+                    </div>
+
+                    @if (p.PenaltiesAfterTitle.Count > 0)
+                    {
+                        <div class="hr-tablewrap" style="max-height: 180px; overflow-y: auto;">
+                            <table class="hr-table" style="font-size: var(--fs-caption);">
+                                <thead>
+                                    <tr>
+                                        <th>رقم/تاريخ العقوبة</th>
+                                        <th>نوع العقوبة</th>
+                                        <th>أثر التأخير</th>
+                                        <th>الملاحظات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pen in p.PenaltiesAfterTitle)
+                                    {
+                                        <tr>
+                                            <td>@(pen.OrderNumber ?? "بدون رقم") - @(pen.PenaltyDate?.ToString("yyyy/MM/dd") ?? "—")</td>
+                                            <td><strong>@(pen.PenaltyType?.Name ?? "عقوبة انضباطية")</strong></td>
+                                            <td>
+                                                @{
+                                                    var imp = PenaltyTypeDataSeeder.CalculateImpact(pen.PenaltyType, pen.Notes);
+                                                }
+                                                @if (imp.IsBarredFromPromotion)
+                                                {
+                                                    <span style="color: var(--color-danger); font-weight: bold;">عزل (حرمان دائم)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>تأخير @imp.DelayMonths شهر</span>
+                                                }
+                                            </td>
+                                            <td style="color: var(--text-muted);">@(pen.Notes ?? "—")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="font-size: var(--fs-caption); color: var(--text-muted); padding: 0.5rem 0;">
+                            لا توجد عقوبات مسجلة ضمن فترة العنوان الحالي للموظف.
+                        </div>
+                    }
+                </div>
+
+                @* 4. Final Equation Walkthrough *@
+                <div style="background: var(--surface-raised); border: 2px solid var(--color-primary); padding: 1.25rem; border-radius: var(--radius-md);">
+                    <div style="font-weight: 700; margin-bottom: 0.75rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
+                        <Icon Name="calculator" Size="sm" />
+                        <span>4. المعادلة الرياضية والنتيجة النهائية</span>
+                    </div>
+
+                    @if (p.IsDismissed)
+                    {
+                        <div style="padding: 0.75rem; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm); color: var(--color-danger); font-weight: 600;">
+                            الموظف محروم من الترفيع وتغيير العنوان بصورة نهائية بسبب صدور عقوبة عزل.
+                        </div>
+                    }
+                    else if (p.BaseDueDate.HasValue)
+                    {
+                        <div style="display: grid; gap: 0.5rem; font-size: var(--fs-caption);">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>تاريخ الاستحقاق الأساسي (حسب السلم وتاريخ العلاوة):</span>
+                                <strong style="font-family: var(--font-mono, monospace);">@p.BaseDueDate.Value.ToString("yyyy/MM/dd")</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; color: var(--color-success);">
+                                <span>خصم القِدم (كتب الشكر ضمن السنة - سقف 3 أشهر):</span>
+                                <strong>- @p.EffectiveSeniorityMonths شهر</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; color: var(--color-danger);">
+                                <span>إضافة تأخير العقوبات (ضمن فترة العنوان الحالي):</span>
+                                <strong>+ @p.DelayMonths شهر</strong>
+                            </div>
+                            <div style="height: 1px; background: var(--border-subtle); margin: 0.25rem 0;"></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 700; color: var(--text-base);">
+                                <span>موعد الاستحقاق المتوقع النهائي:</span>
+                                <span style="font-family: var(--font-mono, monospace); color: @(p.IsDueNow ? "var(--color-success)" : "var(--color-primary)");">
+                                    @(p.PredictedDueDate?.ToString("yyyy/MM/dd") ?? "—")
+                                </span>
+                            </div>
+                            <div style="margin-top: 0.5rem; text-align: center;">
+                                <span class="hr-badge @(p.IsDueNow ? "hr-badge--ok" : p.IsNearDue ? "hr-badge--warn" : "hr-badge--subtle")" style="font-size: var(--fs-body); padding: 0.35rem 1rem;">
+                                    @p.Status
+                                </span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="color: var(--text-muted); font-size: var(--fs-caption);">
+                            تعذر احتساب موعد الاستحقاق لعدم توفر تاريخ آخر علاوة أو تاريخ آخر عنوان أو تاريخ التعيين للموظف.
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* Modal Footer *@
+            <div style="margin-top: 1.5rem; text-align: end;">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseCalculationDetails">
+                    إغلاق النافذة
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private ApplicationDbContext context = default!;
+    private List<JobTitle> jobTitlesList = new();
+    private List<SalaryScale> salaryScalesList = new();
+    private List<EmployeePrediction> predictionsList = new();
+    private string activeTab = "predictions";
+    private bool isLoading = true;
+
+    // Filters & Sorting state
+    private string searchQuery = "";
+    private string statusFilter = "all";
+    private string gradeFilter = "";
+    private string formationFilter = "";
+    private string sortBy = "due_asc";
+    private int pageSize = 25;
+    private int currentPage = 1;
+
+    // Titles Tab state
+    private string titleSearchQuery = "";
+
+    // Detail Modal state
+    private EmployeePrediction? selectedEmployeePrediction;
+
+    // Distinct lists for dropdowns
+    private List<string> availableGrades = new();
+    private List<string> availableFormations = new();
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) ||
+        statusFilter != "all" ||
+        !string.IsNullOrWhiteSpace(gradeFilter) ||
+        !string.IsNullOrWhiteSpace(formationFilter) ||
+        sortBy != "due_asc";
+
+    public sealed class EmployeePrediction
+    {
+        public Employee Employee { get; set; } = null!;
+        public string EmployeeName => Employee.Name;
+        public string EmployeeID => Employee.EmployeeID;
+        public string FormationName => Employee.Formation?.Name ?? Employee.FirstDepartment ?? "";
+        public string JobTitleName { get; set; } = "";
+        public string NextJobTitleName { get; set; } = "";
+        public string NextGradeName { get; set; } = "";
+        public string GradeName { get; set; } = "";
+        public string StageName { get; set; } = "";
+        public DateOnly? LastJobTitleDate { get; set; }
+        public DateOnly? LastAllowanceDate { get; set; }
+        public DateOnly? HireDate { get; set; }
+
+        public DateOnly? AllowancePeriodStartDate { get; set; }
+        public DateOnly? TitlePeriodStartDate { get; set; }
+
+        public int RequiredServiceYears { get; set; } = 4;
+        public bool IsStagnated { get; set; } = false;
+
+        // Appreciation letters in active allowance year
+        public List<AppreciationLetter> LettersAfterAllowance { get; set; } = new();
+        public int LettersCount { get; set; }
+        public int RawSeniorityMonths { get; set; }
+        public int EffectiveSeniorityMonths { get; set; }
+        public bool IsSeniorityCapped => RawSeniorityMonths > 3;
+        public string LettersDetailsTooltip { get; set; } = "";
+
+        // Penalties in active title period
+        public List<EmployeePenalty> PenaltiesAfterTitle { get; set; } = new();
+        public int PenaltiesCount { get; set; }
+        public int DelayMonths { get; set; }
+        public bool IsDismissed { get; set; }
+        public string PenaltiesSummary { get; set; } = "";
+
+        // Calculation result
+        public DateOnly? BaseDueDate { get; set; }
+        public DateOnly? PredictedDueDate { get; set; }
+        public string Status { get; set; } = "";
+
+        public bool IsDueNow => Status.Contains("مستحق الآن");
+        public bool IsNearDue => Status.Contains("قريب الاستحقاق");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            if (context != null)
+            {
+                await context.DisposeAsync();
+            }
+
+            context = DbFactory.CreateDbContext();
+
+            // Seed reference data if needed
+            if (!await context.SalaryScales.AnyAsync())
+            {
+                await API.HR.Node.Services.Salary.SalaryScaleDataSeeder.SeedAsync(context);
+            }
+            if (!await context.PenaltyTypes.AnyAsync())
+            {
+                await PenaltyTypeDataSeeder.SeedAsync(context);
+            }
+
+            salaryScalesList = await context.SalaryScales.AsNoTracking().ToListAsync();
+
+            jobTitlesList = await context.JobTitles
+                .AsNoTracking()
+                .Include(j => j.JobFamily)
+                .Include(j => j.Grade)
+                .Include(j => j.Employees)
+                .ToListAsync();
+
+            var employees = await context.Employees
+                .AsNoTracking()
+                .Where(e => !e.IsArchived)
+                .Include(e => e.JobTitle)
+                    .ThenInclude(j => j!.JobFamily)
+                .Include(e => e.JobTitle)
+                    .ThenInclude(j => j!.Grade)
+                .Include(e => e.Grade)
+                .Include(e => e.Stage)
+                .Include(e => e.Formation)
+                .Include(e => e.AppreciationLetters)
+                    .ThenInclude(l => l.Type)
+                .Include(e => e.Penalties)
+                    .ThenInclude(p => p.PenaltyType)
+                .ToListAsync();
+
+            CalculatePredictions(employees);
+
+            // Populate filters
+            availableGrades = predictionsList
+                .Select(p => p.GradeName)
+                .Where(g => !string.IsNullOrWhiteSpace(g) && g != "غير محدد")
+                .Distinct()
+                .OrderBy(g => g)
+                .ToList();
+
+            availableFormations = predictionsList
+                .Select(p => p.FormationName)
+                .Where(f => !string.IsNullOrWhiteSpace(f))
+                .Distinct()
+                .OrderBy(f => f)
+                .ToList();
+
+            currentPage = 1;
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر جلب واحتساب بيانات العناوين: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CalculatePredictions(List<Employee> employees)
+    {
+        predictionsList.Clear();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        foreach (var emp in employees)
+        {
+            var currentTitleName = emp.JobTitle?.Name ?? "غير محدد";
+            var pred = new EmployeePrediction
+            {
+                Employee = emp,
+                JobTitleName = currentTitleName,
+                GradeName = emp.Grade?.Name ?? emp.JobTitle?.Grade?.Name ?? "غير محدد",
+                StageName = emp.Stage?.Name ?? "غير محدد",
+                LastJobTitleDate = emp.LastJobTitleDate,
+                LastAllowanceDate = emp.LastAllowanceDate,
+                HireDate = emp.HireDate
+            };
+
+            // 1. تحديد الدرجة الحالية والمرحلة الحالية كأرقام
+            int currentGradeNum = ParseGradeNumber(emp.Grade?.Code ?? emp.JobTitle?.Grade?.Code ?? pred.GradeName);
+            int currentStageNum = ParseStageNumber(emp.Stage?.Code ?? emp.Stage?.Name);
+
+            // 2. سنوات الخدمة المقررة في الدرجة من السلم الوظيفي (المرحلة المؤهلة للترفيع)
+            int reqYears = 4;
+            var scale = salaryScalesList.FirstOrDefault(s =>
+                (emp.GradeId.HasValue && s.GradeId == emp.GradeId.Value) ||
+                (!string.IsNullOrWhiteSpace(emp.Grade?.Code) && s.GradeCode == emp.Grade.Code) ||
+                (currentGradeNum > 0 && s.GradeCode == currentGradeNum.ToString()));
+
+            if (scale?.RequiredServiceYears.HasValue == true)
+            {
+                reqYears = scale.RequiredServiceYears.Value;
+            }
+            else if (currentGradeNum >= 2 && currentGradeNum <= 5)
+            {
+                reqYears = 5;
+            }
+            else
+            {
+                reqYears = 4;
+            }
+            pred.RequiredServiceYears = reqYears;
+            int qualifyingStage = reqYears;
+
+            // 3. فحص التسكين الوظيفي والعنوان القادم
+            if (currentGradeNum > 1)
+            {
+                int nextGradeNum = currentGradeNum - 1; // الترفيع يصعد إلى الدرجة الأعلى رقماً أصغر
+                pred.NextGradeName = $"الدرجة {nextGradeNum}";
+
+                if (IsCeilingTitle(currentTitleName))
+                {
+                    pred.IsStagnated = true;
+                    pred.NextJobTitleName = currentTitleName; // يبقى نفس العنوان مسكناً
+                    pred.NextGradeName = $"الدرجة {nextGradeNum} (تسكين وظيفي)";
+                }
+                else
+                {
+                    var familyId = emp.JobTitle?.JobFamilyId;
+                    JobTitle? nextTitle = null;
+
+                    if (familyId.HasValue)
+                    {
+                        nextTitle = jobTitlesList.FirstOrDefault(j =>
+                            j.JobFamilyId == familyId.Value &&
+                            ((j.Grade != null && (j.Grade.Code == nextGradeNum.ToString() || ParseGradeNumber(j.Grade.Name) == nextGradeNum)) ||
+                             j.Code == nextGradeNum.ToString()));
+                    }
+
+                    if (nextTitle == null)
+                    {
+                        nextTitle = FindNextTitleFromList(currentTitleName, nextGradeNum);
+                    }
+
+                    pred.NextJobTitleName = nextTitle != null
+                        ? nextTitle.Name
+                        : PredictStandardNextTitle(currentTitleName, nextGradeNum);
+                }
+            }
+            else if (currentGradeNum == 1)
+            {
+                pred.IsStagnated = true;
+                pred.NextGradeName = "الدرجة العليا / نهاية السلم";
+                pred.NextJobTitleName = "الدرجة العليا أ / ب (أعلى السلم)";
+            }
+            else
+            {
+                pred.NextGradeName = "غير محدد";
+                pred.NextJobTitleName = "يتطلب تحديد درجة الموظف";
+            }
+
+            // 4. كتب الشكر: حسب السنة الوظيفية (تاريخ آخر علاوة) بما لا يزيد عن 3 أشهر كقِدم
+            var letterStartDate = emp.LastAllowanceDate ?? emp.LastJobTitleDate ?? emp.HireDate;
+            pred.AllowancePeriodStartDate = letterStartDate;
+
+            if (letterStartDate.HasValue)
+            {
+                pred.LettersAfterAllowance = emp.AppreciationLetters
+                    .Where(l => l.LetterDate.HasValue && l.LetterDate.Value >= letterStartDate.Value)
+                    .OrderByDescending(l => l.LetterDate)
+                    .ToList();
+            }
+            else
+            {
+                pred.LettersAfterAllowance = emp.AppreciationLetters.OrderByDescending(l => l.LetterDate).ToList();
+            }
+
+            pred.LettersCount = pred.LettersAfterAllowance.Sum(l => l.Count ?? 1);
+
+            int rawSeniority = 0;
+            var letterTooltipParts = new List<string>();
+            foreach (var l in pred.LettersAfterAllowance)
+            {
+                int count = l.Count ?? 1;
+                if (count <= 0) count = 1;
+                int monthsFromSingle = CalculateLetterSeniority(l);
+                rawSeniority += monthsFromSingle;
+                letterTooltipParts.Add($"{l.LetterDate?.ToString("yyyy/MM/dd")}: +{monthsFromSingle} شهر ({l.Type?.Name ?? "شكر"})");
+            }
+            pred.RawSeniorityMonths = rawSeniority;
+            // سقف الـ 3 أشهر وفق التعليمات
+            pred.EffectiveSeniorityMonths = Math.Min(3, rawSeniority);
+            pred.LettersDetailsTooltip = string.Join(" | ", letterTooltipParts);
+
+            // 5. العقوبات: تحصر ضمن فترة العنوان (من تاريخ آخر عنوان)
+            var titleStartDate = emp.LastJobTitleDate ?? emp.HireDate;
+            pred.TitlePeriodStartDate = titleStartDate;
+
+            if (titleStartDate.HasValue)
+            {
+                pred.PenaltiesAfterTitle = emp.Penalties
+                    .Where(p => p.PenaltyDate.HasValue && p.PenaltyDate.Value >= titleStartDate.Value)
+                    .OrderByDescending(p => p.PenaltyDate)
+                    .ToList();
+            }
+            else
+            {
+                pred.PenaltiesAfterTitle = emp.Penalties.OrderByDescending(p => p.PenaltyDate).ToList();
+            }
+
+            pred.PenaltiesCount = pred.PenaltiesAfterTitle.Count;
+            int delayMonths = 0;
+            bool isDismissed = false;
+            var penSummaryList = new List<string>();
+
+            foreach (var p in pred.PenaltiesAfterTitle)
+            {
+                var impact = PenaltyTypeDataSeeder.CalculateImpact(p.PenaltyType, p.Notes);
+                if (impact.IsBarredFromPromotion)
+                {
+                    isDismissed = true;
+                    penSummaryList.Add("عقوبة عزل (حرمان من الترفيع)");
+                    break;
+                }
+
+                delayMonths += impact.DelayMonths;
+                if (impact.DelayMonths > 0)
+                {
+                    penSummaryList.Add($"{p.PenaltyType?.Name ?? "عقوبة"}: تأخير {impact.DelayMonths} شهر");
+                }
+            }
+
+            pred.DelayMonths = delayMonths;
+            pred.IsDismissed = isDismissed;
+            pred.PenaltiesSummary = string.Join(" | ", penSummaryList);
+
+            // 6. احتساب موعد الاستحقاق المتوقع
+            if (isDismissed)
+            {
+                pred.BaseDueDate = null;
+                pred.PredictedDueDate = null;
+                pred.Status = "محظور من الترفيع (عقوبة عزل)";
+            }
+            else
+            {
+                DateOnly? baseDueDate = null;
+
+                // أ) إذا توفر تاريخ آخر علاوة:
+                if (emp.LastAllowanceDate.HasValue)
+                {
+                    if (currentStageNum >= qualifyingStage)
+                    {
+                        baseDueDate = emp.LastAllowanceDate.Value.AddYears(1);
+                    }
+                    else if (currentStageNum > 0)
+                    {
+                        int remainingStages = Math.Max(1, qualifyingStage - currentStageNum);
+                        baseDueDate = emp.LastAllowanceDate.Value.AddYears(remainingStages);
+                    }
+                    else
+                    {
+                        baseDueDate = emp.LastAllowanceDate.Value.AddYears(1);
+                    }
+                }
+                // ب) إذا لم يتوفر تاريخ العلاوة ولكن توفر تاريخ آخر عنوان:
+                else if (emp.LastJobTitleDate.HasValue)
+                {
+                    if (currentStageNum >= qualifyingStage)
+                    {
+                        baseDueDate = emp.LastJobTitleDate.Value.AddYears(1);
+                    }
+                    else if (currentStageNum > 0)
+                    {
+                        int remainingStages = Math.Max(1, qualifyingStage - currentStageNum);
+                        baseDueDate = emp.LastJobTitleDate.Value.AddYears(remainingStages);
+                    }
+                    else
+                    {
+                        baseDueDate = emp.LastJobTitleDate.Value.AddYears(reqYears);
+                    }
+                }
+                // ج) الاعتماد على تاريخ التعيين كبديل أخير:
+                else if (emp.HireDate.HasValue)
+                {
+                    baseDueDate = emp.HireDate.Value.AddYears(reqYears);
+                }
+
+                pred.BaseDueDate = baseDueDate;
+
+                if (baseDueDate.HasValue)
+                {
+                    // تطبيق القِدم الفعال (سقف 3 أشهر) وإضافة تأخير العقوبات
+                    pred.PredictedDueDate = baseDueDate.Value
+                        .AddMonths(-pred.EffectiveSeniorityMonths)
+                        .AddMonths(pred.DelayMonths);
+
+                    if (today >= pred.PredictedDueDate.Value)
+                    {
+                        pred.Status = pred.IsStagnated
+                            ? "مستحق الآن لترقية الدرجة (تسكين)"
+                            : "مستحق الآن للترقية وتغيير العنوان";
+                    }
+                    else
+                    {
+                        int diffMonths = ((pred.PredictedDueDate.Value.Year - today.Year) * 12) + (pred.PredictedDueDate.Value.Month - today.Month);
+                        if (diffMonths <= 6)
+                        {
+                            pred.Status = $"قريب الاستحقاق (متبقي {Math.Max(1, diffMonths)} شهر)";
+                        }
+                        else
+                        {
+                            pred.Status = $"متبقي {diffMonths} شهر";
+                        }
+                    }
+                }
+                else
+                {
+                    pred.Status = "التواريخ غير مسجلة";
+                }
+            }
+
+            predictionsList.Add(pred);
+        }
+    }
+
+    private static int CalculateLetterSeniority(AppreciationLetter l)
+    {
+        int count = l.Count ?? 1;
+        if (count <= 0) count = 1;
+        if (l.Type != null)
+        {
+            return (((l.Type.SeniorityYears * 12) + l.Type.SeniorityMonths) * count) + ((l.Type.SeniorityDays * count) / 30);
+        }
+        return 1 * count;
+    }
+
+    // Filter & Sort Logic
+    private List<EmployeePrediction> FilteredPredictions
+    {
+        get
+        {
+            var q = predictionsList.AsEnumerable();
+
+            // Search query
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var term = searchQuery.Trim();
+                q = q.Where(p =>
+                    p.EmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.EmployeeID.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.JobTitleName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.NextJobTitleName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.FormationName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    p.GradeName.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Status filter
+            q = statusFilter switch
+            {
+                "due_now" => q.Where(p => p.IsDueNow),
+                "near_due" => q.Where(p => p.IsNearDue),
+                "stagnated" => q.Where(p => p.IsStagnated),
+                "letters" => q.Where(p => p.LettersCount > 0),
+                "capped_letters" => q.Where(p => p.IsSeniorityCapped),
+                "penalties" => q.Where(p => p.DelayMonths > 0 && !p.IsDismissed),
+                "dismissed" => q.Where(p => p.IsDismissed),
+                _ => q
+            };
+
+            // Grade filter
+            if (!string.IsNullOrWhiteSpace(gradeFilter))
+            {
+                q = q.Where(p => p.GradeName == gradeFilter);
+            }
+
+            // Formation filter
+            if (!string.IsNullOrWhiteSpace(formationFilter))
+            {
+                q = q.Where(p => p.FormationName == formationFilter);
+            }
+
+            // Sorting
+            q = sortBy switch
+            {
+                "due_desc" => q.OrderByDescending(p => p.PredictedDueDate.HasValue)
+                               .ThenByDescending(p => p.PredictedDueDate),
+                "name_asc" => q.OrderBy(p => p.EmployeeName),
+                "id_asc" => q.OrderBy(p => p.EmployeeID),
+                "seniority_desc" => q.OrderByDescending(p => p.EffectiveSeniorityMonths)
+                                     .ThenByDescending(p => p.RawSeniorityMonths),
+                "delay_desc" => q.OrderByDescending(p => p.IsDismissed)
+                                 .ThenByDescending(p => p.DelayMonths),
+                _ => q.OrderByDescending(p => p.IsDueNow)
+                      .ThenByDescending(p => p.IsNearDue)
+                      .ThenBy(p => p.PredictedDueDate.HasValue ? 0 : 1)
+                      .ThenBy(p => p.PredictedDueDate)
+            };
+
+            return q.ToList();
+        }
+    }
+
+    private List<EmployeePrediction> PagedPredictions =>
+        FilteredPredictions.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+
+    private int totalPages => Math.Max(1, (int)Math.Ceiling((double)FilteredPredictions.Count / pageSize));
+
+    private void ChangePage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        statusFilter = "all";
+        gradeFilter = "";
+        formationFilter = "";
+        sortBy = "due_asc";
+        currentPage = 1;
+    }
+
+    private void SetActiveTab(string tab)
+    {
+        activeTab = tab;
+        currentPage = 1;
+    }
+
+    // Tab 2: Titles Filter
+    private List<JobTitle> FilteredJobTitles
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(titleSearchQuery))
+            {
+                return jobTitlesList;
+            }
+
+            var term = titleSearchQuery.Trim();
+            return jobTitlesList.Where(j =>
+                j.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (j.Code != null && j.Code.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (j.JobFamily != null && j.JobFamily.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (j.Grade != null && j.Grade.Name.Contains(term, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+    }
+
+    // Modal
+    private void OpenCalculationDetails(EmployeePrediction pred)
+    {
+        selectedEmployeePrediction = pred;
+    }
+
+    private void CloseCalculationDetails()
+    {
+        selectedEmployeePrediction = null;
+    }
+
+    // CSV Export
+    private async Task ExportCsvAsync()
+    {
+        try
+        {
+            var list = FilteredPredictions;
+            if (list.Count == 0)
+            {
+                Toast.Warning("لا توجد بيانات مطابقة لتصديرها.");
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append('\uFEFF'); // UTF-8 BOM
+            sb.AppendLine("الرقم الوظيفي,اسم الموظف,التشكيل,العنوان الحالي,الدرجة الحالية,المرحلة الحالية,العنوان القادم,الدرجة القادمة,تاريخ آخر علاوة,تاريخ آخر عنوان,كتب الشكر بعد العلاوة,القِدم الفعلي (شهر),القِدم المعتمد (سقف 3 أشهر),العقوبات بعد العنوان,التأخير بالعقوبات (شهر),موعد الاستحقاق المتوقع,حالة الاستحقاق");
+
+            foreach (var item in list)
+            {
+                sb.AppendLine(string.Join(",", new[]
+                {
+                    EscapeCsv(item.EmployeeID),
+                    EscapeCsv(item.EmployeeName),
+                    EscapeCsv(item.FormationName),
+                    EscapeCsv(item.JobTitleName),
+                    EscapeCsv(item.GradeName),
+                    EscapeCsv(item.StageName),
+                    EscapeCsv(item.NextJobTitleName),
+                    EscapeCsv(item.NextGradeName),
+                    item.LastAllowanceDate?.ToString("yyyy/MM/dd") ?? "",
+                    item.LastJobTitleDate?.ToString("yyyy/MM/dd") ?? "",
+                    item.LettersCount.ToString(),
+                    item.RawSeniorityMonths.ToString(),
+                    item.EffectiveSeniorityMonths.ToString(),
+                    item.PenaltiesCount.ToString(),
+                    item.DelayMonths.ToString(),
+                    item.PredictedDueDate?.ToString("yyyy/MM/dd") ?? (item.IsDismissed ? "محظور" : ""),
+                    EscapeCsv(item.Status)
+                }));
+            }
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            var base64 = Convert.ToBase64String(bytes);
+            var filename = $"استحقاق_العناوين_والترقيات_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+            await JS.InvokeVoidAsync("downloadFileFromBase64", filename, "text/csv;charset=utf-8", base64);
+            Toast.Success("تم تصدير ملف الاستحقاقات بنجاح.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"فشل تصدير التقرير: {ex.Message}");
+        }
+    }
+
+    private static string EscapeCsv(string field)
+    {
+        if (string.IsNullOrEmpty(field)) return "";
+        if (field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+        {
+            return $"\"{field.Replace("\"", "\"\"")}\"";
+        }
+        return field;
+    }
+
+    private static int ParseGradeNumber(string? gradeText)
+    {
+        if (string.IsNullOrWhiteSpace(gradeText)) return 0;
+        var clean = gradeText.Trim();
+
+        if (int.TryParse(clean, out var n)) return n;
+        if (clean.Contains("عاشرة") || clean.Contains("العاشرة") || clean == "10") return 10;
+        if (clean.Contains("تاسعة") || clean.Contains("التاسعة") || clean == "9") return 9;
+        if (clean.Contains("ثامنة") || clean.Contains("الثامنة") || clean == "8") return 8;
+        if (clean.Contains("سابعة") || clean.Contains("السابعة") || clean == "7") return 7;
+        if (clean.Contains("سادسة") || clean.Contains("السادسة") || clean == "6") return 6;
+        if (clean.Contains("خامسة") || clean.Contains("الخامسة") || clean == "5") return 5;
+        if (clean.Contains("رابعة") || clean.Contains("الرابعة") || clean == "4") return 4;
+        if (clean.Contains("ثالثة") || clean.Contains("الثالثة") || clean == "3") return 3;
+        if (clean.Contains("ثانية") || clean.Contains("الثانية") || clean == "2") return 2;
+        if (clean.Contains("أولى") || clean.Contains("الأولى") || clean.Contains("اولى") || clean == "1") return 1;
+
+        return 0;
+    }
+
+    private static int ParseStageNumber(string? stageText)
+    {
+        if (string.IsNullOrWhiteSpace(stageText)) return 0;
+        var clean = stageText.Trim().Replace(" ", "");
+
+        if (int.TryParse(clean, out var n)) return n;
+        if (clean.Contains("حادي") || clean.Contains("11")) return 11;
+        if (clean.Contains("عاشر") || clean.Contains("10")) return 10;
+        if (clean.Contains("تاسع") || clean.Contains("9")) return 9;
+        if (clean.Contains("ثامن") || clean.Contains("8")) return 8;
+        if (clean.Contains("سابع") || clean.Contains("7")) return 7;
+        if (clean.Contains("سادس") || clean.Contains("6")) return 6;
+        if (clean.Contains("خامس") || clean.Contains("5")) return 5;
+        if (clean.Contains("رابع") || clean.Contains("4")) return 4;
+        if (clean.Contains("ثالث") || clean.Contains("3")) return 3;
+        if (clean.Contains("ثاني") || clean.Contains("2")) return 2;
+        if (clean.Contains("اول") || clean.Contains("أول") || clean.Contains("1")) return 1;
+
+        return 0;
+    }
+
+    private static bool IsCeilingTitle(string titleName)
+    {
+        var clean = titleName.Trim();
+        if (clean.Contains("رئيس حرفين اقدم") || clean.Contains("رئيس حرفيين اقدم")) return true;
+        if (clean.Contains("رئيس سواق اقدم")) return true;
+        if (clean.Contains("موظف خدمات اقدم")) return true;
+        if (clean.Contains("رئيس امناء صناديق")) return true;
+        if (clean.Contains("معاون رئيس فاحص نقد")) return true;
+        if (clean.Contains("رئيس كاتب طابعة") || clean.Contains("رئيس كتاب اقدم")) return true;
+        if (clean.Contains("اقدم اول") || clean.Contains("أقدم أول")) return true;
+
+        return false;
+    }
+
+    private JobTitle? FindNextTitleFromList(string currentTitle, int nextGrade)
+    {
+        var clean = currentTitle.Trim();
+
+        if (clean.Contains("مبرمج"))
+        {
+            return nextGrade switch
+            {
+                4 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("معاون رئيس مبرمجين") || j.Name.Contains("م رئيس مبرمجين")),
+                3 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس مبرمجين"),
+                2 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس مبرمجين اقدم"),
+                1 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس مبرمجين اقدم اول"),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("مهندس"))
+        {
+            return nextGrade switch
+            {
+                6 => jobTitlesList.FirstOrDefault(j => j.Name == "مهندس"),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name == "مهندس اقدم"),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("معاون رئيس مهندسين") || j.Name.Contains("م رئيس مهندسين")),
+                3 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس مهندسين"),
+                2 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس مهندسين اقدم"),
+                1 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس مهندسين اقدم اول"),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("محاسب") || clean.Contains("حسابات"))
+        {
+            return nextGrade switch
+            {
+                6 => jobTitlesList.FirstOrDefault(j => j.Name == "محاسب"),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name == "محاسب اقدم"),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("معاون مدير حسابات")),
+                3 => jobTitlesList.FirstOrDefault(j => j.Name == "مدير حسابات"),
+                2 => jobTitlesList.FirstOrDefault(j => j.Name == "مدير حسابات اقدم"),
+                1 => jobTitlesList.FirstOrDefault(j => j.Name == "مدير حسابات اقدم اول"),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("مدقق") || clean.Contains("تدقيق"))
+        {
+            return nextGrade switch
+            {
+                6 => jobTitlesList.FirstOrDefault(j => j.Name == "مدقق"),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مدقق اقدم")),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("معاون مدير تدقيق")),
+                3 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مدير تدقيق اقدم")),
+                2 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مدير تدقيق اقدم اول")),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("قانوني") || clean.Contains("مشاور") || clean.Contains("مستشار"))
+        {
+            return nextGrade switch
+            {
+                6 => jobTitlesList.FirstOrDefault(j => j.Name == "قانوني"),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مشاور قانوني مساعد") || j.Name.Contains("مستشار قانوني مساعد")),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مشاور قانونى") || j.Name.Contains("مشاور قانوني")),
+                3 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مشاور قانوني اقدم")),
+                2 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("مستشار قانوني")),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("ملاحظ"))
+        {
+            return nextGrade switch
+            {
+                6 => jobTitlesList.FirstOrDefault(j => j.Name == "ملاحظ"),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("ملاحظ اقدم")),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("معاون رئيس ملاحظين")),
+                3 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس ملاحظين" || j.Name == "ر ملاحظين"),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("حرفي"))
+        {
+            return nextGrade switch
+            {
+                8 => jobTitlesList.FirstOrDefault(j => j.Name == "حرفي اول"),
+                7 => jobTitlesList.FirstOrDefault(j => j.Name == "حرفي اقدم"),
+                6 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("معاون رئيس حرفيين") || j.Name.Contains("م.رئيس  حرفيين")),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس حرفين"),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس حرفين اقدم"),
+                _ => null
+            };
+        }
+
+        if (clean.Contains("سائق") || clean.Contains("سواق"))
+        {
+            return nextGrade switch
+            {
+                8 => jobTitlesList.FirstOrDefault(j => j.Name == "سائق اول"),
+                7 => jobTitlesList.FirstOrDefault(j => j.Name == "سائق اقدم"),
+                6 => jobTitlesList.FirstOrDefault(j => j.Name.Contains("م رئيس سواق")),
+                5 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس سواق"),
+                4 => jobTitlesList.FirstOrDefault(j => j.Name == "رئيس سواق اقدم"),
+                _ => null
+            };
+        }
+
+        return null;
+    }
+
+    private static string PredictStandardNextTitle(string currentTitle, int nextGrade)
+    {
+        var clean = currentTitle.Trim();
+
+        if (clean.Contains("مبرمج"))
+        {
+            return nextGrade switch
+            {
+                4 => "معاون رئيس مبرمجين",
+                3 => "رئيس مبرمجين",
+                2 => "رئيس مبرمجين اقدم",
+                1 => "رئيس مبرمجين اقدم اول",
+                _ => $"مبرمج (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("مهندس"))
+        {
+            return nextGrade switch
+            {
+                6 => "مهندس",
+                5 => "مهندس اقدم",
+                4 => "معاون رئيس مهندسين",
+                3 => "رئيس مهندسين",
+                2 => "رئيس مهندسين اقدم",
+                1 => "رئيس مهندسين اقدم اول",
+                _ => $"مهندس (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("محاسب") || clean.Contains("حسابات"))
+        {
+            return nextGrade switch
+            {
+                6 => "محاسب",
+                5 => "محاسب اقدم",
+                4 => "معاون مدير حسابات",
+                3 => "مدير حسابات",
+                2 => "مدير حسابات اقدم",
+                1 => "مدير حسابات اقدم اول",
+                _ => $"محاسب (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("مدقق"))
+        {
+            return nextGrade switch
+            {
+                6 => "مدقق",
+                5 => "مدقق اقدم",
+                4 => "معاون مدير تدقيق",
+                3 => "مدير تدقيق",
+                2 => "مدير تدقيق اقدم",
+                1 => "مدير تدقيق اقدم اول",
+                _ => $"مدقق (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("قانوني") || clean.Contains("مشاور"))
+        {
+            return nextGrade switch
+            {
+                6 => "قانوني",
+                5 => "مشاور قانوني مساعد",
+                4 => "مشاور قانوني",
+                3 => "مشاور قانوني اقدم",
+                2 => "مستشار قانوني",
+                _ => $"قانوني (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("ملاحظ"))
+        {
+            return nextGrade switch
+            {
+                6 => "ملاحظ",
+                5 => "ملاحظ اقدم",
+                4 => "معاون رئيس ملاحظين",
+                3 => "رئيس ملاحظين",
+                _ => $"ملاحظ (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("حرفي"))
+        {
+            return nextGrade switch
+            {
+                8 => "حرفي اول",
+                7 => "حرفي اقدم",
+                6 => "معاون رئيس حرفيين",
+                5 => "رئيس حرفين",
+                4 => "رئيس حرفين اقدم",
+                _ => $"حرفي (الدرجة {nextGrade})"
+            };
+        }
+
+        if (clean.Contains("سائق"))
+        {
+            return nextGrade switch
+            {
+                8 => "سائق اول",
+                7 => "سائق اقدم",
+                6 => "م رئيس سواق",
+                5 => "رئيس سواق",
+                4 => "رئيس سواق اقدم",
+                _ => $"سائق (الدرجة {nextGrade})"
+            };
+        }
+
+        return $"الترقية للدرجة {nextGrade} (ضمن نفس العائلة الوظيفية)";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (context != null)
+        {
+            await context.DisposeAsync();
+        }
+    }
+}

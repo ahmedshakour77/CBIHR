@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&family=Cairo:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="../../wwwroot/css/hr-tokens.css"><link rel="stylesheet" href="../../wwwroot/css/hr-components.css"><meta charset="utf-8">
+<style>body{margin:0}.stage{padding:16px;display:grid;gap:12px;justify-items:center}.frame{inline-size:100%}.ctl{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}</style></head>
+<body class="hr-root">
+<div class="stage">
+<div class="ctl">
+  <div class="hr-seg" role="radiogroup" aria-label="حجم الشاشة">
+    <label><input type="radio" name="vp" value="100%" checked><span>سطح المكتب</span></label>
+    <label><input type="radio" name="vp" value="760px"><span>جهاز لوحي</span></label>
+    <label><input type="radio" name="vp" value="390px"><span>هاتف</span></label>
+  </div>
+  <div class="hr-seg" role="radiogroup" aria-label="كثافة العرض">
+    <label><input type="radio" name="den" value="compact"><span>مضغوط</span></label>
+    <label><input type="radio" name="den" value="comfortable" checked><span>مريح</span></label>
+    <label><input type="radio" name="den" value="spacious"><span>واسع</span></label>
+  </div>
+</div>
+<div class="frame" id="frame">
+<section class="hr-card hr-dt" id="dt" aria-labelledby="dtt">
+  <div class="hr-dt__bar">
+    <h2 class="hr-dt__title" id="dtt">الموظفون <span class="hr-badge hr-badge--plain hr-num">2,330</span></h2>
+    <label class="hr-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="hr-sr">بحث</span><input placeholder="ابحث بالاسم أو الرقم الوظيفي"></label>
+    <label class="hr-input" style="flex:0 1 190px"><span class="hr-sr">العرض المحفوظ</span><select><option>العرض: الموظفون الفاعلون</option><option>في إجازة هذا الأسبوع</option><option>عقود تنتهي خلال 30 يوماً</option></select></label>
+    <button class="hr-btn hr-btn--secondary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16l-6 8v5l-4 2v-7z"/></svg>تصفية</button>
+    <button class="hr-btn hr-btn--secondary hr-dt__hide-sm">تصدير</button>
+    <button class="hr-btn hr-btn--primary">موظف جديد</button>
+  </div>
+  <div class="hr-dt__bulk" role="region" aria-live="polite"><span id="selc">0 محدد</span><button class="hr-btn hr-btn--secondary hr-btn--sm">إسناد</button><button class="hr-btn hr-btn--secondary hr-btn--sm">تصدير</button><button class="hr-btn hr-btn--danger hr-btn--sm">أرشفة</button></div>
+  <div class="hr-dt__scroll">
+  <table class="hr-table">
+    <thead><tr>
+      <th style="inline-size:48px"><input type="checkbox" class="hr-check" id="all" aria-label="تحديد الكل"></th>
+      <th aria-sort="ascending"><button>الموظف</button></th>
+      <th aria-sort="none"><button>الرقم الوظيفي</button></th>
+      <th aria-sort="none"><button>القسم</button></th>
+      <th>العنوان الوظيفي</th>
+      <th aria-sort="none"><button>الحالة</button></th>
+      <th aria-sort="none"><button>تاريخ المباشرة</button></th>
+      <th style="inline-size:56px"><span class="hr-sr">إجراءات</span></th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  </div>
+  <div class="hr-dt__foot">
+    <span>عرض <span class="hr-num">1–6</span> من <span class="hr-num">2,330</span></span>
+    <nav class="hr-pager" aria-label="الصفحات">
+      <button class="hr-btn hr-btn--secondary" aria-label="السابق">›</button>
+      <button class="hr-btn hr-btn--secondary hr-num" aria-current="page">1</button>
+      <button class="hr-btn hr-btn--secondary hr-num">2</button>
+      <button class="hr-btn hr-btn--secondary hr-num">3</button>
+      <button class="hr-btn hr-btn--secondary" aria-label="التالي">‹</button>
+    </nav>
+  </div>
+</section>
+</div>
+</div>
+<script>
+(function(){
+  var data=[
+    ["سارة محمد العبيدي","s.alobaidi@org.iq","EMP-2331","الموارد البشرية","محللة موارد بشرية أولى","ok","على رأس العمل","2022/05/12"],
+    ["علي حسن الجبوري","a.aljubouri@org.iq","EMP-1180","الموارد البشرية","مدير قسم","ok","على رأس العمل","2015/02/01"],
+    ["زينب كريم الموسوي","z.almousawi@org.iq","EMP-2412","تقنية المعلومات","مهندسة برمجيات","warn","في إجازة","2023/01/15"],
+    ["مصطفى عادل الربيعي","m.alrubaie@org.iq","EMP-1906","العمليات المصرفية","محاسب أول","ok","على رأس العمل","2019/07/08"],
+    ["نور الهدى سالم","n.salem@org.iq","EMP-2560","الشؤون القانونية","مستشارة قانونية","danger","موقوف","2024/03/03"],
+    ["حسين فاضل الخفاجي","h.alkhafaji@org.iq","EMP-0874","الخدمات العامة","مشرف","","متقاعد","2008/10/20"]];
+  var tb=document.getElementById('rows');
+  tb.innerHTML=data.map(function(r,i){return '<tr aria-selected="false">'+
+    '<td class="hr-td-check"><input type="checkbox" class="hr-check" aria-label="تحديد '+r[0]+'"></td>'+
+    '<td class="hr-td-person"><div class="hr-cell-person"><div class="hr-avatar" aria-hidden="true">'+r[0][0]+'</div><div><b>'+r[0]+'</b><small class="hr-num">'+r[1]+'</small></div></div></td>'+
+    '<td data-label="الرقم الوظيفي"><span class="hr-num">'+r[2]+'</span></td>'+
+    '<td data-label="القسم">'+r[3]+'</td>'+
+    '<td data-label="العنوان الوظيفي">'+r[4]+'</td>'+
+    '<td data-label="الحالة"><span class="hr-badge'+(r[5]?' hr-badge--'+r[5]:'')+'">'+r[6]+'</span></td>'+
+    '<td data-label="تاريخ المباشرة"><span class="hr-num">'+r[7]+'</span></td>'+
+    '<td class="hr-td-more"><button class="hr-btn hr-btn--ghost hr-btn--icon hr-btn--sm" aria-label="إجراءات '+r[0]+'"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button></td></tr>';}).join('');
+  var dt=document.getElementById('dt'), all=document.getElementById('all');
+  function sync(){var boxes=tb.querySelectorAll('.hr-check'),n=0;boxes.forEach(function(b){b.closest('tr').setAttribute('aria-selected',b.checked);if(b.checked)n++;});
+    document.getElementById('selc').textContent=n+' محدد'; if(n) dt.setAttribute('data-selected',''); else dt.removeAttribute('data-selected');
+    all.checked=n===boxes.length; all.indeterminate=n>0&&n<boxes.length;}
+  tb.addEventListener('change',sync);
+  all.addEventListener('change',function(){tb.querySelectorAll('.hr-check').forEach(function(b){b.checked=all.checked});sync();});
+  tb.querySelectorAll('.hr-check')[0].checked=true; tb.querySelectorAll('.hr-check')[2].checked=true; sync();
+  document.querySelectorAll('th button').forEach(function(b){b.addEventListener('click',function(){var th=b.parentNode,s=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';document.querySelectorAll('th[aria-sort]').forEach(function(x){x.setAttribute('aria-sort','none')});th.setAttribute('aria-sort',s);});});
+  var fr=document.getElementById('frame');
+  document.querySelectorAll('input[name=vp]').forEach(function(r){r.addEventListener('change',function(){fr.style.maxInlineSize=r.value;});});
+  document.querySelectorAll('input[name=den]').forEach(function(r){r.addEventListener('change',function(){document.documentElement.setAttribute('data-density',r.value);});});
+})();
+</script>
+</body>
+</html>

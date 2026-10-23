@@ -1,0 +1,1044 @@
+@page "/residences-map"
+@rendermode InteractiveServer
+@using API.HR.Node.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@* Every employee's home address and position: staff only, same as the nav entry. *@
+@attribute [Authorize(Roles = API.HR.Node.Security.StaffRoles.Csv)]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.ProfilePhotos.IUserAvatarService AvatarService
+@implements IAsyncDisposable
+
+<PageTitle>خريطة مواقع السكن | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack hr-residences-map-layout">
+
+    @* Executive Command Bar: Live Brand, Micro KPIs & Action Buttons *@
+    <div class="hr-map-cmd-bar">
+        <div class="hr-map-cmd-top">
+            <div class="hr-map-brand-group">
+                <span class="hr-map-live-dot" title="نظام التتبع الجغرافي نشط"></span>
+                <div class="hr-map-title-text">
+                    <h1>خريطة المواقع الجغرافية للسكن</h1>
+                    <span class="hr-badge" style="font-size:var(--fs-caption);padding:2px 8px;">GIS Command Center</span>
+                </div>
+            </div>
+
+            @* Micro-KPIs Ribbon *@
+            <div class="hr-map-kpis-ribbon">
+                <div class="hr-map-kpi-chip" title="إجمالي سجلات السكن المسجلة">
+                    <span>إجمالي المواقع:</span>
+                    <span class="kpi-num">@allResidences.Count</span>
+                </div>
+
+                <div class="hr-map-kpi-chip emerald" title="المساكن الحالية للموظفين">
+                    <span>السكن الحالي:</span>
+                    <span class="kpi-num">@allResidences.Count(r => r.IsCurrent)</span>
+                </div>
+
+                <div class="hr-map-kpi-chip sky" title="دور سكنية">
+                    <span>دور:</span>
+                    <span class="kpi-num">@allResidences.Count(r => r.HousingType == "دار")</span>
+                </div>
+
+                <div class="hr-map-kpi-chip purple" title="شقق ومجمعات سكنية">
+                    <span>شقق:</span>
+                    <span class="kpi-num">@allResidences.Count(r => r.HousingType == "شقة")</span>
+                </div>
+
+                <div class="hr-map-kpi-chip amber" title="المحافظات المشمولة">
+                    <span>المحافظات:</span>
+                    <span class="kpi-num">@coveredGovernoratesCount</span>
+                </div>
+
+                <a href="/employees" class="hr-btn hr-btn-secondary hr-btn-sm" style="font-size:var(--fs-caption);padding:3px 10px;" title="الانتقال إلى دليل الموظفين">
+                    <Icon Name="users" Size="xs" />
+                    <span>دليل الموظفين</span>
+                </a>
+            </div>
+        </div>
+
+        @* Unified Filter & Search Strip *@
+        <div class="hr-map-filters-row">
+            @* Search Box *@
+            <div class="hr-map-filter-search">
+                <Icon Name="magnifying-glass" Size="xs" Class="hr-search-icon" />
+                <input aria-label="البحث في سكن الموظفين" id="res-search" type="search" class="hr-input"
+                       value="@searchQuery"
+                       @oninput="OnSearchInput"
+                       placeholder="بحث باسم الموظف، الرقم الوظيفي، المحلة، المجمع، رب الأسرة..." />
+            </div>
+
+            @* Governorate Selector *@
+            <div class="hr-map-filter-select">
+                <select aria-label="تصفية حسب المحافظة" id="res-gov" class="hr-select" value="@selectedGovId" @onchange="OnGovChanged">
+                    <option value="0">كافة المحافظات (@governoratesList.Count)</option>
+                    @foreach (var gov in governoratesList)
+                    {
+                        <option value="@gov.Id">@gov.Name</option>
+                    }
+                </select>
+            </div>
+
+            @* Quick Filter Toggle Pills *@
+            <div class="hr-map-pill-toggles">
+                <button type="button"
+                        class="hr-map-pill-btn @(string.IsNullOrEmpty(selectedHousingType) ? "is-checked" : "")"
+                        @onclick='() => SetHousingTypeFilter("")'>
+                    الكل
+                </button>
+
+                <button type="button"
+                        class="hr-map-pill-btn @(selectedHousingType == "دار" ? "is-checked" : "")"
+                        @onclick='() => SetHousingTypeFilter("دار")'>
+                    <Icon Name="home" Size="xs" />
+                    <span>دور سكنية</span>
+                </button>
+
+                <button type="button"
+                        class="hr-map-pill-btn @(selectedHousingType == "شقة" ? "is-checked" : "")"
+                        @onclick='() => SetHousingTypeFilter("شقة")'>
+                    <Icon Name="building-office-2" Size="xs" />
+                    <span>شقق ومجمعات</span>
+                </button>
+
+                <button type="button"
+                        class="hr-map-pill-btn @(onlyCurrent ? "is-checked" : "")"
+                        @onclick="ToggleOnlyCurrent">
+                    <span style="width:8px;height:8px;border-radius:50%;background:var(--series-3);display:inline-block;" aria-hidden="true"></span>
+                    <span>السكن الحالي فقط</span>
+                </button>
+
+                <button type="button"
+                        class="hr-map-pill-btn @(onlyAccurate ? "is-checked" : "")"
+                        @onclick="ToggleOnlyAccurate">
+                    <Icon Name="map-pin" Size="xs" />
+                    <span>GPS دقيق فقط</span>
+                </button>
+
+                @if (HasActiveFilters)
+                {
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" style="font-size:var(--fs-caption);padding:3px 8px;" @onclick="ClearFilters" title="إعادة تعيين الفلاتر">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح الفلاتر</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Main Viewport: Collapsible Sidebar + Leaflet Canvas *@
+    <div class="hr-map-viewport-grid @(isSidebarCollapsed ? "is-sidebar-hidden" : "")">
+
+        @* Sidebar: List of Matching Residences *@
+        <div class="hr-map-sidebar-card">
+            <div class="hr-map-sidebar-header">
+                <div style="display:flex;align-items:center;gap:var(--s-2);">
+                    <span style="font-weight:800;font-size:var(--fs-label);color:var(--ink);">المساكن المسجلة</span>
+                    <span class="hr-badge" style="font-size:var(--fs-caption);padding:2px 7px;">@filteredResidences.Count موقع</span>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" style="padding:2px 6px;" @onclick="ToggleSidebar" title="إخفاء القائمة الجانبية لتوسيع الخريطة">
+                    <Icon Name="chevron-right" Size="xs" />
+                </button>
+            </div>
+
+            <div class="hr-map-sidebar-list">
+                @if (filteredResidences.Count == 0)
+                {
+                    <div style="padding:var(--s-8) var(--s-4);text-align:center;color:var(--text-muted);">
+                        <Icon Name="map-pin" Size="lg" />
+                        <div style="margin-top:var(--s-2);font-weight:700;font-size:var(--fs-label);color:var(--ink);">لا توجد نتائج مطابقة</div>
+                        <div style="font-size:var(--fs-caption);margin-top:4px;">جرّب تعديل معايير البحث أو تفريغ الفلاتر</div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var item in filteredResidences)
+                    {
+                        var isSel = selectedResidenceId == item.Id;
+                        <div class="hr-map-list-item @(isSel ? "is-selected" : "")"
+                             @onclick="() => SelectAndFocusResidence(item)">
+
+                            @* Avatar with Fallback *@
+                            @if (!string.IsNullOrWhiteSpace(item.PhotoUrl))
+                            {
+                                <img src="@item.PhotoUrl" alt="@item.EmployeeName" class="hr-map-popup-avatar" />
+                            }
+                            else
+                            {
+                                <div class="hr-map-popup-avatar-placeholder">
+                                    @(string.IsNullOrWhiteSpace(item.EmployeeName) ? "م" : item.EmployeeName[0].ToString())
+                                </div>
+                            }
+
+                            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                                    <span style="font-weight:700;font-size:var(--fs-label);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        @item.EmployeeName
+                                    </span>
+                                    @if (item.IsCurrent)
+                                    {
+                                        <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:1px 6px;">حالي</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge" style="font-size:var(--fs-caption);padding:1px 6px;">سابق</span>
+                                    }
+                                </div>
+
+                                <div style="font-size:var(--fs-caption);color:var(--text-muted);display:flex;align-items:center;gap:4px;">
+                                    <span class="hr-code" style="font-size:var(--fs-caption);">@item.EmployeeIdNumber</span>
+                                    @if (!string.IsNullOrWhiteSpace(item.DepartmentName))
+                                    {
+                                        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">• @item.DepartmentName</span>
+                                    }
+                                </div>
+
+                                <div style="font-size:var(--fs-caption);color:var(--text-2);margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                                    <span class="hr-badge @(item.HousingType == "دار" ? "hr-badge-accent" : "hr-badge-primary")" style="font-size:var(--fs-caption);padding:1px 6px;">
+                                        @item.HousingType
+                                    </span>
+                                    @if (!string.IsNullOrWhiteSpace(item.GovernorateName))
+                                    {
+                                        <span style="font-size:var(--fs-caption);font-weight:600;">@item.GovernorateName</span>
+                                    }
+                                    @if (item.IsAccurate)
+                                    {
+                                        <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:1px 5px;" title="إحداثيات GPS دقيقة للمسكن">GPS دقيق</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-warn" title="الموقع معتمد على مركز المحافظة">مركز المحافظة</span>
+                                    }
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(item.FormattedAddress))
+                                {
+                                    <div style="font-size:var(--fs-caption);color:var(--text-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        @item.FormattedAddress
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        @* Leaflet Map Canvas Container *@
+        <div class="hr-map-canvas-container" id="hr-map-canvas-container">
+
+            @* Floating Executive GIS HUD *@
+            <div class="hr-map-glass-hud">
+                @* Layer Switcher *@
+                <div class="hr-map-hud-group">
+                    <div class="hr-map-layer-switcher" title="تبديل طبقة الخريطة">
+                        <button type="button"
+                                class="hr-map-layer-btn @(activeLayerKey == "streets" ? "is-active" : "")"
+                                @onclick='() => ChangeTileLayer("streets")'>
+                            <span>🗺️ شوارع</span>
+                        </button>
+                        <button type="button"
+                                class="hr-map-layer-btn @(activeLayerKey == "satellite" ? "is-active" : "")"
+                                @onclick='() => ChangeTileLayer("satellite")'>
+                            <span>🛰️ أقمار صناعية</span>
+                        </button>
+                        <button type="button"
+                                class="hr-map-layer-btn @(activeLayerKey == "dark" ? "is-active" : "")"
+                                @onclick='() => ChangeTileLayer("dark")'>
+                            <span>🌙 ليلي</span>
+                        </button>
+                    </div>
+                </div>
+
+                @* Map Control Action Buttons *@
+                <div class="hr-map-hud-group">
+                    <button type="button" class="hr-map-hud-action-btn" @onclick="FitAllMarkers" title="ملاءمة الخريطة لجميع النقاط">
+                        <Icon Name="globe-alt" Size="xs" />
+                        <span>ملاءمة الكل</span>
+                    </button>
+
+                    <button type="button" class="hr-map-hud-action-btn" @onclick="LocateMe" title="تحديد موقعي الجغرافي الحالي">
+                        <Icon Name="map-pin" Size="xs" />
+                        <span>موقعي</span>
+                    </button>
+
+                    <button type="button" class="hr-map-hud-action-btn" @onclick="ToggleFullscreen" title="ملء الشاشة">
+                        <Icon Name="arrows-pointing-out" Size="xs" />
+                        <span>ملء الشاشة</span>
+                    </button>
+
+                    <button type="button" class="hr-map-hud-action-btn" @onclick="ToggleSidebar" title="إظهار / إخفاء القائمة الجانبية">
+                        <Icon Name="bars-3" Size="xs" />
+                        <span>@(isSidebarCollapsed ? "إظهار القائمة" : "توسيع الخريطة")</span>
+                    </button>
+                </div>
+            </div>
+
+            @* Map Canvas Element *@
+            <div id="hr-all-residences-map"></div>
+
+            @* Discreet Floating Legend in Bottom Corner *@
+            <div class="hr-map-legend-dock">
+                <div style="display:flex;align-items:center;gap:5px;">
+                    <span style="width:10px;height:10px;border-radius:50%;background:var(--series-3);display:inline-block;" aria-hidden="true"></span>
+                    <span>دار (حالي)</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:5px;">
+                    <span style="width:10px;height:10px;border-radius:50%;background:var(--series-1);display:inline-block;" aria-hidden="true"></span>
+                    <span>شقة (حالي)</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:5px;">
+                    <span style="width:10px;height:10px;border-radius:50%;background:var(--series-6);display:inline-block;" aria-hidden="true"></span>
+                    <span>سكن سابق</span>
+                </div>
+            </div>
+
+            @* Intelligent Slide-Out Detail Drawer *@
+            @if (selectedDetailItem != null)
+            {
+                <div class="hr-map-drawer-scrim" @onclick="CloseDetailDrawer" aria-hidden="true"></div>
+                <div class="hr-map-drawer" role="dialog" aria-modal="true" aria-labelledby="map-drawer-title" tabindex="-1" @onkeydown="OnDetailDrawerKeyDown">
+
+                    @* Drawer Header *@
+                    <div class="hr-map-drawer-header">
+                        <div class="hr-map-drawer-person">
+                            @if (!string.IsNullOrWhiteSpace(selectedDetailItem.PhotoUrl))
+                            {
+                                <img src="@selectedDetailItem.PhotoUrl" alt="@selectedDetailItem.EmployeeName" class="hr-map-drawer-avatar" />
+                            }
+                            else
+                            {
+                                <div class="hr-map-drawer-avatar-placeholder">
+                                    @(string.IsNullOrWhiteSpace(selectedDetailItem.EmployeeName) ? "م" : selectedDetailItem.EmployeeName[0].ToString())
+                                </div>
+                            }
+
+                            <div style="display:flex;flex-direction:column;min-width:0;">
+                                <div id="map-drawer-title" style="font-weight:800;font-size:var(--fs-body);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                    @selectedDetailItem.EmployeeName
+                                </div>
+                                <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+                                    <span class="hr-code" style="font-size:var(--fs-caption);">@selectedDetailItem.EmployeeIdNumber</span>
+                                    @if (!string.IsNullOrWhiteSpace(selectedDetailItem.JobTitle))
+                                    {
+                                        <span style="font-size:var(--fs-caption);color:var(--text-muted);">• @selectedDetailItem.JobTitle</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(selectedDetailItem.DepartmentName))
+                                {
+                                    <span style="font-size:var(--fs-caption);color: var(--accent-text);margin-top:2px;font-weight:600;">@selectedDetailItem.DepartmentName</span>
+                                }
+                            </div>
+                        </div>
+
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" style="padding:4px 8px;" @onclick="CloseDetailDrawer" title="إغلاق">
+                            <Icon Name="x-mark" Size="sm" />
+                        </button>
+                    </div>
+
+                    @* Drawer Content Body *@
+                    <div class="hr-map-drawer-body">
+
+                        @* Status Badges Group *@
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            @if (selectedDetailItem.IsCurrent)
+                            {
+                                <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:3px 10px;">🟢 السكن الحالي للموظف</span>
+                            }
+                            else
+                            {
+                                <span class="hr-badge" style="font-size:var(--fs-caption);padding:3px 10px;">⚪ سكن سابق</span>
+                            }
+
+                            <span class="hr-badge @(selectedDetailItem.HousingType == "دار" ? "hr-badge-accent" : "hr-badge-primary")" style="font-size:var(--fs-caption);padding:3px 10px;">
+                                @(selectedDetailItem.HousingType == "دار" ? "🏡 دار سكني" : "🏢 شقة سكنية")
+                            </span>
+
+                            @if (selectedDetailItem.IsAccurate)
+                            {
+                                <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:3px 10px;">🛰️ إحداثيات GPS دقيقة</span>
+                            }
+                            else
+                            {
+                                <span class="hr-badge hr-badge-warn"><Icon Name="map-pin" Size="xs" /> مركز المحافظة (تقريبي)</span>
+                            }
+                        </div>
+
+                        @* Detailed Address Breakdown *@
+                        <div class="hr-map-drawer-card">
+                            <div class="hr-map-drawer-card-title">
+                                <Icon Name="map-pin" Size="xs" />
+                                <span>تفاصيل العنوان السكني</span>
+                            </div>
+
+                            <div class="hr-map-drawer-data-grid">
+                                <div class="hr-map-drawer-data-item">
+                                    <span class="hr-map-drawer-data-label">المحافظة</span>
+                                    <span class="hr-map-drawer-data-val">@(selectedDetailItem.GovernorateName ?? "غير محدد")</span>
+                                </div>
+
+                                @if (selectedDetailItem.HousingType == "دار")
+                                {
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">الحي</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.District ?? "—")</span>
+                                    </div>
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">المحلة</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.Mahalla ?? "—")</span>
+                                    </div>
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">الزقاق</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.Zuqaq ?? "—")</span>
+                                    </div>
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">الدار</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.Dar ?? "—")</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">المجمع السكني</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.ComplexName ?? "—")</span>
+                                    </div>
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">رقم البناية / العمارة</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.BuildingNumber ?? "—")</span>
+                                    </div>
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">الطابق</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.FloorNumber ?? "—")</span>
+                                    </div>
+                                    <div class="hr-map-drawer-data-item">
+                                        <span class="hr-map-drawer-data-label">رقم الشقة</span>
+                                        <span class="hr-map-drawer-data-val">@(selectedDetailItem.ApartmentNumber ?? "—")</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        @* Official Residence Form & Family Card *@
+                        <div class="hr-map-drawer-card">
+                            <div class="hr-map-drawer-card-title">
+                                <Icon Name="document-text" Size="xs" />
+                                <span>بيانات استمارة السكن ورب الأسرة</span>
+                            </div>
+
+                            <div class="hr-map-drawer-data-grid">
+                                <div class="hr-map-drawer-data-item">
+                                    <span class="hr-map-drawer-data-label">اسم رب الأسرة</span>
+                                    <span class="hr-map-drawer-data-val">@(selectedDetailItem.FamilyHeadName ?? "—")</span>
+                                </div>
+
+                                <div class="hr-map-drawer-data-item">
+                                    <span class="hr-map-drawer-data-label">مكتب المعلومات</span>
+                                    <span class="hr-map-drawer-data-val">@(selectedDetailItem.InformationOffice ?? "—")</span>
+                                </div>
+
+                                <div class="hr-map-drawer-data-item">
+                                    <span class="hr-map-drawer-data-label">رقم الاستمارة</span>
+                                    <span class="hr-map-drawer-data-val hr-code">@(selectedDetailItem.FormNumber ?? "—")</span>
+                                </div>
+
+                                <div class="hr-map-drawer-data-item">
+                                    <span class="hr-map-drawer-data-label">تاريخ تنظيم الاستمارة</span>
+                                    <span class="hr-map-drawer-data-val">@(selectedDetailItem.FormDate?.ToString("yyyy/MM/dd") ?? "—")</span>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(selectedDetailItem.DateRange))
+                                {
+                                    <div class="hr-map-drawer-data-item" style="grid-column: span 2;">
+                                        <span class="hr-map-drawer-data-label">فترة السكن في هذا الموقع</span>
+                                        <span class="hr-map-drawer-data-val">@selectedDetailItem.DateRange</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        @* Geographic Location & Quick Actions *@
+                        <div class="hr-map-drawer-card">
+                            <div class="hr-map-drawer-card-title">
+                                <Icon Name="globe-alt" Size="xs" />
+                                <span>الإحداثيات الجغرافية والخرائط</span>
+                            </div>
+
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);padding:6px 10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:var(--fs-caption);flex-wrap:wrap;">
+                                <div style="display:flex;align-items:center;gap:6px;">
+                                    <span style="color:var(--text-muted);font-weight:600;">GPS:</span>
+                                    <span class="hr-code" style="font-size:var(--fs-caption);font-weight:700;">@selectedDetailItem.Latitude.ToString("F5"), @selectedDetailItem.Longitude.ToString("F5")</span>
+                                </div>
+
+                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" style="padding:2px 8px;font-size:var(--fs-caption);" @onclick="() => CopyCoordinatesAsync(selectedDetailItem)" title="نسخ الإحداثيات">
+                                    <Icon Name="clipboard-document" Size="xs" />
+                                    <span>@(copiedToast ? "تم النسخ!" : "نسخ")</span>
+                                </button>
+                            </div>
+
+                            <div style="display:flex;gap:var(--s-2);margin-top:var(--s-2);">
+                                @if (!string.IsNullOrWhiteSpace(selectedDetailItem.LocationUrl) && (selectedDetailItem.LocationUrl.StartsWith("http://") || selectedDetailItem.LocationUrl.StartsWith("https://")))
+                                {
+                                    <a href="@selectedDetailItem.LocationUrl" target="_blank" rel="noopener noreferrer" class="hr-btn hr-btn-secondary hr-btn-sm" style="flex:1;justify-content:center;gap:4px;font-size:var(--fs-caption);">
+                                        <Icon Name="arrow-top-right-on-square" Size="xs" />
+                                        <span>خرائط Google</span>
+                                    </a>
+                                }
+                                else
+                                {
+                                    <a href="https://www.google.com/maps?q=@(selectedDetailItem.Latitude),@(selectedDetailItem.Longitude)" target="_blank" rel="noopener noreferrer" class="hr-btn hr-btn-secondary hr-btn-sm" style="flex:1;justify-content:center;gap:4px;font-size:var(--fs-caption);">
+                                        <Icon Name="arrow-top-right-on-square" Size="xs" />
+                                        <span>خرائط Google</span>
+                                    </a>
+                                }
+                            </div>
+                        </div>
+
+                        @* Residence Card Attachments *@
+                        <div class="hr-map-drawer-card">
+                            <div class="hr-map-drawer-card-title">
+                                <Icon Name="photo" Size="xs" />
+                                <span>مرفقات بطاقة السكن الرسمية</span>
+                            </div>
+
+                            @if (selectedDetailItem.HasCardFront || selectedDetailItem.HasCardBack)
+                            {
+                                <div class="hr-map-cards-preview">
+                                    @if (selectedDetailItem.HasCardFront)
+                                    {
+                                        <div class="hr-map-card-thumb-box"
+                                             @onclick='() => OpenLightbox("وجه بطاقة السكن - " + selectedDetailItem.EmployeeName, selectedDetailItem.CardFrontUrl)'
+                                             title="انقر لتكبير وجه بطاقة السكن">
+                                            <img src="@selectedDetailItem.CardFrontUrl" alt="وجه بطاقة السكن" />
+                                            <span class="hr-map-card-thumb-badge">الوجه الأمامي</span>
+                                        </div>
+                                    }
+
+                                    @if (selectedDetailItem.HasCardBack)
+                                    {
+                                        <div class="hr-map-card-thumb-box"
+                                             @onclick='() => OpenLightbox("ظهر بطاقة السكن - " + selectedDetailItem.EmployeeName, selectedDetailItem.CardBackUrl)'
+                                             title="انقر لتكبير ظهر بطاقة السكن">
+                                            <img src="@selectedDetailItem.CardBackUrl" alt="ظهر بطاقة السكن" />
+                                            <span class="hr-map-card-thumb-badge">الوجه الخلفي</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div style="padding:var(--s-3);background:var(--surface);border-radius:var(--radius-sm);text-align:center;font-size:var(--fs-caption);color:var(--text-muted);">
+                                    لم يتم إرفاق صور بطاقة السكن (الوجه/الظهر) لهذا السجل بعد.
+                                </div>
+                            }
+                        </div>
+
+                    </div>
+
+                    @* Drawer Actions Footer *@
+                    <div class="hr-map-drawer-footer">
+                        <a href="/employees/@selectedDetailItem.EmployeeId" class="hr-btn hr-btn-primary hr-btn-sm" style="flex:1;justify-content:center;font-size:var(--fs-caption);">
+                            <Icon Name="user" Size="xs" />
+                            <span>عرض ملف الموظف الكامل</span>
+                        </a>
+
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" style="font-size:var(--fs-caption);" @onclick="CloseDetailDrawer">
+                            <span>إغلاق</span>
+                        </button>
+                    </div>
+
+                </div>
+            }
+
+        </div>
+
+    </div>
+
+</div>
+
+@* Lightbox Modal for Residence Card Fullscreen Viewing *@
+@if (!string.IsNullOrWhiteSpace(activeLightboxUrl))
+{
+    <div class="hr-modal-scrim" @onclick="CloseLightbox">
+        <div class="hr-modal hr-modal-lg" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="residence-lightbox-title" tabindex="-1" @onkeydown="OnLightboxKeyDown">
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate" aria-hidden="true"><Icon Name="identification" Size="sm" /></span>
+                    <h2 id="residence-lightbox-title" class="hr-h3" style="margin:0;">@activeLightboxTitle</h2>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="CloseLightbox" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+            <div class="hr-modal-body" style="padding:var(--s-4);display:grid;place-items:center;background:#000000;">
+                <img src="@activeLightboxUrl" alt="@activeLightboxTitle" style="max-height:75dvh;max-width:100%;object-fit:contain;border-radius:var(--r-md);" />
+            </div>
+            <div class="hr-modal-foot">
+                <a href="@activeLightboxUrl" target="_blank" download class="hr-btn hr-btn-secondary hr-btn-sm">
+                    <Icon Name="arrow-down-tray" Size="xs" />
+                    <span>تحميل الصورة الأصلية</span>
+                </a>
+                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="CloseLightbox">
+                    <span>إغلاق</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ResidenceMapItemDto> allResidences = [];
+    private List<ResidenceMapItemDto> filteredResidences = [];
+    private List<Governorate> governoratesList = [];
+    private int coveredGovernoratesCount = 0;
+
+    // Filter properties
+    private string searchQuery = "";
+    private int selectedGovId = 0;
+    private string selectedHousingType = "";
+    private bool onlyCurrent = false;
+    private bool onlyAccurate = false;
+
+    // View state
+    private string activeLayerKey = "streets";
+    private bool isSidebarCollapsed = false;
+    private int? selectedResidenceId;
+    private ResidenceMapItemDto? selectedDetailItem;
+    private bool copiedToast = false;
+
+    // Lightbox modal state
+    private string? activeLightboxUrl;
+    private string? activeLightboxTitle;
+
+    private DotNetObjectReference<ResidencesMapPage>? dotNetRef;
+    private bool mapInitialized = false;
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) ||
+        selectedGovId > 0 ||
+        !string.IsNullOrWhiteSpace(selectedHousingType) ||
+        onlyCurrent ||
+        onlyAccurate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        governoratesList = await db.Governorates
+            .AsNoTracking()
+            .OrderBy(g => g.DisplayOrder)
+            .ThenBy(g => g.Name)
+            .ToListAsync();
+
+        var residences = await db.EmployeeResidences
+            .AsNoTracking()
+            .Include(r => r.Employee)
+                .ThenInclude(e => e.Formation)
+            .Include(r => r.Employee)
+                .ThenInclude(e => e.JobTitle)
+            .Include(r => r.Governorate)
+            .ToListAsync();
+
+        var list = new List<ResidenceMapItemDto>();
+
+        foreach (var r in residences)
+        {
+            if (r.Employee == null) continue;
+
+            // Determine Coordinates
+            double lat;
+            double lng;
+            bool isAccurate = false;
+            var coords = r.TryGetCoordinates();
+
+            if (coords.HasValue)
+            {
+                lat = coords.Value.Lat;
+                lng = coords.Value.Lng;
+                isAccurate = true;
+            }
+            else if (!string.IsNullOrWhiteSpace(r.LocationUrl))
+            {
+                var resolved = await EmployeeResidence.ResolveUrlAndCoordinatesAsync(r.LocationUrl);
+                if (resolved.HasValue)
+                {
+                    lat = resolved.Value.Lat;
+                    lng = resolved.Value.Lng;
+                    isAccurate = true;
+                }
+                else if (r.Governorate != null && r.Governorate.DefaultLatitude != 0)
+                {
+                    var hash = (r.Id * 9301 + 49297) % 233280;
+                    var angle = (hash % 360) * Math.PI / 180.0;
+                    var dist = 0.005 + ((hash % 100) / 100.0) * 0.025;
+                    lat = r.Governorate.DefaultLatitude + (dist * Math.Cos(angle));
+                    lng = r.Governorate.DefaultLongitude + (dist * Math.Sin(angle));
+                }
+                else
+                {
+                    var hash = (r.Id * 9301 + 49297) % 233280;
+                    var angle = (hash % 360) * Math.PI / 180.0;
+                    var dist = 0.01 + ((hash % 100) / 100.0) * 0.03;
+                    lat = 33.3152 + (dist * Math.Cos(angle));
+                    lng = 44.3661 + (dist * Math.Sin(angle));
+                }
+            }
+            else if (r.Governorate != null && r.Governorate.DefaultLatitude != 0)
+            {
+                var hash = (r.Id * 9301 + 49297) % 233280;
+                var angle = (hash % 360) * Math.PI / 180.0;
+                var dist = 0.005 + ((hash % 100) / 100.0) * 0.025;
+                lat = r.Governorate.DefaultLatitude + (dist * Math.Cos(angle));
+                lng = r.Governorate.DefaultLongitude + (dist * Math.Sin(angle));
+            }
+            else
+            {
+                var hash = (r.Id * 9301 + 49297) % 233280;
+                var angle = (hash % 360) * Math.PI / 180.0;
+                var dist = 0.01 + ((hash % 100) / 100.0) * 0.03;
+                lat = 33.3152 + (dist * Math.Cos(angle));
+                lng = 44.3661 + (dist * Math.Sin(angle));
+            }
+
+            string? dateRange = null;
+            if (r.FromDate.HasValue || r.ToDate.HasValue)
+            {
+                var fromStr = r.FromDate?.ToString("yyyy/MM/dd") ?? "البداية";
+                var toStr = r.ToDate?.ToString("yyyy/MM/dd") ?? "مستمر حتى الآن";
+                dateRange = $"{fromStr} - {toStr}";
+            }
+
+            string? photoUrl = null;
+            try
+            {
+                photoUrl = await AvatarService.GetAvatarDataUrlAsync(r.EmployeeIdNumber, null);
+            }
+            catch
+            {
+                // Fallback to null
+            }
+
+            var item = new ResidenceMapItemDto
+            {
+                Id = r.Id,
+                EmployeeId = r.EmployeeId,
+                EmployeeName = r.Employee.Name,
+                EmployeeIdNumber = r.EmployeeIdNumber,
+                PhotoUrl = photoUrl,
+                JobTitle = r.Employee.JobTitle?.Name,
+                DepartmentName = r.Employee.Formation?.Name,
+                HousingType = string.IsNullOrWhiteSpace(r.HousingType) ? "دار" : r.HousingType,
+                IsCurrent = r.IsCurrent,
+                IsAccurate = isAccurate,
+                GovernorateId = r.GovernorateId,
+                GovernorateName = r.Governorate?.Name,
+                District = r.District,
+                Mahalla = r.Mahalla,
+                Zuqaq = r.Zuqaq,
+                Dar = r.Dar,
+                ComplexName = r.ComplexName,
+                BuildingNumber = r.BuildingNumber,
+                FloorNumber = r.FloorNumber,
+                ApartmentNumber = r.ApartmentNumber,
+                FamilyHeadName = r.FamilyHeadName,
+                InformationOffice = r.InformationOffice,
+                FormNumber = r.FormNumber,
+                FormDate = r.FormDate,
+                LocationUrl = r.LocationUrl,
+                DateRange = dateRange,
+                Latitude = lat,
+                Longitude = lng,
+                FormattedAddress = r.FormattedAddress,
+                HasCardFront = !string.IsNullOrWhiteSpace(r.CardFrontKey),
+                HasCardBack = !string.IsNullOrWhiteSpace(r.CardBackKey),
+                CardFrontUrl = $"/api/residence/{r.Id}/card/front",
+                CardBackUrl = $"/api/residence/{r.Id}/card/back"
+            };
+
+            list.Add(item);
+        }
+
+        allResidences = list;
+        coveredGovernoratesCount = allResidences
+            .Where(r => r.GovernorateId.HasValue)
+            .Select(r => r.GovernorateId!.Value)
+            .Distinct()
+            .Count();
+
+        ApplyFilter();
+
+        if (mapInitialized)
+        {
+            await SyncMapMarkersAsync();
+            await JS.InvokeVoidAsync("HrResidenceMap.invalidateSize");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            // Leaflet (~150 KB) and the map module load here, not on every page.
+            await JS.InvokeVoidAsync("hrLoadScript", Assets["js/leaflet.js"]);
+            await JS.InvokeVoidAsync("hrLoadScript", Assets["js/hr-residence-map.js"]);
+            await JS.InvokeVoidAsync("HrResidenceMap.init", "hr-all-residences-map", dotNetRef, filteredResidences, activeLayerKey);
+            mapInitialized = true;
+            if (filteredResidences.Count > 0)
+            {
+                await JS.InvokeVoidAsync("HrResidenceMap.updateMarkers", filteredResidences);
+            }
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        var q = allResidences.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var search = searchQuery.Trim().ToLower();
+            q = q.Where(r =>
+                (r.EmployeeName?.ToLower().Contains(search) ?? false) ||
+                (r.EmployeeIdNumber?.ToLower().Contains(search) ?? false) ||
+                (r.GovernorateName?.ToLower().Contains(search) ?? false) ||
+                (r.FamilyHeadName?.ToLower().Contains(search) ?? false) ||
+                (r.FormattedAddress?.ToLower().Contains(search) ?? false) ||
+                (r.ComplexName?.ToLower().Contains(search) ?? false) ||
+                (r.FormNumber?.ToLower().Contains(search) ?? false));
+        }
+
+        if (selectedGovId > 0)
+        {
+            q = q.Where(r => r.GovernorateId == selectedGovId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedHousingType))
+        {
+            q = q.Where(r => r.HousingType == selectedHousingType);
+        }
+
+        if (onlyCurrent)
+        {
+            q = q.Where(r => r.IsCurrent);
+        }
+
+        if (onlyAccurate)
+        {
+            q = q.Where(r => r.IsAccurate);
+        }
+
+        filteredResidences = q.OrderByDescending(r => r.IsCurrent)
+                              .ThenBy(r => r.EmployeeName)
+                              .ToList();
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+        ApplyFilter();
+        await SyncMapMarkersAsync();
+    }
+
+    private async Task OnGovChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var gid))
+        {
+            selectedGovId = gid;
+        }
+        else
+        {
+            selectedGovId = 0;
+        }
+        ApplyFilter();
+        await SyncMapMarkersAsync();
+    }
+
+    private async Task SetHousingTypeFilter(string type)
+    {
+        selectedHousingType = type;
+        ApplyFilter();
+        await SyncMapMarkersAsync();
+    }
+
+    private async Task ToggleOnlyCurrent()
+    {
+        onlyCurrent = !onlyCurrent;
+        ApplyFilter();
+        await SyncMapMarkersAsync();
+    }
+
+    private async Task ToggleOnlyAccurate()
+    {
+        onlyAccurate = !onlyAccurate;
+        ApplyFilter();
+        await SyncMapMarkersAsync();
+    }
+
+    private async Task ClearFilters()
+    {
+        searchQuery = "";
+        selectedGovId = 0;
+        selectedHousingType = "";
+        onlyCurrent = false;
+        onlyAccurate = false;
+        ApplyFilter();
+        await SyncMapMarkersAsync();
+    }
+
+    private async Task ChangeTileLayer(string layerKey)
+    {
+        activeLayerKey = layerKey;
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.setTileLayer", layerKey);
+        }
+    }
+
+    private async Task FitAllMarkers()
+    {
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.fitAll");
+        }
+    }
+
+    private async Task LocateMe()
+    {
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.locateUser");
+        }
+    }
+
+    private async Task ToggleFullscreen()
+    {
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.toggleFullscreen", "hr-map-canvas-container");
+        }
+    }
+
+    private async Task ToggleSidebar()
+    {
+        isSidebarCollapsed = !isSidebarCollapsed;
+        await Task.Delay(320);
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.invalidateSize");
+        }
+    }
+
+    private async Task SyncMapMarkersAsync()
+    {
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.updateMarkers", filteredResidences);
+        }
+    }
+
+    private async Task SelectAndFocusResidence(ResidenceMapItemDto item)
+    {
+        selectedResidenceId = item.Id;
+        selectedDetailItem = item;
+        if (mapInitialized)
+        {
+            await JS.InvokeVoidAsync("HrResidenceMap.focusLocation", item.Id, item.Latitude, item.Longitude);
+        }
+    }
+
+    private void OnDetailDrawerKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseDetailDrawer();
+    }
+
+    private void CloseDetailDrawer()
+    {
+        selectedDetailItem = null;
+    }
+
+    private async Task CopyCoordinatesAsync(ResidenceMapItemDto item)
+    {
+        var text = $"{item.Latitude:F6}, {item.Longitude:F6}";
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        copiedToast = true;
+        StateHasChanged();
+        _ = Task.Delay(2500).ContinueWith(_ => { copiedToast = false; InvokeAsync(StateHasChanged); });
+    }
+
+    private void OpenLightbox(string title, string url)
+    {
+        activeLightboxTitle = title;
+        activeLightboxUrl = url;
+    }
+
+    private void CloseLightbox()
+    {
+        activeLightboxUrl = null;
+        activeLightboxTitle = null;
+    }
+
+    private void OnLightboxKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseLightbox();
+    }
+
+    [JSInvokable]
+    public void OnMarkerSelected(int residenceId)
+    {
+        selectedResidenceId = residenceId;
+        selectedDetailItem = allResidences.FirstOrDefault(r => r.Id == residenceId);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        dotNetRef?.Dispose();
+    }
+
+    public sealed class ResidenceMapItemDto
+    {
+        public int Id { get; set; }
+        public int EmployeeId { get; set; }
+        public string EmployeeName { get; set; } = "";
+        public string EmployeeIdNumber { get; set; } = "";
+        public string? JobTitle { get; set; }
+        public string? DepartmentName { get; set; }
+        public string? PhotoUrl { get; set; }
+        public string HousingType { get; set; } = "دار";
+        public bool IsCurrent { get; set; }
+        public bool IsAccurate { get; set; }
+        public int? GovernorateId { get; set; }
+        public string? GovernorateName { get; set; }
+        public string? District { get; set; }
+        public string? Mahalla { get; set; }
+        public string? Zuqaq { get; set; }
+        public string? Dar { get; set; }
+        public string? ComplexName { get; set; }
+        public string? BuildingNumber { get; set; }
+        public string? FloorNumber { get; set; }
+        public string? ApartmentNumber { get; set; }
+        public string? FamilyHeadName { get; set; }
+        public string? InformationOffice { get; set; }
+        public string? FormNumber { get; set; }
+        public DateOnly? FormDate { get; set; }
+        public string? LocationUrl { get; set; }
+        public string? DateRange { get; set; }
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
+        public string FormattedAddress { get; set; } = "";
+        public bool HasCardFront { get; set; }
+        public bool HasCardBack { get; set; }
+        public string CardFrontUrl { get; set; } = "";
+        public string CardBackUrl { get; set; } = "";
+    }
+}

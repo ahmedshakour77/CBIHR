@@ -1,0 +1,185 @@
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject API.HR.Node.Services.Features.ISystemFeatureService FeatureService
+@inject NavigationManager Nav
+@implements IDisposable
+
+@*
+    The top bar of the "top" navigation mode. It reads NavCatalog, the same
+    source as the rail, the drawer and the dock, so every role sees exactly
+    the destinations it may open: the first few as links, the rest in a
+    "more" menu. <details> keeps the menu working on this statically
+    rendered shell, with no circuit.
+*@
+<nav class="hr-header-top-nav" aria-label="@Lang.T("nav.main", "التنقل الرئيسي")">
+    <AuthorizeView>
+        <Authorized>
+            @{
+                var user = context.User;
+                var groups = GroupsFor(user);
+                var entries = groups.SelectMany(g => g.Items).ToList();
+                var primary = entries.Take(PrimaryCount).ToList();
+                var overflowGroups = groups
+                    .Select(g => (Group: g, Items: g.Items.Where(i => !primary.Contains(i)).ToList()))
+                    .Where(x => x.Items.Count > 0)
+                    .ToList();
+                var overflowCurrent = overflowGroups.SelectMany(x => x.Items).FirstOrDefault(IsCurrent);
+            }
+            <div class="hr-header-top-links">
+                @foreach (var item in primary)
+                {
+                    <NavLink class="hr-header-top-link" href="@item.Href"
+                             Match="@(item.Exact ? NavLinkMatch.All : NavLinkMatch.Prefix)"
+                             title="@item.GetHint(Lang.IsKurdish)">
+                        <Icon Name="@item.Icon" Size="xs" />
+                        <span>@ShortLabel(item)</span>
+                    </NavLink>
+                }
+            </div>
+
+            @if (overflowGroups.Count > 0)
+            {
+                <details class="hr-top-more">
+                    @* When the open page lives in the menu, the summary names it,
+                       so the bar still says where you are. *@
+                    <summary class="hr-header-top-link @(overflowCurrent is not null ? "active" : null)">
+                        @if (overflowCurrent is not null)
+                        {
+                            <Icon Name="@overflowCurrent.Icon" Size="xs" />
+                            <span>@ShortLabel(overflowCurrent)</span>
+                        }
+                        else
+                        {
+                            <Icon Name="ellipsis-horizontal" Size="xs" />
+                            <span>@Lang.T("nav.more", "المزيد")</span>
+                        }
+                        <Icon Name="chevron-down" Size="xs" Class="hr-top-more-caret" />
+                    </summary>
+                    <div class="hr-top-more-panel">
+                        @foreach (var (group, items) in overflowGroups)
+                        {
+                            <p class="hr-top-more-group">@group.GetTitle(Lang.IsKurdish)</p>
+                            <ul>
+                                @foreach (var item in items)
+                                {
+                                    <li>
+                                        <a class="hr-top-more-item" href="@item.Href"
+                                           aria-current="@(IsCurrent(item) ? "page" : null)"
+                                           title="@item.GetHint(Lang.IsKurdish)">
+                                            <Icon Name="@item.Icon" Size="xs" />
+                                            <span>@item.GetLabel(Lang.IsKurdish)</span>
+                                        </a>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        @if (user.IsInRole("Admin"))
+                        {
+                            <p class="hr-top-more-group">@Lang.T("nav.group.tools", "أدوات")</p>
+                            <ul>
+                                <li>
+                                    <a class="hr-top-more-item" href="swagger" target="_blank" rel="noopener">
+                                        <Icon Name="code-bracket" Size="xs" />
+                                        <span>@Lang.T("nav.swagger", "توثيق الواجهات البرمجية (Swagger)")</span>
+                                    </a>
+                                </li>
+                            </ul>
+                        }
+                    </div>
+                </details>
+            }
+        </Authorized>
+    </AuthorizeView>
+
+    <div class="hr-top-user-slot">
+        <AuthorizeView>
+            <Authorized>
+                <div class="hr-top-user-pill">
+                    <UserAvatar EmployeeId="@context.User.FindFirst("employee_id")?.Value"
+                                UserName="@context.User.Identity?.Name"
+                                Size="xs" />
+                    <span class="hr-top-user-name hr-truncate" title="@context.User.Identity?.Name">
+                        @(context.User.Identity?.Name ?? (context.User.IsInRole("Admin") ? Lang.T("auth.admin", "مسؤول النظام") : Lang.T("auth.employee", "الموظف")))
+                    </span>
+                    <form action="Account/Logout" method="post" class="hr-top-logout-form">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="@CurrentPath" />
+                        <button type="submit"
+                                class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                                aria-label="@Lang.T("auth.logout", "تسجيل الخروج")"
+                                title="@Lang.T("auth.logout", "تسجيل الخروج")">
+                            <Icon Name="arrow-right-on-rectangle" Size="xs" />
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <a class="hr-btn hr-btn-primary hr-btn-xs" href="Account/Login">
+                    <Icon Name="lock-closed" Size="xs" />
+                    <span>@Lang.T("auth.login", "تسجيل الدخول")</span>
+                </a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+</nav>
+
+@code {
+    private const int PrimaryCount = 7;
+
+    private string CurrentPath => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
+    private API.HR.Node.Data.SystemFeatureSettings featureSettings = new();
+
+    private static bool IsStaff(System.Security.Claims.ClaimsPrincipal user) =>
+        user.IsInRole("Admin") || user.IsInRole("HRManager") ||
+        user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
+
+    // Same rules as the rail: role catalog, per-entry roles, feature switches.
+    private List<NavGroup> GroupsFor(System.Security.Claims.ClaimsPrincipal user) =>
+        (IsStaff(user) ? NavCatalog.All : NavCatalog.EmployeeCatalog)
+            .Where(g => g.IsAllowedFor(user))
+            .Select(g => new NavGroup(g.Title,
+                g.Items.Where(i => i.IsAllowedFor(user)
+                                   && (i.Href != "my-feedback" || featureSettings.EnableMyFeedback)).ToList(),
+                g.TitleKu, g.Roles))
+            .Where(g => g.Items.Count > 0)
+            .ToList();
+
+    private bool IsCurrent(NavEntry item)
+    {
+        var target = item.Href.Trim('/');
+        var path = CurrentPath;
+        if (string.IsNullOrEmpty(target) || item.Exact) return path == target;
+        return path == target || path.StartsWith(target + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Bar labels stay short; the long catalog names live in the menu.
+    private string ShortLabel(NavEntry item)
+    {
+        var label = item.GetLabel(Lang.IsKurdish);
+        var paren = label.IndexOf(" (", StringComparison.Ordinal);
+        return paren > 0 ? label[..paren] : label;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        FeatureService.OnSettingsChanged += HandleSettingsChanged;
+        Lang.OnLanguageChanged += HandleLangChanged;
+    }
+
+    private async void HandleSettingsChanged()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLangChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        FeatureService.OnSettingsChanged -= HandleSettingsChanged;
+        Lang.OnLanguageChanged -= HandleLangChanged;
+    }
+}

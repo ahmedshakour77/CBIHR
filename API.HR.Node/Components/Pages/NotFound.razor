@@ -1,0 +1,38 @@
+@page "/not-found"
+@layout MainLayout
+
+<PageTitle>الصفحة غير موجودة | منظومة الموارد البشرية</PageTitle>
+
+@*
+    A dead end is still a place someone has to leave from, so this offers
+    the two routes that actually help: back to the dashboard, or straight
+    into the records most people were looking for.
+*@
+
+<div class="hr-stack">
+    <div class="hr-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true">
+                    <Icon Name="magnifying-glass" Size="lg" />
+                </span>
+
+                <h1 class="hr-h1">الصفحة غير موجودة</h1>
+                <p class="hr-sub hr-measure-sm">
+                    الرابط الذي فتحته غير صحيح، أو أن الصفحة نُقلت أو حُذفت.
+                </p>
+
+                <div class="hr-pagehead-actions" style="margin-block-start:.5rem">
+                    <a class="hr-btn hr-btn-secondary" href="employees">
+                        <Icon Name="users" Size="sm" />
+                        <span>سجلات الموظفين</span>
+                    </a>
+                    <a class="hr-btn hr-btn-primary" href="">
+                        <Icon Name="home" Size="sm" />
+                        <span>العودة إلى الرئيسية</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

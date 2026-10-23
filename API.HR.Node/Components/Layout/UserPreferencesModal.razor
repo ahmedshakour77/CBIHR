@@ -1,0 +1,861 @@
+@using API.HR.Node.Services.DesignSystem
+@rendermode InteractiveServer
+@implements IDisposable
+
+@inject IUserPreferenceService PrefService
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+@if (ShowTriggerButton)
+{
+    <button type="button"
+            id="hr-global-pref-trigger"
+            class="hr-btn hr-btn-quiet hr-btn-icon hr-pref-toggle"
+            @onclick="Open"
+            aria-label="@(Lang.IsKurdish ? "تایبەتمەندییەکان و ڕێکخستنی شاشە" : "المفضلات وإعدادات العرض")"
+            title="@(Lang.IsKurdish ? "تایبەتمەندییەکان و ڕێکخستنی شاشە" : "المفضلات وإعدادات العرض")">
+        <Icon Name="adjustments-horizontal" />
+    </button>
+}
+else
+{
+    <button type="button"
+            id="hr-global-pref-trigger"
+            style="display:none;"
+            @onclick="Open"
+            aria-hidden="true">
+    </button>
+}
+
+@if (IsOpen)
+{
+    <div class="hr-modal-scrim" @onclick="Close" @onkeydown="HandleKeyDown" tabindex="-1">
+        <div class="hr-modal hr-modal-preferences"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="prefs-title"
+             dir="rtl"
+             @onclick:stopPropagation="true">
+
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate" aria-hidden="true">
+                        <Icon Name="adjustments-horizontal" Size="sm" />
+                    </span>
+                    <div>
+                        <h2 id="prefs-title" class="hr-h3" style="margin:0">المظهر والتفضيلات</h2>
+                        <p class="hr-sub" style="margin:0.25rem 0 0;font-size:var(--fs-label)">
+                            تخصيص كامل لشريط التنقل، السمة، الألوان، الخطوط وكثافة العرض لتناسب نمط عملك.
+                        </p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="Close" aria-label="@Lang.T("common.close", "إغلاق")">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body hr-pref-body">
+                @if (!string.IsNullOrEmpty(saveFeedback))
+                {
+                    <div class="hr-alert hr-alert-ok" role="status" style="margin-block-end:1rem;">
+                        <Icon Name="check-circle" Size="xs" />
+                        <span>@saveFeedback</span>
+                    </div>
+                }
+
+                <!-- 0. لغة الواجهة والمنظومة (Language) -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="language" Size="xs" />
+                        <span>@(Lang.IsKurdish ? "زمانی سیستەم (Language)" : "لغة الواجهة والمنظومة (Language)")</span>
+                    </div>
+                    <div class="hr-pref-options-2">
+                        <button type="button"
+                                class="hr-pref-chip @(Lang.CurrentLanguage == "ar" ? "is-active" : "")"
+                                @onclick='() => ChangeLanguage("ar")'>
+                            <span style="font-weight:700;">العربية</span>
+                            <span style="font-size:var(--fs-caption);">(AR)</span>
+                            @if (Lang.CurrentLanguage == "ar")
+                            {
+                                <Icon Name="check" Size="xs" Class="hr-pref-check" />
+                            }
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(Lang.CurrentLanguage == "ku" ? "is-active" : "")"
+                                @onclick='() => ChangeLanguage("ku")'>
+                            <span style="font-weight:700;">کوردی</span>
+                            <span style="font-size:var(--fs-caption);">(سۆرانی)</span>
+                            @if (Lang.CurrentLanguage == "ku")
+                            {
+                                <Icon Name="check" Size="xs" Class="hr-pref-check" />
+                            }
+                        </button>
+                    </div>
+                    <p class="hr-sub" style="margin:0.5rem 0 0;font-size:var(--fs-caption);color:var(--text-muted);">
+                        @(Lang.IsKurdish
+                            ? "گۆڕینی زمان پەڕەکە نوێ دەکاتەوە بۆ ئەوەی هەموو دەقەکان بە زمانی هەڵبژێردراو پیشان بدرێن."
+                            : "تغيير اللغة يعيد تحميل الصفحة لتظهر جميع النصوص باللغة المختارة.")
+                    </p>
+                </section>
+
+                <!-- 1. طريقة عرض شريط التنقل (النافبار) -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="bars-3-bottom-right" Size="xs" />
+                        <span>طريقة عرض شريط التنقل (النافبار)</span>
+                    </div>
+                    <div class="hr-pref-options-3">
+                        <button type="button"
+                                class="hr-pref-chip @(selectedNavbarMode == "side" ? "is-active" : "")"
+                                @onclick='() => ChangeNavbarMode("side")'>
+                            <Icon Name="bars-3-bottom-right" Size="xs" />
+                            <span>جانبي (Side)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedNavbarMode == "top" ? "is-active" : "")"
+                                @onclick='() => ChangeNavbarMode("top")'>
+                            <Icon Name="bars-3" Size="xs" />
+                            <span>علوي (Top)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedNavbarMode == "floating" ? "is-active" : "")"
+                                @onclick='() => ChangeNavbarMode("floating")'>
+                            <Icon Name="stop" Size="xs" />
+                            <span>عائم (Floating)</span>
+                        </button>
+                    </div>
+                    <p class="hr-sub" style="margin:0.5rem 0 0;font-size:var(--fs-caption);color:var(--text-muted);">
+                        @(selectedNavbarMode switch {
+                            "top" => "شريط أفقي أعلى الصفحة يمنحك أقصى مساحة عرض للجداول والبيانات.",
+                            "floating" => "شريط تنقل سفلي عائم عصري (Dock) مستوحى من تطبيقات الأجهزة الذكية.",
+                            _ => "شريط عمودي على اليمين مع سهولة الوصول لكافة أقسام ومجموعات المنظومة."
+                        })
+                    </p>
+                </section>
+
+                <!-- 2. النمط اللوني (المظهر) -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="sun" Size="xs" />
+                        <span>النمط اللوني (المظهر)</span>
+                    </div>
+                    <div class="hr-pref-options-3">
+                        <button type="button"
+                                class="hr-pref-chip @(selectedTheme == "light" ? "is-active" : "")"
+                                @onclick='() => ChangeTheme("light")'>
+                            <Icon Name="sun" Size="xs" />
+                            <span>فاتح (نهاري)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedTheme == "dark" ? "is-active" : "")"
+                                @onclick='() => ChangeTheme("dark")'>
+                            <Icon Name="moon" Size="xs" />
+                            <span>داكن (ليلي)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedTheme == "system" ? "is-active" : "")"
+                                @onclick='() => ChangeTheme("system")'>
+                            <Icon Name="computer-desktop" Size="xs" />
+                            <span>تلقائي (حسب الجهاز)</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 3. لون الهوية والسمة الأساسية (الـ 11 باليت) -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="sparkles" Size="xs" />
+                        <span>لون الهوية والسمة (@GetBrandTitle(selectedBrand))</span>
+                    </div>
+                    <div class="hr-swatches-grid">
+                        @foreach (var b in BrandColors)
+                        {
+                            <button type="button"
+                                    class="hr-swatch-item @(selectedBrand == b.Id ? "is-active" : "")"
+                                    @onclick="() => ChangeBrand(b.Id)"
+                                    title="@b.Name"
+                                    aria-label="@b.Name">
+                                <span class="hr-swatch-color" style="background:@b.Hex;">
+                                    @if (selectedBrand == b.Id)
+                                    {
+                                        <Icon Name="check" Size="xs" Class="hr-swatch-check" />
+                                    }
+                                </span>
+                                <span class="hr-swatch-label">@b.Name</span>
+                            </button>
+                        }
+                    </div>
+                </section>
+
+                <!-- 4. نوع الخط العربي (الـ 5 خطوط المعتمدة) -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="language" Size="xs" />
+                        <span>نوع الخط العربي</span>
+                    </div>
+                    <div class="hr-pref-fonts-grid">
+                        @foreach (var f in ArabicFonts)
+                        {
+                            <button type="button"
+                                    class="hr-pref-card @(selectedFont == f.Id ? "is-active" : "")"
+                                    @onclick="() => ChangeFont(f.Id)">
+                                <div class="hr-pref-card-header">
+                                    <span class="hr-pref-card-sample" style="font-family:@f.CssFamily">أبجد هوز ١٢٣</span>
+                                    @if (selectedFont == f.Id)
+                                    {
+                                        <Icon Name="check" Size="xs" Class="hr-pref-check" />
+                                    }
+                                </div>
+                                <div class="hr-pref-card-meta">
+                                    <span class="hr-pref-card-title">@f.Name</span>
+                                    <span class="hr-pref-card-sub">@f.Sub</span>
+                                </div>
+                            </button>
+                        }
+                    </div>
+                </section>
+
+                <!-- 5. حجم النصوص وتكبير العرض -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="bars-3-bottom-left" Size="xs" />
+                        <span>حجم النصوص</span>
+                    </div>
+                    <div class="hr-pref-options-4">
+                        <button type="button"
+                                class="hr-pref-chip @(selectedScale == "sm" ? "is-active" : "")"
+                                @onclick='() => ChangeScale("sm")'>
+                            <span>صغير (14px)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedScale == "md" ? "is-active" : "")"
+                                @onclick='() => ChangeScale("md")'>
+                            <span>متوسط (16px)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedScale == "lg" ? "is-active" : "")"
+                                @onclick='() => ChangeScale("lg")'>
+                            <span>كبير (18px)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedScale == "xl" ? "is-active" : "")"
+                                @onclick='() => ChangeScale("xl")'>
+                            <span>كبير جداً (20px)</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 6. كثافة تباعد الجداول والقوائم -->
+                <section class="hr-pref-group">
+                    <div class="hr-pref-label">
+                        <Icon Name="table-cells" Size="xs" />
+                        <span>كثافة العرض والتباعد</span>
+                    </div>
+                    <div class="hr-pref-options-3">
+                        <button type="button"
+                                class="hr-pref-chip @(selectedDensity == "compact" ? "is-active" : "")"
+                                @onclick='() => ChangeDensity("compact")'>
+                            <span>مضغوط (بيانات أكثر)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedDensity == "comfortable" ? "is-active" : "")"
+                                @onclick='() => ChangeDensity("comfortable")'>
+                            <span>مريح (الافتراضي)</span>
+                        </button>
+                        <button type="button"
+                                class="hr-pref-chip @(selectedDensity == "spacious" ? "is-active" : "")"
+                                @onclick='() => ChangeDensity("spacious")'>
+                            <span>متسع (مساحات رحبة)</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 7. إمكانية الوصول والراحة البصرية -->
+                <section class="hr-pref-group" style="border-bottom:none;padding-bottom:0">
+                    <div class="hr-pref-label">
+                        <Icon Name="shield-check" Size="xs" />
+                        <span>إمكانية الوصول والراحة البصرية</span>
+                    </div>
+                    <div class="hr-pref-toggles-stack">
+                        <label class="hr-pref-toggle-row">
+                            <input type="checkbox" checked="@highContrast" @onchange="ToggleContrast" />
+                            <div>
+                                <span class="hr-pref-toggle-title">تباين عالٍ (High Contrast)</span>
+                                <span class="hr-pref-toggle-sub">زيادة وضوح الحدود والخطوط والفواصل</span>
+                            </div>
+                        </label>
+
+                        <label class="hr-pref-toggle-row">
+                            <input type="checkbox" checked="@reducedMotion" @onchange="ToggleMotion" />
+                            <div>
+                                <span class="hr-pref-toggle-title">تقليل الحركة والمؤثرات (Reduced Motion)</span>
+                                <span class="hr-pref-toggle-sub">إيقاف الحركات الانتقالية لتسريع العرض وتخفيف إجهاد العين</span>
+                            </div>
+                        </label>
+                    </div>
+                </section>
+            </div>
+
+            <div class="hr-modal-foot hr-pref-foot">
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ResetDefaults">
+                    <Icon Name="arrow-path" Size="xs" />
+                    <span>استعادة الافتراضيات</span>
+                </button>
+                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="Close">
+                    <Icon Name="check" Size="xs" />
+                    <span>تم</span>
+                </button>
+            </div>
+
+        </div>
+    </div>
+}
+
+<style>
+    .hr-modal-preferences {
+        width: min(720px, 94vw);
+        max-height:88dvh;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+    }
+
+    .hr-pref-body {
+        overflow-y: auto;
+        padding: 1.25rem 1.5rem;
+        flex: 1;
+        scrollbar-width: thin;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .hr-pref-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding-bottom: 1.25rem;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .hr-pref-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: var(--fs-control);
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    .hr-pref-options-2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+
+    .hr-pref-options-3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+
+    .hr-pref-options-4 {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.5rem;
+    }
+
+    @@media (max-width: 640px) {
+        .hr-pref-options-3, .hr-pref-options-4 {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    .hr-pref-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.625rem 0.875rem;
+        border: 1px solid var(--line-control);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        color: var(--text-2);
+        font: inherit;
+        font-size: var(--fs-label);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background var(--t-state) var(--ease), border-color var(--t-state) var(--ease), color var(--t-state) var(--ease);
+        text-align: center;
+    }
+
+    .hr-pref-chip:hover {
+        background: var(--surface-2);
+        color: var(--text);
+        border-color: var(--line);
+    }
+
+    .hr-pref-chip.is-active {
+        background: var(--accent-soft);
+        color: var(--accent-text);
+        border-color: var(--accent);
+        font-weight: 700;
+    }
+
+    /* Swatches Grid */
+    .hr-swatches-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100px, 100%), 1fr));
+        gap: 0.5rem;
+    }
+
+    .hr-swatch-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.625rem 0.375rem;
+        border: 1px solid var(--line-control);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        cursor: pointer;
+        transition: border-color var(--t-state) var(--ease), background-color var(--t-state) var(--ease), color var(--t-state) var(--ease), box-shadow var(--t-state) var(--ease);
+    }
+
+    .hr-swatch-item:hover {
+        background: var(--surface-2);
+        border-color: var(--line);
+    }
+
+    .hr-swatch-item.is-active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .hr-swatch-color {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #FFFFFF;                 /* on a 700 step: every palette passes 4.5:1 */
+        box-shadow: var(--shadow-sm);
+    }
+
+    .hr-swatch-label {
+        font-size: var(--fs-caption);
+        font-weight: 600;
+        color: var(--text-2);
+        white-space: nowrap;
+    }
+
+    .hr-swatch-item.is-active .hr-swatch-label {
+        color: var(--accent-text);
+        font-weight: 700;
+    }
+
+    /* Fonts Grid */
+    .hr-pref-fonts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+        gap: 0.625rem;
+    }
+
+    .hr-pref-card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        padding: 0.75rem 0.875rem;
+        border: 1px solid var(--line-control);
+        border-radius: var(--r-sm);
+        background: var(--surface);
+        cursor: pointer;
+        text-align: start;
+        transition: border-color var(--t-state) var(--ease), background-color var(--t-state) var(--ease), color var(--t-state) var(--ease), box-shadow var(--t-state) var(--ease);
+    }
+
+    .hr-pref-card:hover {
+        background: var(--surface-2);
+        border-color: var(--line);
+    }
+
+    .hr-pref-card.is-active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .hr-pref-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .hr-pref-card-sample {
+        font-size: var(--fs-title);
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .hr-pref-card.is-active .hr-pref-card-sample {
+        color: var(--accent-text);
+    }
+
+    .hr-pref-card-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .hr-pref-card-title {
+        display: block;
+        font-size: var(--fs-label);
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    .hr-pref-card-sub {
+        display: block;
+        font-size: var(--fs-caption);
+        color: var(--text-muted);
+        line-height: 1.3;
+    }
+
+    /* Toggles Stack */
+    .hr-pref-toggles-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+    }
+
+    .hr-pref-toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.625rem 0.875rem;
+        border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        background: var(--surface-sunken);
+        cursor: pointer;
+    }
+
+    .hr-pref-toggle-title {
+        display: block;
+        font-size: var(--fs-label);
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .hr-pref-toggle-sub {
+        display: block;
+        font-size: var(--fs-caption);
+        color: var(--text-muted);
+    }
+
+    .hr-pref-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.875rem 1.25rem;
+        border-top: 1px solid var(--line);
+        background: var(--surface-sunken);
+        flex: none;
+    }
+</style>
+
+@code {
+    public bool IsOpen { get; private set; }
+
+    private string selectedNavbarMode = "side";
+    private string selectedTheme = "light";
+    private string selectedBrand = "purple";
+    private string selectedFont = "plex";
+    private string selectedScale = "md";
+    private string selectedDensity = "comfortable";
+    private bool highContrast;
+    private bool reducedMotion;
+    private string? saveFeedback;
+
+    private record BrandItem(string Id, string Name, string Hex);
+    private static readonly BrandItem[] BrandColors = new[]
+    {
+        // Each swatch is that palette's 700 step, so it previews the colour the
+        // brand actually applies. Purple is the default ramp, which lives in
+        // --b-* and is repointed by [data-brand]; it has no family token of its
+        // own, so its 700 step is written out (tokens.json, b-700).
+        new BrandItem("purple", "بنفسجي (افتراضي)", "#4E366C"),
+        new BrandItem("indigo", "نيلي", "var(--indigo-700)"),
+        new BrandItem("blue", "أزرق", "var(--blue-700)"),
+        new BrandItem("teal", "فيروزي", "var(--teal-700)"),
+        new BrandItem("green", "أخضر", "var(--green-700)"),
+        new BrandItem("olive", "زيتوني", "var(--olive-700)"),
+        new BrandItem("gold", "ذهبي", "var(--gold-700)"),
+        new BrandItem("copper", "نحاسي", "var(--copper-700)"),
+        new BrandItem("crimson", "قرمزي", "var(--crimson-700)"),
+        new BrandItem("rose", "وردي", "var(--rose-700)"),
+        new BrandItem("slate", "رمادي", "var(--slate-700)"),
+    };
+
+    private record FontItem(string Id, string Name, string Sub, string CssFamily);
+    private static readonly FontItem[] ArabicFonts = new[]
+    {
+        new FontItem("plex", "IBM Plex Sans Arabic", "الخط الرسمي المعتمد للمنظومة والبنك المركزي", "'IBM Plex Sans Arabic', sans-serif"),
+        new FontItem("cairo", "Cairo (القاهرة)", "خط هندسي متوازن ذو وضوح عالٍ", "'Cairo', sans-serif"),
+        new FontItem("tajawal", "Tajawal (تجوال)", "خط عصري مرن ومريح للقراءة السريعة", "'Tajawal', sans-serif"),
+        new FontItem("noto", "Noto Sans Arabic (نوتو)", "خط قياسي عالي التناسق والوضوح", "'Noto Sans Arabic', sans-serif"),
+        new FontItem("alexandria", "Alexandria (الإسكندرية)", "خط معاصر أنيق للواجهات الرقمية", "'Alexandria', sans-serif"),
+    };
+
+    public void Open()
+    {
+        IsOpen = true;
+        saveFeedback = null;
+        SyncFromService();
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        IsOpen = false;
+        saveFeedback = null;
+        StateHasChanged();
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            Close();
+        }
+    }
+
+    [Parameter] public bool ShowTriggerButton { get; set; } = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Lang.OnLanguageChanged += HandleLangChanged;
+        SyncFromService();
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var name = auth.User.Identity?.Name;
+            if (auth.User.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(name))
+            {
+                await PrefService.LoadForUserAsync(name);
+                SyncFromService();
+            }
+        }
+        catch { }
+    }
+
+    private void HandleLangChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Lang.OnLanguageChanged -= HandleLangChanged;
+    }
+
+    private async Task ChangeLanguage(string langCode)
+    {
+        if (langCode == Lang.CurrentLanguage) return;
+        Lang.SetLanguage(langCode);
+        // The shell is rendered on the server, so only a reload puts every
+        // label in the new language; a live swap left half the page behind.
+        try
+        {
+            await JS.InvokeVoidAsync("hrLang.set", langCode, true);
+        }
+        catch { }
+    }
+
+    private void SyncFromService()
+    {
+        var cur = PrefService.Current;
+        selectedNavbarMode = cur.NavbarMode ?? "side";
+        selectedBrand = string.IsNullOrWhiteSpace(cur.BrandTheme) ? "purple" : cur.BrandTheme;
+
+        var fontLower = (cur.FontFamily ?? "").ToLower();
+        if (fontLower.Contains("cairo")) selectedFont = "cairo";
+        else if (fontLower.Contains("tajawal")) selectedFont = "tajawal";
+        else if (fontLower.Contains("noto")) selectedFont = "noto";
+        else if (fontLower.Contains("alexandria")) selectedFont = "alexandria";
+        else selectedFont = "plex";
+
+        selectedTheme = cur.Appearance switch
+        {
+            AppearanceMode.Dark => "dark",
+            AppearanceMode.System => "system",
+            _ => "light"
+        };
+
+        selectedDensity = cur.Density switch
+        {
+            GridDensity.Compact => "compact",
+            GridDensity.Spacious => "spacious",
+            _ => "comfortable"
+        };
+
+        var scale = (cur.TextScale ?? "").ToLower();
+        if (scale is "sm" or "compact") selectedScale = "sm";
+        else if (scale is "lg" or "large") selectedScale = "lg";
+        else if (scale is "xl") selectedScale = "xl";
+        else selectedScale = "md";
+
+        highContrast = cur.HighContrast;
+        reducedMotion = cur.ReducedMotion;
+    }
+
+    private async Task ChangeNavbarMode(string mode)
+    {
+        selectedNavbarMode = mode;
+        PrefService.SetNavbarMode(mode);
+        await ApplyAndSave(new { navMode = mode });
+        await ReloadForNavModeAsync();
+    }
+
+    // The shell renders only the active mode's navigation on the server, so
+    // a new mode needs a fresh page. hrPrefs.set has already written the
+    // cookie the server reads.
+    private async Task ReloadForNavModeAsync()
+    {
+        try { await JS.InvokeVoidAsync("location.reload"); } catch (JSException) { }
+    }
+
+    private async Task ChangeTheme(string theme)
+    {
+        selectedTheme = theme;
+        var mode = theme switch
+        {
+            "dark" => AppearanceMode.Dark,
+            "system" => AppearanceMode.System,
+            _ => AppearanceMode.Light
+        };
+        PrefService.SetAppearance(mode);
+        await ApplyAndSave(new { mode = theme });
+    }
+
+    private async Task ChangeBrand(string brand)
+    {
+        selectedBrand = brand;
+        PrefService.Update(p => p.BrandTheme = brand);
+        await ApplyAndSave(new { brand = brand });
+    }
+
+    private async Task ChangeFont(string font)
+    {
+        selectedFont = font;
+        var fontName = font switch
+        {
+            "cairo" => "Cairo",
+            "tajawal" => "Tajawal",
+            "noto" => "Noto Sans Arabic",
+            "alexandria" => "Alexandria",
+            _ => "IBM Plex Sans Arabic"
+        };
+        PrefService.SetFontFamily(fontName);
+        await ApplyAndSave(new { font = font });
+    }
+
+    private async Task ChangeScale(string scale)
+    {
+        selectedScale = scale;
+        PrefService.SetTextScale(scale);
+        await ApplyAndSave(new { fontSize = scale });
+    }
+
+    private async Task ChangeDensity(string density)
+    {
+        selectedDensity = density;
+        var d = density switch
+        {
+            "compact" => GridDensity.Compact,
+            "spacious" => GridDensity.Spacious,
+            _ => GridDensity.Comfortable
+        };
+        PrefService.SetDensity(d);
+        await ApplyAndSave(new { density = density });
+    }
+
+    private async Task ToggleContrast(ChangeEventArgs e)
+    {
+        highContrast = (bool)(e.Value ?? false);
+        PrefService.Update(p => p.HighContrast = highContrast);
+        await ApplyAndSave(new { contrast = highContrast });
+    }
+
+    private async Task ToggleMotion(ChangeEventArgs e)
+    {
+        reducedMotion = (bool)(e.Value ?? false);
+        PrefService.SetReducedMotion(reducedMotion);
+        await ApplyAndSave(new { reducedMotion = reducedMotion });
+    }
+
+    private async Task ApplyAndSave(object partial)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("hrPrefs.set", partial);
+        }
+        catch { }
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var name = authState.User.Identity?.Name;
+            await PrefService.SaveAsync(name);
+        }
+        catch { }
+    }
+
+    private async Task ResetDefaults()
+    {
+        var navModeChanged = selectedNavbarMode != "side";
+        selectedNavbarMode = "side";
+        selectedTheme = "system";
+        selectedBrand = "purple";
+        selectedFont = "plex";
+        selectedScale = "md";
+        selectedDensity = "comfortable";
+        highContrast = false;
+        reducedMotion = false;
+
+        PrefService.SetNavbarMode("side");
+        PrefService.SetAppearance(AppearanceMode.System);
+        PrefService.Update(p =>
+        {
+            p.BrandTheme = "purple";
+            p.FontFamily = "IBM Plex Sans Arabic";
+            p.TextScale = "md";
+            p.Density = GridDensity.Comfortable;
+            p.HighContrast = false;
+            p.ReducedMotion = false;
+        });
+
+        try
+        {
+            await JS.InvokeVoidAsync("hrPrefs.reset");
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            await PrefService.SaveAsync(authState.User.Identity?.Name);
+        }
+        catch { }
+
+        if (navModeChanged)
+        {
+            await ReloadForNavModeAsync();
+            return;
+        }
+
+        saveFeedback = "تمت استعادة الإعدادات الافتراضية بنجاح.";
+    }
+
+    private string GetBrandTitle(string id) =>
+        BrandColors.FirstOrDefault(b => b.Id == id)?.Name ?? "بنفسجي";
+}

@@ -1,0 +1,475 @@
+/* API.HR.Node design tokens.
+ * GENERATED FROM design/tokens.json BY design/build-tokens.cjs - DO NOT EDIT.
+ * Edit the JSON and re-run: node design/build-tokens.cjs
+ */
+:root, [data-theme="light"] {
+  color-scheme: light;
+
+  /* brand ramp - the live palette; [data-brand] remaps these */
+  --b-25: #fbf9fd;
+  --b-50: #f6f2fa;
+  --b-100: #ede6f3;
+  --b-150: #e3d8ec;
+  --b-200: #d4bee4;
+  --b-300: #bca0d3;
+  --b-400: #7c609d;
+  --b-500: #705592;
+  --b-600: #654a88;
+  --b-700: #4e366c;
+  --b-800: #3b1e54;
+  --b-900: #2a143e;
+  --b-950: #1c0c2b;
+  --b-1000: #12071c;
+
+  /* semantic tokens - every rule in the system resolves through these */
+  --ink: var(--b-800);
+  --mid: var(--b-400);
+  --soft: var(--b-200);
+  --ground: #eeeeee;
+  --surface: #ffffff;
+  --surface-2: var(--b-50);
+  --text: var(--b-900);
+  --text-2: var(--b-800);
+  --text-muted: var(--b-600);
+  --line: var(--b-150);
+  --line-control: var(--b-400);
+  --accent: var(--b-800);
+  --accent-hover: var(--b-900);
+  --on-accent: #ffffff;
+  --accent-text: var(--b-600);
+  --accent-soft: var(--b-100);
+  --focus: var(--b-600);
+  --surface-raised: #ffffff;
+  --surface-sunken: var(--b-50);
+  --surface-inset: var(--ground);
+  --surface-3: var(--surface-inset);
+  --surface-tint: var(--b-50);
+  --app-ground: var(--ground);
+  --b-ground: var(--ground);
+  --line-soft: var(--b-100);
+  --line-strong: var(--b-300);
+  --text-3: var(--b-600);
+  --text-on-accent: #ffffff;
+  --accent-active: var(--b-950);
+  --accent-quiet: var(--b-500);
+  --accent-tint: var(--b-100);
+  --accent-tint-2: var(--b-150);
+  --accent-ink: var(--b-800);
+  --ring: color-mix(in srgb, var(--b-800) 28%, transparent);
+  --accent-ring: var(--ring);
+  --ok: #1d6b53;
+  --warn: #8a5a11;
+  --danger: #a8203c;
+  --ok-tint: #eaf5f0;
+  --ok-soft: var(--ok-tint);
+  --ok-line: #b7dfcd;
+  --warn-tint: #fbf2e3;
+  --warn-soft: var(--warn-tint);
+  --warn-line: #ebd3a6;
+  --danger-tint: #fbecef;
+  --danger-soft: var(--danger-tint);
+  --danger-line: #f0c2cc;
+  --series-1: #6d28d9;
+  --series-2: #0369a1;
+  --series-3: #047857;
+  --series-4: #b45309;
+  --series-5: #b91c1c;
+  --series-6: #475569;
+  --series-on: #ffffff;
+  --cbi-copper: var(--copper-600);
+
+  /* elevation */
+  --shadow-xs: 0 1px 2px rgba(28,12,43,0.05);
+  --shadow-sm: 0 1px 2px rgba(28,12,43,0.06), 0 1px 3px rgba(28,12,43,0.04);
+  --shadow-md: 0 2px 4px rgba(28,12,43,0.05), 0 8px 20px -10px rgba(28,12,43,0.20);
+  --shadow-lg: 0 4px 8px rgba(28,12,43,0.06), 0 24px 48px -20px rgba(28,12,43,0.30);
+  --shadow-pop: 0 6px 14px rgba(28,12,43,0.10), 0 32px 64px -24px rgba(28,12,43,0.38);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* only the semantic layer flips; the ramp is the same, so a brand change carries into dark mode */
+  --ground: color-mix(in srgb, var(--b-1000) 55%, var(--b-950));
+  --surface: color-mix(in srgb, var(--b-900) 80%, var(--b-950));
+  --surface-2: var(--b-950);
+  --text: var(--b-50);
+  --text-2: var(--b-100);
+  --text-muted: var(--b-300);
+  --line: var(--b-800);
+  --line-control: var(--b-300);
+  --accent: var(--b-200);
+  --accent-hover: var(--b-100);
+  --on-accent: var(--b-950);
+  --accent-text: var(--b-200);
+  --accent-soft: color-mix(in srgb, var(--b-400) 16%, transparent);
+  --focus: var(--b-200);
+  --surface-raised: color-mix(in srgb, var(--b-900) 60%, var(--b-800));
+  --surface-sunken: var(--b-950);
+  --surface-inset: var(--ground);
+  --surface-3: var(--surface-inset);
+  --surface-tint: color-mix(in srgb, var(--b-900) 60%, var(--b-800));
+  --app-ground: var(--ground);
+  --b-ground: var(--ground);
+  --line-soft: var(--b-900);
+  --line-strong: var(--b-700);
+  --text-3: var(--b-300);
+  --text-on-accent: var(--b-950);
+  --accent-active: #ffffff;
+  --accent-quiet: var(--b-300);
+  --accent-tint: color-mix(in srgb, var(--b-400) 16%, transparent);
+  --accent-tint-2: color-mix(in srgb, var(--b-400) 26%, transparent);
+  --accent-ink: var(--b-200);
+  --ring: color-mix(in srgb, var(--b-200) 45%, transparent);
+  --accent-ring: var(--ring);
+  --ok: #5fcfa6;
+  --warn: #e0a94a;
+  --danger: #f98ba0;
+  --ok-tint: color-mix(in srgb, var(--ok) 14%, transparent);
+  --ok-soft: var(--ok-tint);
+  --ok-line: color-mix(in srgb, var(--ok) 32%, transparent);
+  --warn-tint: color-mix(in srgb, var(--warn) 14%, transparent);
+  --warn-soft: var(--warn-tint);
+  --warn-line: color-mix(in srgb, var(--warn) 32%, transparent);
+  --danger-tint: color-mix(in srgb, var(--danger) 14%, transparent);
+  --danger-soft: var(--danger-tint);
+  --danger-line: color-mix(in srgb, var(--danger) 32%, transparent);
+  --series-1: #c4b5fd;
+  --series-2: #7dd3fc;
+  --series-3: #6ee7b7;
+  --series-4: #fcd34d;
+  --series-5: #fca5a5;
+  --series-6: #cbd5e1;
+  --series-on: var(--b-1000);
+  --cbi-copper: var(--copper-300);
+
+  /* elevation */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.40);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.30);
+  --shadow-md: 0 2px 4px rgba(0,0,0,0.40), 0 10px 24px -12px rgba(0,0,0,0.70);
+  --shadow-lg: 0 4px 8px rgba(0,0,0,0.45), 0 26px 52px -20px rgba(0,0,0,0.80);
+  --shadow-pop: 0 8px 18px rgba(0,0,0,0.50), 0 36px 70px -24px rgba(0,0,0,0.85);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    /* only the semantic layer flips; the ramp is the same, so a brand change carries into dark mode */
+    --ground: color-mix(in srgb, var(--b-1000) 55%, var(--b-950));
+    --surface: color-mix(in srgb, var(--b-900) 80%, var(--b-950));
+    --surface-2: var(--b-950);
+    --text: var(--b-50);
+    --text-2: var(--b-100);
+    --text-muted: var(--b-300);
+    --line: var(--b-800);
+    --line-control: var(--b-300);
+    --accent: var(--b-200);
+    --accent-hover: var(--b-100);
+    --on-accent: var(--b-950);
+    --accent-text: var(--b-200);
+    --accent-soft: color-mix(in srgb, var(--b-400) 16%, transparent);
+    --focus: var(--b-200);
+    --surface-raised: color-mix(in srgb, var(--b-900) 60%, var(--b-800));
+    --surface-sunken: var(--b-950);
+    --surface-inset: var(--ground);
+    --surface-3: var(--surface-inset);
+    --surface-tint: color-mix(in srgb, var(--b-900) 60%, var(--b-800));
+    --app-ground: var(--ground);
+    --b-ground: var(--ground);
+    --line-soft: var(--b-900);
+    --line-strong: var(--b-700);
+    --text-3: var(--b-300);
+    --text-on-accent: var(--b-950);
+    --accent-active: #ffffff;
+    --accent-quiet: var(--b-300);
+    --accent-tint: color-mix(in srgb, var(--b-400) 16%, transparent);
+    --accent-tint-2: color-mix(in srgb, var(--b-400) 26%, transparent);
+    --accent-ink: var(--b-200);
+    --ring: color-mix(in srgb, var(--b-200) 45%, transparent);
+    --accent-ring: var(--ring);
+    --ok: #5fcfa6;
+    --warn: #e0a94a;
+    --danger: #f98ba0;
+    --ok-tint: color-mix(in srgb, var(--ok) 14%, transparent);
+    --ok-soft: var(--ok-tint);
+    --ok-line: color-mix(in srgb, var(--ok) 32%, transparent);
+    --warn-tint: color-mix(in srgb, var(--warn) 14%, transparent);
+    --warn-soft: var(--warn-tint);
+    --warn-line: color-mix(in srgb, var(--warn) 32%, transparent);
+    --danger-tint: color-mix(in srgb, var(--danger) 14%, transparent);
+    --danger-soft: var(--danger-tint);
+    --danger-line: color-mix(in srgb, var(--danger) 32%, transparent);
+    --series-1: #c4b5fd;
+    --series-2: #7dd3fc;
+    --series-3: #6ee7b7;
+    --series-4: #fcd34d;
+    --series-5: #fca5a5;
+    --series-6: #cbd5e1;
+    --series-on: var(--b-1000);
+    --cbi-copper: var(--copper-300);
+
+    /* elevation */
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.40);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.30);
+    --shadow-md: 0 2px 4px rgba(0,0,0,0.40), 0 10px 24px -12px rgba(0,0,0,0.70);
+    --shadow-lg: 0 4px 8px rgba(0,0,0,0.45), 0 26px 52px -20px rgba(0,0,0,0.80);
+    --shadow-pop: 0 8px 18px rgba(0,0,0,0.50), 0 36px 70px -24px rgba(0,0,0,0.85);
+  }
+}
+/* Alternate brand palettes. html[data-brand] in hr-components.css
+   points the --b-* ramp at one of these. */
+:root {
+  /* indigo */
+  --indigo-25: #f9fafe;
+  --indigo-50: #f2f3fc;
+  --indigo-100: #e6e8f6;
+  --indigo-150: #d7dbf0;
+  --indigo-200: #bec4ed;
+  --indigo-300: #a0a8dd;
+  --indigo-400: #6168a6;
+  --indigo-500: #565c9b;
+  --indigo-600: #4c5190;
+  --indigo-700: #383c73;
+  --indigo-800: #24255c;
+  --indigo-900: #191a44;
+  --indigo-950: #0f1030;
+  --indigo-1000: #090a1f;
+  /* blue */
+  --blue-25: #f7fafe;
+  --blue-50: #eef4fb;
+  --blue-100: #dfeaf5;
+  --blue-150: #cedeef;
+  --blue-200: #aac9ea;
+  --blue-300: #85afda;
+  --blue-400: #3c70a2;
+  --blue-500: #306497;
+  --blue-600: #23598c;
+  --blue-700: #124370;
+  --blue-800: #002d53;
+  --blue-900: #001f3d;
+  --blue-950: #00142a;
+  --blue-1000: #000c1d;
+  /* teal */
+  --teal-25: #f6fbfb;
+  --teal-50: #ecf5f6;
+  --teal-100: #dcecec;
+  --teal-150: #c9e1e2;
+  --teal-200: #a0ced1;
+  --teal-300: #75b6b9;
+  --teal-400: #18787d;
+  --teal-500: #106c71;
+  --teal-600: #086165;
+  --teal-700: #06494c;
+  --teal-800: #033134;
+  --teal-900: #022325;
+  --teal-950: #001718;
+  --teal-1000: #000f10;
+  /* green */
+  --green-25: #f7fbf8;
+  --green-50: #eef5f0;
+  --green-100: #e0ebe3;
+  --green-150: #cfe0d4;
+  --green-200: #acceb7;
+  --green-300: #87b596;
+  --green-400: #3f7854;
+  --green-500: #326d49;
+  --green-600: #25623e;
+  --green-700: #134b2c;
+  --green-800: #00341a;
+  --green-900: #002511;
+  --green-950: #001809;
+  --green-1000: #000f05;
+  /* olive */
+  --olive-25: #f9faf7;
+  --olive-50: #f2f4ee;
+  --olive-100: #e7eadf;
+  --olive-150: #d9decd;
+  --olive-200: #c1caa9;
+  --olive-300: #a4b084;
+  --olive-400: #65723c;
+  --olive-500: #5a6730;
+  --olive-600: #505c24;
+  --olive-700: #3b4613;
+  --olive-800: #272f02;
+  --olive-900: #1b2101;
+  --olive-950: #111600;
+  --olive-1000: #0a0e00;
+  /* gold */
+  --gold-25: #fcf9f6;
+  --gold-50: #f8f3ec;
+  --gold-100: #efe8dc;
+  --gold-150: #e6dbc8;
+  --gold-200: #d9c39f;
+  --gold-300: #c4a775;
+  --gold-400: #896725;
+  --gold-500: #7d5c18;
+  --gold-600: #725108;
+  --gold-700: #573d06;
+  --gold-800: #3c2800;
+  --gold-900: #2b1c00;
+  --gold-950: #1d1200;
+  --gold-1000: #130a00;
+  /* copper */
+  --copper-25: #fef9f7;
+  --copper-50: #fbf2ee;
+  --copper-100: #f5e6df;
+  --copper-150: #efd7cd;
+  --copper-200: #e9bda9;
+  --copper-300: #d79e84;
+  --copper-400: #9d5b3d;
+  --copper-500: #924f31;
+  --copper-600: #874424;
+  --copper-700: #6b3114;
+  --copper-800: #4e1d02;
+  --copper-900: #391301;
+  --copper-950: #280a00;
+  --copper-1000: #1c0600;
+  /* crimson */
+  --crimson-25: #fef9f9;
+  --crimson-50: #fcf1f1;
+  --crimson-100: #f6e5e5;
+  --crimson-150: #f0d6d7;
+  --crimson-200: #ebbabc;
+  --crimson-300: #db9a9e;
+  --crimson-400: #a1575d;
+  --crimson-500: #954b52;
+  --crimson-600: #8a3f48;
+  --crimson-700: #6d2c34;
+  --crimson-800: #55131f;
+  --crimson-900: #3f0b14;
+  --crimson-950: #2b060c;
+  --crimson-1000: #1d0407;
+  /* rose */
+  --rose-25: #fdf9fb;
+  --rose-50: #fbf1f5;
+  --rose-100: #f4e5eb;
+  --rose-150: #eed6e0;
+  --rose-200: #e7bace;
+  --rose-300: #d59ab5;
+  --rose-400: #9a5778;
+  --rose-500: #8e4b6d;
+  --rose-600: #834062;
+  --rose-700: #682d4c;
+  --rose-800: #501536;
+  --rose-900: #3b0d26;
+  --rose-950: #290719;
+  --rose-1000: #1b0510;
+  /* slate */
+  --slate-25: #f9fafb;
+  --slate-50: #f2f4f6;
+  --slate-100: #e6e9ec;
+  --slate-150: #d8dce2;
+  --slate-200: #bfc7d1;
+  --slate-300: #a1acba;
+  --slate-400: #616d7d;
+  --slate-500: #566272;
+  --slate-600: #4b5868;
+  --slate-700: #384250;
+  --slate-800: #222d3a;
+  --slate-900: #171f2a;
+  --slate-950: #0e141c;
+  --slate-1000: #080c12;
+}
+:root {
+
+  /* spacing - 4pt rhythm expressed in rem, so every gap scales with the font-size preference. Apply with logical properties only (padding-inline, margin-block). */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.25rem;
+  --s-6: 1.5rem;
+  --s-8: 2rem;
+  --s-10: 2.5rem;
+  --s-12: 3rem;
+  --s-16: 4rem;
+
+  /* type scale - The type scale as raw sizes, for components that cannot take a role class. Never write a font-size that is not one of these. */
+  --fs-caption: .75rem;
+  --fs-label: .8125rem;
+  --fs-control: .875rem;
+  --fs-body: .9375rem;
+  --fs-lead: 1rem;
+  --fs-h3: 1.0625rem;
+  --fs-title: 1.125rem;
+  --fs-h2: 1.25rem;
+  --fs-h1: 1.5rem;
+  --fs-num-lg: 1.75rem;
+  --fs-display: 2rem;
+
+  /* radius - Radius grows with the size of the surface: badge to modal. */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r: 10px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --r-full: 999px;
+  --radius: var(--r-lg);
+  --radius-sm: var(--r);
+
+  /* control height - Density. rem, so controls grow with the font-size preference. */
+  --control-h-compact: 2.375rem;
+  --control-h: 2.75rem;
+  --control-h-spacious: 3.125rem;
+
+  /* layout - Shell and navigation sizes. rem, so bars grow with the text-size preference. */
+  --nav-w: 16.5rem;
+  --nav-w-rail: 4.5rem;
+  --nav-w-drawer: 20rem;
+  --topbar-h: 4rem;
+  --topbar-h-sm: 3.5rem;
+  --dock-h: 4rem;
+  --card-w: 26rem;
+  --content-max: none;
+  --header-h: var(--topbar-h);
+  --rail-w: var(--nav-w);
+
+  /* layers - One stacking scale for the whole app; never invent a z-index. */
+  --z-sticky: 10;
+  --z-popover: 30;
+  --z-nav: 40;
+  --z-scrim: 60;
+  --z-drawer: 70;
+  --z-modal: 80;
+  --z-modal-stacked: 82;
+  --z-palette: 85;
+  --z-toast: 90;
+  --z-rail: var(--z-nav);
+  --z-header: 50;
+
+  /* breakpoints - Container widths. Components respond to their container (container queries), pages to the viewport. */
+  --bp-sm: 480px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+  --bp-2xl: 1536px;
+
+  /* motion - Distance-matched durations: a press is not a drawer. Never reuse one duration everywhere. */
+  --t-tap: 90ms;
+  --t-state: 140ms;
+  --t-move: 220ms;
+  --t-enter: 260ms;
+  --t-exit: 170ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.25, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.9, 0.3);
+
+  /* type families */
+  --font-ui: "IBM Plex Sans Arabic", Cairo, system-ui, sans-serif;
+  --font-plex: "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-cairo: Cairo, system-ui, sans-serif;
+  --font-tajawal: Tajawal, system-ui, sans-serif;
+  --font-noto: "Noto Sans Arabic", system-ui, sans-serif;
+  --font-alexandria: Alexandria, system-ui, sans-serif;
+  --font-numeric: Inter, "IBM Plex Sans Arabic", system-ui, sans-serif;
+}
+/* Type styles. One class per role; never restate a size in a component. */
+.display { font-family: var(--font-ui); font-size: 2rem; line-height: 1.3; font-weight: 700; }
+.h1 { font-family: var(--font-ui); font-size: 1.5rem; line-height: 1.35; font-weight: 700; }
+.h2 { font-family: var(--font-ui); font-size: 1.25rem; line-height: 1.4; font-weight: 600; }
+.h3 { font-family: var(--font-ui); font-size: 1.0625rem; line-height: 1.5; font-weight: 600; }
+.body { font-family: var(--font-ui); font-size: 0.9375rem; line-height: 1.7; font-weight: 400; }
+.label { font-family: var(--font-ui); font-size: 0.8125rem; line-height: 1.5; font-weight: 500; }
+.caption { font-family: var(--font-ui); font-size: 0.75rem; line-height: 1.5; font-weight: 400; }
+.num { font-family: var(--font-numeric); font-size: 0.9375rem; line-height: 1.5; font-weight: 500; font-variant-numeric: tabular-nums; }
+.num-lg { font-family: var(--font-numeric); font-size: 1.75rem; line-height: 1.2; font-weight: 600; font-variant-numeric: tabular-nums; }

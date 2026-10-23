@@ -1,0 +1,114 @@
+﻿@page "/Account/LoginWithRecoveryCode"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+@inject ILogger<LoginWithRecoveryCode> Logger
+
+<PageTitle>الدخول برمز الاسترداد | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="key" Size="sm" /></span>
+                <div class="hr-idcell-text">
+                    <h1 class="hr-h2">الدخول برمز الاسترداد</h1>
+                    <p class="hr-meta" style="margin-block-start:.25rem">يُستخدم الرمز مرة واحدة فقط</p>
+                </div>
+            </div>
+        </div>
+
+        <EditForm Model="Input" FormName="login-with-recovery-code" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <DataAnnotationsValidator />
+
+            <div class="hr-card-body">
+                <StatusMessage Message="@message" />
+                <ValidationSummary class="hr-error-summary" role="alert" />
+
+                <div class="hr-alert hr-alert-warn" style="margin-block-end:1rem">
+                    <Icon Name="information-circle" Size="sm" />
+                    <p>
+                        لن يُتذكَّر هذا الجهاز بعد الدخول برمز الاسترداد. للعودة إلى الوضع المعتاد،
+                        سجّل الدخول برمز تطبيق المصادقة، أو أوقف التحقق بخطوتين ثم أعد تفعيله.
+                    </p>
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="Input.RecoveryCode">
+                        رمز الاسترداد <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                    </label>
+                    <InputText @bind-Value="Input.RecoveryCode" id="Input.RecoveryCode"
+                               class="hr-input hr-num" dir="ltr" autocomplete="off" aria-required="true" />
+                    <ValidationMessage For="() => Input.RecoveryCode" class="hr-error" />
+                    <p class="hr-help">أحد الرموز التي حفظتها عند تفعيل التحقق بخطوتين.</p>
+                </div>
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+                <button type="submit" class="hr-btn hr-btn-primary">
+                    <Icon Name="arrow-right-on-rectangle" Size="xs" />
+                    <span>تسجيل الدخول</span>
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private string? message;
+    private ApplicationUser user = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // Ensure the user has gone through the username & password screen first
+        user = await SignInManager.GetTwoFactorAuthenticationUserAsync() ??
+            throw new InvalidOperationException("Unable to load two-factor authentication user.");
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        var recoveryCode = Input.RecoveryCode.Replace(" ", string.Empty);
+
+        var result = await SignInManager.TwoFactorRecoveryCodeSignInAsync(recoveryCode);
+
+        var userId = await UserManager.GetUserIdAsync(user);
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("User with ID '{UserId}' logged in with a recovery code.", userId);
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("User account locked out.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            Logger.LogWarning("Invalid recovery code entered for user with ID '{UserId}' ", userId);
+            message = "Error: رمز الاسترداد غير صحيح أو سبق استخدامه.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "أدخل رمز الاسترداد.")]
+        [DataType(DataType.Text)]
+        [Display(Name = "رمز الاسترداد")]
+        public string RecoveryCode { get; set; } = "";
+    }
+}

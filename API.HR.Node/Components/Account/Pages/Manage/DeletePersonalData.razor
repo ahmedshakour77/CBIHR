@@ -1,0 +1,140 @@
+﻿@page "/Account/Manage/DeletePersonalData"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+@inject ILogger<DeletePersonalData> Logger
+
+<PageTitle>حذف الحساب | منظومة الموارد البشرية</PageTitle>
+
+@*
+    The most destructive action in the system. The consequence is stated
+    before the control, the control carries the danger role, and a way back
+    sits beside it — so confirming is a deliberate choice rather than the
+    only thing on screen to click.
+*@
+
+<div class="hr-stack-sm">
+    <StatusMessage Message="@message" />
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate hr-iconplate-danger" aria-hidden="true">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                </span>
+                <div class="hr-idcell-text">
+                    <h2 class="hr-h2">حذف الحساب والبيانات الشخصية</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">إجراء نهائي لا يمكن التراجع عنه</p>
+                </div>
+            </div>
+        </div>
+
+        <EditForm Model="Input" FormName="delete-user" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <DataAnnotationsValidator />
+
+            <div class="hr-card-body">
+                <div class="hr-alert hr-alert-danger" role="alert">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                    <div>
+                        <p class="hr-alert-title">سيُحذف حسابك نهائياً</p>
+                        <p style="margin-block-start:.25rem">
+                            بحذف هذه البيانات يُزال حسابك بالكامل، ولا يمكن استرجاعه أو استرجاع
+                            البيانات المرتبطة به لاحقاً.
+                        </p>
+                    </div>
+                </div>
+
+                <div style="margin-block-start:1rem">
+                    <ValidationSummary class="hr-error-summary" role="alert" />
+                </div>
+
+                @if (requirePassword)
+                {
+                    <div class="hr-field">
+                        <label class="hr-field-label" for="Input.Password">
+                            كلمة المرور للتأكيد <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                        </label>
+                        <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="hr-input" dir="ltr"
+                                   autocomplete="current-password" aria-required="true" />
+                        <ValidationMessage For="() => Input.Password" class="hr-error" />
+                    </div>
+                }
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap">
+                <a class="hr-btn hr-btn-secondary" href="Account/Manage/PersonalData">
+                    <Icon Name="arrow-right" Size="xs" />
+                    <span>تراجع</span>
+                </a>
+                <button class="hr-btn hr-btn-danger" type="submit">
+                    <Icon Name="trash" Size="xs" />
+                    <span>حذف البيانات وإغلاق الحساب</span>
+                </button>
+            </div>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    private string? message;
+    private ApplicationUser? user;
+    private bool requirePassword;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+        requirePassword = await UserManager.HasPasswordAsync(user);
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        if (requirePassword && !await UserManager.CheckPasswordAsync(user, Input.Password))
+        {
+            message = "Error: كلمة المرور غير صحيحة.";
+            return;
+        }
+
+        var result = await UserManager.DeleteAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException("Unexpected error occurred deleting user.");
+        }
+
+        await SignInManager.SignOutAsync();
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        Logger.LogInformation("User with ID '{UserId}' deleted themselves.", userId);
+
+        RedirectManager.RedirectToCurrentPage();
+    }
+
+    private sealed class InputModel
+    {
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+    }
+}

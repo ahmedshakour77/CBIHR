@@ -1,0 +1,1655 @@
+@page "/appreciation-letters"
+@page "/letters"
+@rendermode InteractiveServer
+@implements IDisposable
+@using System.Globalization
+@using API.HR.Node.Services.ProfilePhotos
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject IEmployeeProfilePhotoService PhotoService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JSRuntime
+@inject ILogger<AppreciationLetters> Logger
+
+<PageTitle>سجلات وإدارة كتب الشكر والتقدير | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+
+    @* ---------- 1. Page Header & Actions ---------- *@
+    <header class="hr-pagehead hr-no-print">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>الرئيسية</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">كتب الشكر والتقدير</span>
+            </nav>
+            <h1 class="hr-h1" style="margin-block-start:.5rem">إدارة وسجلات كتب الشكر والتقدير</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.25rem">
+                توثيق ومتابعة كتب الشكر والتقدير والتكريم الوزاري والمؤسسي، واحتساب أشهر القِدم المكتسبة للموظفين وفق القوانين والأنظمة النافذة.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateLetterModal">
+                <Icon Name="plus" Size="xs" />
+                <span>إضافة كتاب شكر جديد</span>
+            </button>
+
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenTypesManagementModal">
+                <Icon Name="cog-6-tooth" Size="xs" />
+                <span>إدارة أنواع الكتب والقِدم</span>
+            </button>
+
+            <a href="data-import" class="hr-btn hr-btn-secondary">
+                <Icon Name="arrow-up-tray" Size="xs" />
+                <span>استيراد ملف Excel</span>
+            </a>
+
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-icon" @onclick="PrintPage" title="طباعة الصفحة" aria-label="طباعة الصفحة">
+                <Icon Name="printer" Size="xs" />
+            </button>
+        </div>
+    </header>
+
+    @* ---------- 2. Top Executive KPI Cards ---------- *@
+    <section class="hr-grid-kpi hr-no-print" aria-label="مؤشرات كتب الشكر العامة">
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">إجمالي سجلات كتب الشكر</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="document-text" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(totalRecordsCount)</span>
+                <span class="hr-kpi-unit">سجل</span>
+            </div>
+            <p class="hr-kpi-hint">كتاب شكر مسجل وموثق في المنظومة</p>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">إجمالي القِدم المكتسب</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="academic-cap" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num" style="font-size:var(--fs-title)">@totalSeniorityFormattedText</span>
+            </div>
+            <p class="hr-kpi-hint">مجموع مدد القِدم المحتسبة للترقيات والعلاوات وفق الأنواع المعتمدة</p>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">الموظفون المكرّمون</span>
+                <span class="hr-iconplate hr-iconplate-ok" aria-hidden="true"><Icon Name="users" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(honoredEmployeesCount)</span>
+                <span class="hr-kpi-unit">موظفاً</span>
+            </div>
+            <p class="hr-kpi-hint">موظف حاصل على كتاب شكر واحد على الأقل</p>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">عناوين وأنواع الشكر</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="squares-2x2" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(titlesCount)</span>
+                <span class="hr-kpi-unit">تصنيف</span>
+            </div>
+            <p class="hr-kpi-hint">عناوين وجهات شكر وتقدير معتمدة</p>
+        </article>
+    </section>
+
+    @* ---------- 3. Quick Employee Dossier Lookup Bar ---------- *@
+    <section class="hr-card hr-no-print" style="padding:1rem 1.25rem;border:1px solid var(--line-control);background:var(--surface-sunken)">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+            <div style="display:flex;align-items:center;gap:0.75rem">
+                <span class="hr-iconplate" aria-hidden="true">
+                    <Icon Name="identification" Size="sm" />
+                </span>
+                <div>
+                    <strong style="font-size:var(--fs-body);color:var(--text)">البحث السريع عن إضبارة كتب الشكر لموظف</strong>
+                    <p class="hr-sub" style="margin:0;font-size:var(--fs-label)">
+                        اكتب اسم الموظف أو رقمه الوظيفي لعرض كافة كتب الشكر وأشهر القِدم الخاصة به مباشرة.
+                    </p>
+                </div>
+            </div>
+
+            <div style="position:relative;min-width:min(20rem, 100%);flex:1;max-width:28rem">
+                <div class="hr-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="xs" /></span>
+                    <input type="text"
+                           class="hr-input hr-input-sm"
+                           placeholder="ابحث بالاسم أو الرقم الوظيفي…"
+                           aria-label="البحث عن موظف لعرض إضبارته"
+                           value="@lookupDossierQuery"
+                           @oninput="OnDossierSearchInput"
+                           @onfocus="() => showDossierDropdown = true" />
+                </div>
+
+                @if (showDossierDropdown && dossierSearchResults.Any())
+                {
+                    <div class="hr-popover" style="position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:18rem;overflow-y:auto;z-index:calc(var(--z-popover) + 1);">
+                        @foreach (var emp in dossierSearchResults)
+                        {
+                            <button type="button" class="hr-menu-item" @onclick="() => SelectEmployeeForDossier(emp.Id)">
+                                <span class="hr-avatar hr-avatar-sm" aria-hidden="true">
+                                    @AvatarInitials.FromName(emp.Name)
+                                </span>
+                                <div style="flex:1;text-align:right">
+                                    <div style="font-weight:700;font-size:var(--fs-control)">@emp.Name</div>
+                                    <div class="hr-meta" style="font-size:var(--fs-caption)">
+                                        <span class="hr-num">#@emp.EmployeeID</span> · @(emp.Formation?.Name ?? "غير محدد")
+                                    </div>
+                                </div>
+                                <span class="hr-badge">
+                                    @N(empLetterCounts.GetValueOrDefault(emp.Id, 0)) كتب
+                                </span>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
+
+    @* ---------- 4. Filter Toolbar ---------- *@
+    <section class="hr-toolbar hr-no-print" aria-label="أدوات التصفية والفرز">
+        <div class="hr-toolbar-group" style="flex:1;min-width:14rem">
+            <div class="hr-search" style="width:100%">
+                <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="xs" /></span>
+                <input type="text"
+                       class="hr-input hr-input-sm"
+                       placeholder="بحث بالاسم، الرقم الوظيفي، رقم الكتاب، أو الملاحظات…"
+                       aria-label="بحث في كتب الشكر"
+                       value="@filterSearch"
+                       @oninput="OnSearchChanged" />
+            </div>
+        </div>
+
+        @* كتب الشكر (قائمة منسدلة) *@
+        <div class="hr-toolbar-group">
+            <select class="hr-select hr-input-sm" aria-label="تصفية حسب عنوان كتاب الشكر" value="@filterTitleId" @onchange="OnTitleFilterChanged">
+                <option value="">جميع كتب الشكر (العناوين)</option>
+                @foreach (var t in availableTitles)
+                {
+                    <option value="@t.Id">@t.Name</option>
+                }
+            </select>
+        </div>
+
+        @* نوع كتب شكر (قائمة منسدلة) *@
+        <div class="hr-toolbar-group">
+            <select class="hr-select hr-input-sm" aria-label="تصفية حسب نوع كتاب الشكر" value="@filterTypeId" @onchange="OnTypeFilterChanged">
+                <option value="">جميع أنواع كتب الشكر</option>
+                @foreach (var t in availableTypes)
+                {
+                    <option value="@t.Id">@t.Name</option>
+                }
+            </select>
+        </div>
+
+        @* التشكيل *@
+        <div class="hr-toolbar-group">
+            <select class="hr-select hr-input-sm" aria-label="تصفية حسب التشكيل" value="@filterFormationId" @onchange="OnFormationFilterChanged">
+                <option value="">جميع التشكيلات</option>
+                @foreach (var f in availableFormations)
+                {
+                    <option value="@f.Id">@f.Name</option>
+                }
+            </select>
+        </div>
+
+        @* التواريخ *@
+        <div class="hr-toolbar-group" style="display:flex;gap:0.25rem;align-items:center;flex:1 1 18rem">
+            <input type="date" class="hr-input hr-input-sm" style="flex:1;min-width:0" value="@filterDateFrom" @onchange="OnDateFromChanged" title="من تاريخ" aria-label="من تاريخ" />
+            <span class="hr-meta">—</span>
+            <input type="date" class="hr-input hr-input-sm" style="flex:1;min-width:0" value="@filterDateTo" @onchange="OnDateToChanged" title="إلى تاريخ" aria-label="إلى تاريخ" />
+        </div>
+
+        @if (HasActiveFilters)
+        {
+            <div class="hr-toolbar-group">
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearFilters" title="إعادة تعيين الفلاتر">
+                    <Icon Name="x-mark" Size="xs" />
+                    <span>مسح الفلاتر</span>
+                </button>
+            </div>
+        }
+    </section>
+
+    @* ---------- 5. Data Table Section ---------- *@
+    <section class="hr-card" style="padding:0;overflow:hidden">
+        <div class="hr-tablewrap">
+            <table class="hr-table" aria-label="جدول كتب الشكر والتقدير">
+                <thead>
+                    <tr>
+                        <th scope="col" style="width:3.5rem">#</th>
+                        <th scope="col" style="min-width:14rem">الموظف والتشكيل</th>
+                        <th scope="col" style="min-width:12rem">كتاب الشكر (العنوان)</th>
+                        <th scope="col" style="min-width:8rem">نوع الكتاب</th>
+                        <th scope="col" style="min-width:8rem">رقم الكتاب</th>
+                        <th scope="col" style="min-width:7.5rem">تاريخ الصدور</th>
+                        <th scope="col" style="min-width:7rem">العدد والقِدم</th>
+                        <th scope="col">الملاحظات</th>
+                        <th scope="col" class="hr-no-print" style="width:7.5rem;text-align:center">الإجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (isLoading)
+                    {
+                        <tr>
+                            <td colspan="9" style="text-align:center;padding:3rem">
+                                <div style="display:inline-flex;align-items:center;gap:0.75rem;color:var(--text-muted)">
+                                    <span class="hr-spinner" aria-hidden="true"></span>
+                                    <span>جارٍ تحميل سجلات كتب الشكر والتقدير…</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else if (!displayedLetters.Any())
+                    {
+                        <tr>
+                            <td colspan="9" style="text-align:center;padding:3rem">
+                                <div style="display:inline-flex;flex-direction:column;align-items:center;gap:0.5rem">
+                                    <span class="hr-iconplate" style="width:3rem;height:3rem" aria-hidden="true">
+                                        <Icon Name="document-text" Size="md" />
+                                    </span>
+                                    <strong style="color:var(--text);font-size:var(--fs-lead)">لا توجد سجلات كتب شكر مطابقة للبحث</strong>
+                                    <p class="hr-sub" style="margin:0;font-size:var(--fs-label)">
+                                        جرّب تغيير كلمات البحث أو مسح الفلاتر، أو قم بإضافة كتاب شكر جديد.
+                                    </p>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        var rowIdx = (currentPage - 1) * pageSize;
+                        @foreach (var letter in displayedLetters)
+                        {
+                            rowIdx++;
+                            var emp = letter.Employee;
+                            <tr>
+                                <td class="hr-meta hr-num" style="font-size:var(--fs-caption)">@rowIdx</td>
+
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:0.625rem">
+                                        <span class="hr-avatar hr-avatar-sm" aria-hidden="true">
+                                            @AvatarInitials.FromName(emp?.Name)
+                                        </span>
+                                        <div>
+                                            <button type="button"
+                                                    class="hr-linklike"
+                                                    style="font-weight:700;font-size:var(--fs-control);text-align:right"
+                                                    @onclick="() => OpenDossierModal(letter.EmployeeId)">
+                                                @(emp?.Name ?? "غير معروف")
+                                            </button>
+                                            <div class="hr-meta" style="font-size:var(--fs-caption)">
+                                                <span class="hr-num">#@(emp?.EmployeeID ?? "—")</span> · @(emp?.Formation?.Name ?? "غير محدد")
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <span style="font-weight:700;color:var(--text)">
+                                        @(letter.TitleLookup?.Name ?? letter.Title ?? "كتاب شكر وتقدير")
+                                    </span>
+                                </td>
+
+                                <td>
+                                    @if (!string.IsNullOrEmpty(letter.Type?.Name))
+                                    {
+                                        <span class="hr-badge hr-badge">@letter.Type.Name</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">—</span>
+                                    }
+                                </td>
+
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(letter.LetterNumber))
+                                    {
+                                        <span class="hr-badge hr-num">
+                                            @letter.LetterNumber
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">—</span>
+                                    }
+                                </td>
+
+                                <td class="hr-num" style="font-size:var(--fs-label)">
+                                    @(letter.LetterDate?.ToString("yyyy/MM/dd") ?? "—")
+                                </td>
+
+                                <td>
+                                    <div style="display:inline-flex;align-items:center;gap:0.35rem">
+                                        @if (HasSeniority(letter.Type))
+                                        {
+                                            <span class="hr-badge hr-badge-ok hr-num" style="font-weight:700">
+                                                @FormatSeniority(letter)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-badge hr-num" style="opacity:0.75">
+                                                بدون قِدم
+                                            </span>
+                                        }
+                                    </div>
+                                </td>
+
+                                <td class="hr-meta hr-truncate" style="max-width:14rem" title="@letter.Notes">
+                                    @(string.IsNullOrWhiteSpace(letter.Notes) ? "—" : letter.Notes)
+                                </td>
+
+                                <td class="hr-no-print" style="text-align:center">
+                                    <div style="display:inline-flex;gap:0.25rem;align-items:center">
+                                        <button type="button"
+                                                class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                                                title="عرض إضبارة كتب الشكر للموظف" aria-label="عرض إضبارة كتب الشكر للموظف"
+                                                @onclick="() => OpenDossierModal(letter.EmployeeId)">
+                                            <Icon Name="eye" Size="xs" />
+                                        </button>
+                                        <button type="button"
+                                                class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                                                title="تعديل كتاب الشكر" aria-label="تعديل كتاب الشكر"
+                                                @onclick="() => OpenEditLetterModal(letter)">
+                                            <Icon Name="pencil-square" Size="xs" />
+                                        </button>
+                                        <button type="button"
+                                                class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm hr-text-danger"
+                                                title="حذف السجل" aria-label="حذف السجل"
+                                                @onclick="() => PromptDeleteLetter(letter)">
+                                            <Icon Name="trash" Size="xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @* ---------- 6. Table Pagination & Info ---------- *@
+        <div class="hr-table-pagination hr-no-print" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.25rem;border-top:1px solid var(--line);flex-wrap:wrap;gap:0.75rem">
+            <div class="hr-meta" style="font-size:var(--fs-label)">
+                إظهار <strong>@displayedLetters.Count</strong> من إجمالي <strong>@filteredTotalCount</strong> كتاب شكر
+            </div>
+
+            <div style="display:flex;align-items:center;gap:0.5rem">
+                <span class="hr-meta" style="font-size:var(--fs-label)">لكل صفحة:</span>
+                <select class="hr-select hr-input-sm" aria-label="عدد السجلات في الصفحة" value="@pageSize" @onchange="OnPageSizeChanged" style="width:auto">
+                    <option value="15">15</option>
+                    <option value="30">30</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+
+                <div class="hr-pager" style="margin:0">
+                    <button type="button"
+                            class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                            disabled="@(currentPage <= 1)"
+                            aria-label="الصفحة السابقة"
+                            @onclick="() => GoToPage(currentPage - 1)">
+                        <Icon Name="chevron-right" Size="xs" />
+                    </button>
+                    <span class="hr-meta" style="font-size:var(--fs-label);padding:0 0.5rem">
+                        صفحة <strong>@currentPage</strong> من <strong>@totalPages</strong>
+                    </span>
+                    <button type="button"
+                            class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                            disabled="@(currentPage >= totalPages)"
+                            aria-label="الصفحة التالية"
+                            @onclick="() => GoToPage(currentPage + 1)">
+                        <Icon Name="chevron-left" Size="xs" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+@* ======================================================== *@
+@* MODAL 1: CREATE / EDIT APPRECIATION LETTER               *@
+@* ======================================================== *@
+@if (isLetterModalOpen)
+{
+    <Modal IsOpen="@isLetterModalOpen"
+           Title="@(editingLetterId.HasValue ? "تعديل كتاب شكر وتقدير" : "تسجيل كتاب شكر وتقدير جديد")"
+           Subtitle="توثيق كتاب الشكر واحتساب القِدم الوظيفي المستحق للموظف"
+           Icon="document-text"
+           Size="lg"
+           OnClose="CloseLetterModal">
+        <Body>
+            <div class="hr-stack" style="gap:1.25rem">
+                @if (!string.IsNullOrEmpty(modalError))
+                {
+                    <div class="hr-alert hr-alert-danger" role="alert">
+                        <Icon Name="shield-exclamation" Size="xs" />
+                        <span>@modalError</span>
+                    </div>
+                }
+
+                @* اختيار الموظف *@
+                <div class="hr-field">
+                    <label for="f-appreciation-letters-1" class="hr-label">
+                        الموظف المكرم <span class="hr-req" aria-hidden="true">*</span>
+                    </label>
+                    @if (editingLetterId.HasValue)
+                    {
+                        <div class="hr-input" style="display:flex;align-items:center;gap:0.5rem;background:var(--surface-sunken)">
+                            <span class="hr-avatar hr-avatar-xs">@AvatarInitials.FromName(selectedEmployeeName)</span>
+                            <strong>@selectedEmployeeName</strong>
+                            <span class="hr-meta">(#@selectedEmployeeCode)</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="position:relative">
+                            <div class="hr-search">
+                                <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="xs" /></span>
+                                <input type="text"
+                                       class="hr-input"
+                                       placeholder="ابحث بالاسم أو الرقم الوظيفي لاختيار الموظف…"
+                                       aria-label="البحث عن الموظف المكرم"
+                                       value="@employeeModalSearchQuery"
+                                       @oninput="OnModalEmployeeSearchInput"
+                                       @onfocus="() => showModalEmpDropdown = true" />
+                            </div>
+
+                            @if (showModalEmpDropdown && modalEmpSearchResults.Any())
+                            {
+                                <div class="hr-popover" style="position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:14rem;overflow-y:auto;z-index:calc(var(--z-popover) + 1)">
+                                    @foreach (var emp in modalEmpSearchResults)
+                                    {
+                                        <button type="button" class="hr-menu-item" @onclick="() => SelectModalEmployee(emp)">
+                                            <span class="hr-avatar hr-avatar-sm">@AvatarInitials.FromName(emp.Name)</span>
+                                            <div style="flex:1;text-align:right">
+                                                <div style="font-weight:700">@emp.Name</div>
+                                                <div class="hr-meta" style="font-size:var(--fs-caption)">#@emp.EmployeeID · @(emp.Formation?.Name ?? "غير محدد")</div>
+                                            </div>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @if (letterModel.EmployeeId > 0)
+                        {
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.35rem;padding:0.35rem 0.625rem;border-radius:var(--r);background:var(--accent-tint)">
+                                <Icon Name="check-circle" Size="xs" Class="text-accent" />
+                                <span style="font-weight:700;font-size:var(--fs-label)">تم اختيار: @selectedEmployeeName (#@selectedEmployeeCode)</span>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="hr-grid-2">
+                    @* كتب الشكر (قائمة منسدلة) *@
+                    <div class="hr-field">
+                        <label for="f-appreciation-letters-1" class="hr-label">
+                            كتب الشكر (العنوان / الجهة المانحة) <span class="hr-req" aria-hidden="true">*</span>
+                        </label>
+                        <select id="f-appreciation-letters-1" class="hr-select" value="@selectedTitleOption" @onchange="OnTitleSelectionChanged">
+                            <option value="">-- اختر عنوان / جهة كتاب الشكر --</option>
+                            @foreach (var t in availableTitles)
+                            {
+                                <option value="@t.Name">@t.Name</option>
+                            }
+                            <option value="__custom__">+ كتابة عنوان / جهة أخرى…</option>
+                        </select>
+
+                        @if (isCustomTitle)
+                        {
+                            <input aria-label="أدخل عنوان أو جهة كتاب الشكر الجديد" type="text"
+                                   class="hr-input"
+                                   style="margin-top:0.5rem"
+                                   placeholder="أدخل عنوان أو جهة كتاب الشكر الجديد…"
+                                   @bind="letterModel.Title" />
+                        }
+                    </div>
+
+                    @* نوع كتب شكر (قائمة منسدلة) *@
+                    <div class="hr-field">
+                        <label for="f-appreciation-letters-2" class="hr-label">
+                            نوع كتب شكر (التصنيف)
+                        </label>
+                        <select id="f-appreciation-letters-2" class="hr-select" @bind="letterModel.TypeId">
+                            <option value="">-- اختياري: نوع كتاب الشكر --</option>
+                            @foreach (var t in availableTypes)
+                            {
+                                <option value="@t.Id">
+                                    @t.Name @(HasSeniority(t) ? $"({FormatTypeSeniority(t)} قِدم)" : "")
+                                </option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="hr-grid-3">
+                    @* تاريخ كتب الشكر *@
+                    <div class="hr-field">
+                        <label for="f-appreciation-letters-3" class="hr-label">
+                            تاريخ كتب الشكر <span class="hr-req" aria-hidden="true">*</span>
+                        </label>
+                        <input id="f-appreciation-letters-3" type="date" class="hr-input" @bind="letterModel.LetterDate" />
+                    </div>
+
+                    @* عدد كتب الشكر *@
+                    <div class="hr-field">
+                        <label for="f-appreciation-letters-4" class="hr-label">
+                            عدد كتب الشكر <span class="hr-req" aria-hidden="true">*</span>
+                        </label>
+                        <input id="f-appreciation-letters-4" type="number" min="1" max="100" class="hr-input hr-num" @bind="letterModel.Count" />
+                        <span class="hr-meta" style="font-size:var(--fs-caption);margin-top:0.25rem">
+                            يُحسب كل كتاب كشهر قِدم وظيفي واحد.
+                        </span>
+                    </div>
+
+                    @* رقم كتاب *@
+                    <div class="hr-field">
+                        <label for="f-appreciation-letters-5" class="hr-label">
+                            رقم كتاب (الأمر الإداري / الصادر)
+                        </label>
+                        <input id="f-appreciation-letters-5" type="text" class="hr-input" placeholder="مثال: ش/125/2024" @bind="letterModel.LetterNumber" />
+                    </div>
+                </div>
+
+                <div class="hr-alert hr-alert-ok" style="font-size:var(--fs-label);padding:0.625rem 0.875rem">
+                    <Icon Name="check" Size="xs" />
+                    <span>
+                        <strong>ملاحظة تنظيمية:</strong> يُسمح بإصدار أكثر من كتاب شكر لنفس الموظف في نفس اليوم بتواريخ متطابقة وأرقام كتب مستقلة.
+                    </span>
+                </div>
+
+                @* الملاحظات *@
+                <div class="hr-field">
+                    <label for="f-appreciation-letters-6" class="hr-label">الملاحظات (نص حر)</label>
+                    <textarea id="f-appreciation-letters-6" class="hr-input" rows="2" placeholder="أي تفاصيل أو أسباب إضافية لصدور كتاب الشكر…" @bind="letterModel.Notes"></textarea>
+                </div>
+            </div>
+        </Body>
+        <Footer>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseLetterModal">إلغاء</button>
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveLetter" disabled="@isSaving">
+                @if (isSaving)
+                {
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>جارٍ الحفظ…</span>
+                }
+                else
+                {
+                    <Icon Name="check" Size="xs" />
+                    <span>@(editingLetterId.HasValue ? "حفظ التعديلات" : "تأكيد التسجيل")</span>
+                }
+            </button>
+        </Footer>
+    </Modal>
+}
+
+@* ======================================================== *@
+@* MODAL 2: EMPLOYEE LETTERS DOSSIER                        *@
+@* ======================================================== *@
+@if (isDossierModalOpen && dossierEmployee != null)
+{
+    <Modal IsOpen="@isDossierModalOpen"
+           Title="@($"إضبارة وسجل كتب الشكر: {dossierEmployee.Name}")"
+           Subtitle="@($"الرقم الوظيفي: #{dossierEmployee.EmployeeID} · {dossierEmployee.Formation?.Name ?? "غير محدد"}")"
+           Icon="identification"
+           Size="xl"
+           OnClose="CloseDossierModal">
+        <Body>
+            <div class="hr-stack" style="gap:1.5rem">
+                @* Personal Strip *@
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:1.25rem;background:var(--surface-sunken);border-radius:var(--r-lg);border:1px solid var(--line);flex-wrap:wrap;gap:1rem">
+                    <div style="display:flex;align-items:center;gap:1rem">
+                        <span class="hr-avatar hr-avatar-lg">@AvatarInitials.FromName(dossierEmployee.Name)</span>
+                        <div>
+                            <h3 style="margin:0;font-size:var(--fs-title);font-weight:800">@dossierEmployee.Name</h3>
+                            <div class="hr-meta" style="margin-top:0.25rem">
+                                <span class="hr-badge hr-badge">#@dossierEmployee.EmployeeID</span>
+                                <span>@(dossierEmployee.JobTitle?.Name ?? "موظف")</span> ·
+                                <span>@(dossierEmployee.Formation?.Name ?? "غير محدد")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;gap:1.5rem;text-align:center">
+                        <div>
+                            <div class="hr-meta" style="font-size:var(--fs-caption)">إجمالي كتب الشكر</div>
+                            <div class="hr-num" style="font-size:var(--fs-h1);font-weight:800;color:var(--text)">@N(dossierLetters.Count)</div>
+                        </div>
+                        <div>
+                            <div class="hr-meta" style="font-size:var(--fs-caption)">القِدم التراكمي المستحق</div>
+                            <div class="hr-num" style="font-size:var(--fs-h2);font-weight:800;color:var(--accent)">
+                                @FormatTotalDossierSeniority(dossierLetters)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @* Letters Chronological List *@
+                <div>
+                    <h3 class="hr-h3" style="margin-bottom:0.75rem">السجل الزمني لكتب الشكر والتقدير</h3>
+                    @if (!dossierLetters.Any())
+                    {
+                        <div class="hr-alert hr-alert-ok">
+                            لا توجد كتب شكر مسجلة لهذا الموظف حتى الآن.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="hr-tablewrap">
+                            <table class="hr-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">#</th>
+                                        <th scope="col">كتاب الشكر (العنوان)</th>
+                                        <th scope="col">نوع الكتاب</th>
+                                        <th scope="col">رقم الكتاب</th>
+                                        <th scope="col">تاريخ الصدور</th>
+                                        <th scope="col">العدد والقِدم</th>
+                                        <th scope="col">الملاحظات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ var dIdx = 0; }
+                                    @foreach (var let in dossierLetters.OrderByDescending(l => l.LetterDate))
+                                    {
+                                        dIdx++;
+                                        var c = let.Count ?? 1;
+                                        <tr>
+                                            <td class="hr-meta hr-num">@dIdx</td>
+                                            <td style="font-weight:700">@(let.TitleLookup?.Name ?? let.Title ?? "كتاب شكر وتقدير")</td>
+                                            <td><span class="hr-badge hr-badge">@(let.Type?.Name ?? "عام")</span></td>
+                                            <td class="hr-num">@(let.LetterNumber ?? "—")</td>
+                                            <td class="hr-num">@(let.LetterDate?.ToString("yyyy/MM/dd") ?? "—")</td>
+                                            <td>
+                                                @if (HasSeniority(let.Type))
+                                                {
+                                                    <span class="hr-badge hr-badge-ok hr-num">@FormatSeniority(let)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="hr-badge hr-num" style="opacity:0.75">بدون قِدم</span>
+                                                }
+                                            </td>
+                                            <td class="hr-meta">@(string.IsNullOrWhiteSpace(let.Notes) ? "—" : let.Notes)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </Body>
+        <Footer>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseDossierModal">إغلاق</button>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="PrintPage">
+                <Icon Name="printer" Size="xs" />
+                <span>طباعة السجل</span>
+            </button>
+        </Footer>
+    </Modal>
+}
+
+@* ======================================================== *@
+@* MODAL 3: MANAGE APPRECIATION LETTER TYPES & SENIORITY    *@
+@* ======================================================== *@
+@if (isTypesModalOpen)
+{
+    <Modal IsOpen="@isTypesModalOpen"
+           Title="إدارة أنواع كتب الشكر وتأثير القِدم الممنوح"
+           Subtitle="تحديد مدد القِدم الممنوحة تلقائياً لكل نوع كتاب شكر: سنة، شهر، يوم"
+           Icon="cog-6-tooth"
+           Size="lg"
+           OnClose="CloseTypesModal">
+        <Body>
+            <div class="hr-stack" style="gap:1.25rem">
+                @if (!string.IsNullOrWhiteSpace(typesStatusMessage))
+                {
+                    <div class="hr-alert hr-alert-ok" style="font-size:var(--fs-control)">
+                        <Icon Name="check" Size="xs" />
+                        <span>@typesStatusMessage</span>
+                    </div>
+                }
+
+                @* New Type Form *@
+                <div style="padding:1rem;background:var(--surface-sunken);border-radius:var(--r-lg);border:1px solid var(--line)">
+                    <h3 style="font-size:var(--fs-control);font-weight:700;margin-bottom:0.75rem">إضافة نوع كتاب شكر جديد مع مدة القِدم</h3>
+                    <div class="hr-form-cols" style="--cols:minmax(0,2fr) repeat(3, minmax(0,1fr)) auto;gap:0.75rem;align-items:end">
+                        <div class="hr-field">
+                            <label for="f-appreciation-letters-7" class="hr-label">اسم النوع <span class="hr-req" aria-hidden="true">*</span></label>
+                            <input id="f-appreciation-letters-7" type="text" class="hr-input" placeholder="مثال: كتاب شكر وزاري" @bind="newTypeName" />
+                        </div>
+                        <div class="hr-field">
+                            <label for="f-appreciation-letters-8" class="hr-label">سنة</label>
+                            <input id="f-appreciation-letters-8" type="number" min="0" max="10" class="hr-input hr-num" @bind="newTypeYears" />
+                        </div>
+                        <div class="hr-field">
+                            <label for="f-appreciation-letters-9" class="hr-label">شهر</label>
+                            <input id="f-appreciation-letters-9" type="number" min="0" max="36" class="hr-input hr-num" @bind="newTypeMonths" />
+                        </div>
+                        <div class="hr-field">
+                            <label for="f-appreciation-letters-10" class="hr-label">يوم</label>
+                            <input id="f-appreciation-letters-10" type="number" min="0" max="365" class="hr-input hr-num" @bind="newTypeDays" />
+                        </div>
+                        <button type="button" class="hr-btn hr-btn-primary" @onclick="CreateNewTypeAsync" disabled="@string.IsNullOrWhiteSpace(newTypeName)">
+                            <Icon Name="plus" Size="xs" />
+                            <span>إضافة نوع</span>
+                        </button>
+                    </div>
+                </div>
+
+                @* Existing Types Table *@
+                <div class="hr-tablewrap">
+                    <table class="hr-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">نوع كتاب الشكر</th>
+                                <th scope="col" style="width:5.5rem">سنة</th>
+                                <th scope="col" style="width:5.5rem">شهر</th>
+                                <th scope="col" style="width:5.5rem">يوم</th>
+                                <th scope="col">القِدم المحتسب</th>
+                                <th scope="col" style="text-align:center">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{ var tIdx = 0; }
+                            @foreach (var t in availableTypes)
+                            {
+                                tIdx++;
+                                <tr>
+                                    <td class="hr-meta hr-num">@tIdx</td>
+                                    <td style="font-weight:700">
+                                        <input type="text" class="hr-input" aria-label="اسم نوع كتاب الشكر" @bind="t.Name" style="font-weight:700" />
+                                    </td>
+                                    <td>
+                                        <input type="number" min="0" max="10" class="hr-input hr-num" aria-label="@($"سنوات القِدم — {t.Name}")" @bind="t.SeniorityYears" />
+                                    </td>
+                                    <td>
+                                        <input type="number" min="0" max="36" class="hr-input hr-num" aria-label="@($"أشهر القِدم — {t.Name}")" @bind="t.SeniorityMonths" />
+                                    </td>
+                                    <td>
+                                        <input type="number" min="0" max="365" class="hr-input hr-num" aria-label="@($"أيام القِدم — {t.Name}")" @bind="t.SeniorityDays" />
+                                    </td>
+                                    <td>
+                                        <span class="hr-badge hr-badge-ok hr-num">
+                                            @(HasSeniority(t) ? FormatTypeSeniority(t) : "غير محدد")
+                                        </span>
+                                    </td>
+                                    <td style="text-align:center">
+                                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => SaveTypeAsync(t)" title="حفظ هذا النوع">
+                                            <Icon Name="check" Size="xs" />
+                                            <span>حفظ</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </Body>
+        <Footer>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseTypesModal">إغلاق</button>
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveAllTypesAsync">
+                <Icon Name="check" Size="xs" />
+                <span>حفظ كافة التغييرات</span>
+            </button>
+        </Footer>
+    </Modal>
+}
+
+@* ======================================================== *@
+@* CONFIRM DELETE DIALOG                                    *@
+@* ======================================================== *@
+<ConfirmDialog IsOpen="@isConfirmDeleteOpen"
+               Title="تأكيد حذف كتاب الشكر والتقدير"
+               Message="@($"هل أنت متأكد من رغبتك بحذف كتاب الشكر الصادر برقم '{(letterToDelete?.LetterNumber ?? "—")}' للموظف '{letterToDelete?.Employee?.Name}'؟ سيتم خصم شهر القِدم المحتسب.")"
+               ConfirmText="نعم، احذف السجل"
+               CancelText="إلغاء"
+               Destructive="true"
+               OnConfirm="ExecuteDeleteLetter"
+               OnCancel="() => isConfirmDeleteOpen = false" />
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+
+    // KPI Counters
+    private int totalRecordsCount;
+    private int totalSeniorityMonths;
+    private string totalSeniorityFormattedText = "بدون قِدم";
+    private int honoredEmployeesCount;
+    private int titlesCount;
+
+    // Filters
+    private string filterSearch = "";
+    private string filterTitleId = "";
+    private string filterTypeId = "";
+    private string filterFormationId = "";
+    private string filterDateFrom = "";
+    private string filterDateTo = "";
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(filterSearch) ||
+        !string.IsNullOrWhiteSpace(filterTitleId) ||
+        !string.IsNullOrWhiteSpace(filterTypeId) ||
+        !string.IsNullOrWhiteSpace(filterFormationId) ||
+        !string.IsNullOrWhiteSpace(filterDateFrom) ||
+        !string.IsNullOrWhiteSpace(filterDateTo);
+
+    // Lookups
+    private List<AppreciationLetterTitle> availableTitles = [];
+    private List<AppreciationLetterType> availableTypes = [];
+    private List<Formation> availableFormations = [];
+    private Dictionary<int, int> empLetterCounts = [];
+
+    // Table Data
+    private List<AppreciationLetter> displayedLetters = [];
+    private int filteredTotalCount;
+    private int currentPage = 1;
+    private int pageSize = 15;
+    private int totalPages => Math.Max(1, (int)Math.Ceiling(filteredTotalCount / (double)pageSize));
+
+    // Quick Dossier Search
+    private string lookupDossierQuery = "";
+    private bool showDossierDropdown = false;
+    private List<Employee> dossierSearchResults = [];
+
+    // Dossier Modal
+    private bool isDossierModalOpen;
+    private Employee? dossierEmployee;
+    private List<AppreciationLetter> dossierLetters = [];
+
+    // Create / Edit Modal
+    private bool isLetterModalOpen;
+    private int? editingLetterId;
+    private string? modalError;
+    private LetterFormModel letterModel = new();
+    private string selectedEmployeeName = "";
+    private string selectedEmployeeCode = "";
+    private string employeeModalSearchQuery = "";
+    private bool showModalEmpDropdown;
+    private List<Employee> modalEmpSearchResults = [];
+    private string selectedTitleOption = "";
+    private bool isCustomTitle = false;
+
+    // Delete Dialog
+    private bool isConfirmDeleteOpen;
+    private AppreciationLetter? letterToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookupsAsync();
+        await LoadDataAsync();
+    }
+
+    private async Task LoadLookupsAsync()
+    {
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        availableTitles = await db.AppreciationLetterTitles.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+        availableTypes = await db.AppreciationLetterTypes.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+        availableFormations = await db.Formations.AsNoTracking().OrderBy(f => f.Name).ToListAsync();
+
+        // Seed default titles if empty
+        if (!availableTitles.Any())
+        {
+            var defaultTitles = new[]
+            {
+                "كتاب شكر وتقدير",
+                "شكر وتقدير محافظ البنك المركزي",
+                "شكر وتقدير رئيس الوزراء",
+                "شكر وتقدير وزير المالية",
+                "شكر وتقدير المدير العام",
+                "تكريم متميز"
+            };
+
+            foreach (var dt in defaultTitles)
+            {
+                db.AppreciationLetterTitles.Add(new AppreciationLetterTitle { Name = dt });
+            }
+            await db.SaveChangesAsync();
+            availableTitles = await db.AppreciationLetterTitles.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+        }
+
+        // Seed default types if empty
+        if (!availableTypes.Any())
+        {
+            var defaultTypes = new[]
+            {
+                "فردي",
+                "جماعي",
+                "عام",
+                "شكر مع قِدم",
+                "شهادة تقديرية"
+            };
+
+            foreach (var dt in defaultTypes)
+            {
+                db.AppreciationLetterTypes.Add(new AppreciationLetterType { Name = dt });
+            }
+            await db.SaveChangesAsync();
+            availableTypes = await db.AppreciationLetterTypes.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        // 1. Overall KPIs
+        totalRecordsCount = await db.AppreciationLetters.CountAsync();
+        honoredEmployeesCount = await db.AppreciationLetters.Select(l => l.EmployeeId).Distinct().CountAsync();
+        titlesCount = availableTitles.Count;
+
+        var allLettersSeniority = await db.AppreciationLetters
+            .Include(l => l.Type)
+            .Select(l => new
+            {
+                Count = l.Count ?? 1,
+                SeniorityYears = l.Type != null ? l.Type.SeniorityYears : 0,
+                SeniorityMonths = l.Type != null ? l.Type.SeniorityMonths : 0,
+                SeniorityDays = l.Type != null ? l.Type.SeniorityDays : 0
+            })
+            .ToListAsync();
+
+        int kpiY = 0, kpiM = 0, kpiD = 0;
+        foreach (var item in allLettersSeniority)
+        {
+            kpiY += item.SeniorityYears * item.Count;
+            kpiM += item.SeniorityMonths * item.Count;
+            kpiD += item.SeniorityDays * item.Count;
+        }
+        if (kpiD >= 30) { kpiM += kpiD / 30; kpiD %= 30; }
+        if (kpiM >= 12) { kpiY += kpiM / 12; kpiM %= 12; }
+
+        totalSeniorityMonths = kpiY * 12 + kpiM;
+        var kpiParts = new List<string>();
+        if (kpiY > 0) kpiParts.Add($"{kpiY} {(kpiY == 1 ? "سنة" : (kpiY == 2 ? "سنتان" : (kpiY <= 10 ? "سنوات" : "سنة")))}");
+        if (kpiM > 0) kpiParts.Add($"{kpiM} {(kpiM == 1 ? "شهر" : (kpiM == 2 ? "شهران" : (kpiM <= 10 ? "أشهر" : "شهراً")))}");
+        if (kpiD > 0) kpiParts.Add($"{kpiD} {(kpiD == 1 ? "يوم" : (kpiD == 2 ? "يومان" : (kpiD <= 10 ? "أيام" : "يوماً")))}");
+        totalSeniorityFormattedText = kpiParts.Count > 0 ? string.Join(" و ", kpiParts) : "بدون قِدم";
+
+        empLetterCounts = await db.AppreciationLetters
+            .GroupBy(l => l.EmployeeId)
+            .Select(g => new { EmpId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.EmpId, x => x.Count);
+
+        // 2. Query with filters
+        var query = db.AppreciationLetters
+            .Include(l => l.Employee)
+                .ThenInclude(e => e.Formation)
+            .Include(l => l.TitleLookup)
+            .Include(l => l.Type)
+            .AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(filterSearch))
+        {
+            var q = filterSearch.Trim();
+            query = query.Where(l =>
+                (l.Employee != null && (l.Employee.Name.Contains(q) || l.Employee.EmployeeID.Contains(q))) ||
+                (l.LetterNumber != null && l.LetterNumber.Contains(q)) ||
+                (l.Title != null && l.Title.Contains(q)) ||
+                (l.Notes != null && l.Notes.Contains(q)));
+        }
+
+        if (int.TryParse(filterTitleId, out var tid))
+        {
+            query = query.Where(l => l.TitleId == tid);
+        }
+
+        if (int.TryParse(filterTypeId, out var typId))
+        {
+            query = query.Where(l => l.TypeId == typId);
+        }
+
+        if (int.TryParse(filterFormationId, out var fid))
+        {
+            query = query.Where(l => l.Employee != null && l.Employee.FormationId == fid);
+        }
+
+        if (DateOnly.TryParse(filterDateFrom, out var dFrom))
+        {
+            query = query.Where(l => l.LetterDate >= dFrom);
+        }
+
+        if (DateOnly.TryParse(filterDateTo, out var dTo))
+        {
+            query = query.Where(l => l.LetterDate <= dTo);
+        }
+
+        filteredTotalCount = await query.CountAsync();
+
+        displayedLetters = await query
+            .OrderByDescending(l => l.LetterDate)
+            .ThenByDescending(l => l.Id)
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    // Filter event handlers
+    private async Task OnSearchChanged(ChangeEventArgs e)
+    {
+        filterSearch = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task OnTitleFilterChanged(ChangeEventArgs e)
+    {
+        filterTitleId = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task OnTypeFilterChanged(ChangeEventArgs e)
+    {
+        filterTypeId = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task OnFormationFilterChanged(ChangeEventArgs e)
+    {
+        filterFormationId = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task OnDateFromChanged(ChangeEventArgs e)
+    {
+        filterDateFrom = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task OnDateToChanged(ChangeEventArgs e)
+    {
+        filterDateTo = e.Value?.ToString() ?? "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task ClearFilters()
+    {
+        filterSearch = "";
+        filterTitleId = "";
+        filterTypeId = "";
+        filterFormationId = "";
+        filterDateFrom = "";
+        filterDateTo = "";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task GoToPage(int page)
+    {
+        currentPage = Math.Clamp(page, 1, totalPages);
+        await LoadDataAsync();
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var ps))
+        {
+            pageSize = ps;
+            currentPage = 1;
+            await LoadDataAsync();
+        }
+    }
+
+    // Quick Dossier Search
+    private async Task OnDossierSearchInput(ChangeEventArgs e)
+    {
+        lookupDossierQuery = e.Value?.ToString() ?? "";
+        if (string.IsNullOrWhiteSpace(lookupDossierQuery))
+        {
+            dossierSearchResults = [];
+            showDossierDropdown = false;
+            return;
+        }
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var q = lookupDossierQuery.Trim();
+        dossierSearchResults = await db.Employees
+            .Include(emp => emp.Formation)
+            .Where(emp => emp.Name.Contains(q) || emp.EmployeeID.Contains(q))
+            .Take(8)
+            .ToListAsync();
+
+        showDossierDropdown = true;
+    }
+
+    private async Task SelectEmployeeForDossier(int empId)
+    {
+        showDossierDropdown = false;
+        lookupDossierQuery = "";
+        await OpenDossierModal(empId);
+    }
+
+    // Dossier Modal
+    private async Task OpenDossierModal(int empId)
+    {
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        dossierEmployee = await db.Employees
+            .Include(e => e.Formation)
+            .Include(e => e.JobTitle)
+            .FirstOrDefaultAsync(e => e.Id == empId);
+
+        if (dossierEmployee == null) return;
+
+        dossierLetters = await db.AppreciationLetters
+            .Include(l => l.TitleLookup)
+            .Include(l => l.Type)
+            .Where(l => l.EmployeeId == empId)
+            .OrderByDescending(l => l.LetterDate)
+            .ToListAsync();
+
+        isDossierModalOpen = true;
+    }
+
+    private void CloseDossierModal()
+    {
+        isDossierModalOpen = false;
+        dossierEmployee = null;
+        dossierLetters = [];
+    }
+
+    // Create / Edit Letter
+    private void OpenCreateLetterModal()
+    {
+        editingLetterId = null;
+        modalError = null;
+        letterModel = new LetterFormModel
+        {
+            LetterDate = DateOnly.FromDateTime(DateTime.Today),
+            Count = 1
+        };
+        selectedEmployeeName = "";
+        selectedEmployeeCode = "";
+        employeeModalSearchQuery = "";
+        selectedTitleOption = availableTitles.FirstOrDefault()?.Name ?? "كتاب شكر وتقدير";
+        letterModel.Title = selectedTitleOption;
+        isCustomTitle = false;
+        isLetterModalOpen = true;
+    }
+
+    private void OpenEditLetterModal(AppreciationLetter letter)
+    {
+        editingLetterId = letter.Id;
+        modalError = null;
+        letterModel = new LetterFormModel
+        {
+            EmployeeId = letter.EmployeeId,
+            TitleId = letter.TitleId,
+            Title = letter.TitleLookup?.Name ?? letter.Title ?? "",
+            LetterDate = letter.LetterDate ?? DateOnly.FromDateTime(DateTime.Today),
+            Count = letter.Count ?? 1,
+            TypeId = letter.TypeId,
+            LetterNumber = letter.LetterNumber ?? "",
+            Notes = letter.Notes ?? ""
+        };
+
+        selectedEmployeeName = letter.Employee?.Name ?? "";
+        selectedEmployeeCode = letter.Employee?.EmployeeID ?? "";
+        
+        var matchedTitle = availableTitles.FirstOrDefault(t => t.Name == letterModel.Title);
+        if (matchedTitle != null)
+        {
+            selectedTitleOption = matchedTitle.Name;
+            isCustomTitle = false;
+        }
+        else
+        {
+            selectedTitleOption = "__custom__";
+            isCustomTitle = true;
+        }
+
+        isLetterModalOpen = true;
+    }
+
+    private void CloseLetterModal()
+    {
+        isLetterModalOpen = false;
+        editingLetterId = null;
+        modalError = null;
+    }
+
+    private void OnTitleSelectionChanged(ChangeEventArgs e)
+    {
+        selectedTitleOption = e.Value?.ToString() ?? "";
+        if (selectedTitleOption == "__custom__")
+        {
+            isCustomTitle = true;
+            letterModel.Title = "";
+        }
+        else
+        {
+            isCustomTitle = false;
+            letterModel.Title = selectedTitleOption;
+        }
+    }
+
+    private async Task OnModalEmployeeSearchInput(ChangeEventArgs e)
+    {
+        employeeModalSearchQuery = e.Value?.ToString() ?? "";
+        if (string.IsNullOrWhiteSpace(employeeModalSearchQuery))
+        {
+            modalEmpSearchResults = [];
+            showModalEmpDropdown = false;
+            return;
+        }
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var q = employeeModalSearchQuery.Trim();
+        modalEmpSearchResults = await db.Employees
+            .Include(emp => emp.Formation)
+            .Where(emp => emp.Name.Contains(q) || emp.EmployeeID.Contains(q))
+            .Take(8)
+            .ToListAsync();
+
+        showModalEmpDropdown = true;
+    }
+
+    private void SelectModalEmployee(Employee emp)
+    {
+        letterModel.EmployeeId = emp.Id;
+        selectedEmployeeName = emp.Name;
+        selectedEmployeeCode = emp.EmployeeID;
+        showModalEmpDropdown = false;
+        employeeModalSearchQuery = "";
+    }
+
+    private async Task SaveLetter()
+    {
+        modalError = null;
+
+        if (letterModel.EmployeeId <= 0)
+        {
+            modalError = "يرجى اختيار الموظف المكرم أولاً.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(letterModel.Title))
+        {
+            modalError = "يرجى اختيار أو إدخال عنوان / جهة كتاب الشكر.";
+            return;
+        }
+
+        if (letterModel.LetterDate == null)
+        {
+            modalError = "يرجى تحديد تاريخ صدور كتاب الشكر.";
+            return;
+        }
+
+        if (letterModel.Count <= 0)
+        {
+            modalError = "عدد كتب الشكر يجب أن يكون رقماً موجباً (1 على الأقل).";
+            return;
+        }
+
+        isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Resolve or create AppreciationLetterTitle
+            var cleanTitle = letterModel.Title.Trim();
+            var existingTitle = await db.AppreciationLetterTitles.FirstOrDefaultAsync(t => t.Name == cleanTitle);
+            if (existingTitle == null)
+            {
+                existingTitle = new AppreciationLetterTitle { Name = cleanTitle };
+                db.AppreciationLetterTitles.Add(existingTitle);
+                await db.SaveChangesAsync();
+                await LoadLookupsAsync();
+            }
+
+            if (editingLetterId.HasValue)
+            {
+                var letter = await db.AppreciationLetters.FindAsync(editingLetterId.Value);
+                if (letter == null)
+                {
+                    modalError = "السجل المطلوب تعديله غير موجود.";
+                    isSaving = false;
+                    return;
+                }
+
+                letter.TitleId = existingTitle.Id;
+                letter.Title = existingTitle.Name;
+                letter.TypeId = letterModel.TypeId;
+                letter.LetterDate = letterModel.LetterDate;
+                letter.Count = letterModel.Count;
+                letter.LetterNumber = string.IsNullOrWhiteSpace(letterModel.LetterNumber) ? null : letterModel.LetterNumber.Trim();
+                letter.Notes = string.IsNullOrWhiteSpace(letterModel.Notes) ? null : letterModel.Notes.Trim();
+            }
+            else
+            {
+                var letter = new AppreciationLetter
+                {
+                    EmployeeId = letterModel.EmployeeId,
+                    TitleId = existingTitle.Id,
+                    Title = existingTitle.Name,
+                    TypeId = letterModel.TypeId,
+                    LetterDate = letterModel.LetterDate,
+                    Count = letterModel.Count,
+                    LetterNumber = string.IsNullOrWhiteSpace(letterModel.LetterNumber) ? null : letterModel.LetterNumber.Trim(),
+                    Notes = string.IsNullOrWhiteSpace(letterModel.Notes) ? null : letterModel.Notes.Trim()
+                };
+
+                db.AppreciationLetters.Add(letter);
+            }
+
+            await db.SaveChangesAsync();
+            CloseLetterModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save appreciation letter");
+            modalError = "حدث خطأ أثناء حفظ كتاب الشكر. يرجى المحاولة مرة أخرى.";
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    // Delete
+    private void PromptDeleteLetter(AppreciationLetter letter)
+    {
+        letterToDelete = letter;
+        isConfirmDeleteOpen = true;
+    }
+
+    private async Task ExecuteDeleteLetter()
+    {
+        if (letterToDelete == null) return;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var entity = await db.AppreciationLetters.FindAsync(letterToDelete.Id);
+            if (entity != null)
+            {
+                db.AppreciationLetters.Remove(entity);
+                await db.SaveChangesAsync();
+            }
+
+            isConfirmDeleteOpen = false;
+            letterToDelete = null;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete appreciation letter");
+        }
+    }
+
+    private async Task PrintPage()
+    {
+        await JSRuntime.InvokeVoidAsync("print");
+    }
+
+    // Types & Seniority Management
+    private bool isTypesModalOpen;
+    private string? typesStatusMessage;
+    private string newTypeName = "";
+    private int newTypeYears;
+    private int newTypeMonths;
+    private int newTypeDays;
+
+    private void OpenTypesManagementModal()
+    {
+        typesStatusMessage = null;
+        newTypeName = "";
+        newTypeYears = 0;
+        newTypeMonths = 0;
+        newTypeDays = 0;
+        isTypesModalOpen = true;
+    }
+
+    private void CloseTypesModal()
+    {
+        isTypesModalOpen = false;
+        typesStatusMessage = null;
+    }
+
+    private async Task CreateNewTypeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newTypeName)) return;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var trimmed = newTypeName.Trim();
+            var exists = await db.AppreciationLetterTypes.AnyAsync(t => t.Name == trimmed);
+            if (exists)
+            {
+                typesStatusMessage = $"النوع '{trimmed}' موجود مسبقاً.";
+                return;
+            }
+
+            var entity = new AppreciationLetterType
+            {
+                Name = trimmed,
+                SeniorityYears = Math.Max(0, newTypeYears),
+                SeniorityMonths = Math.Max(0, newTypeMonths),
+                SeniorityDays = Math.Max(0, newTypeDays)
+            };
+
+            db.AppreciationLetterTypes.Add(entity);
+            await db.SaveChangesAsync();
+
+            availableTypes = await db.AppreciationLetterTypes.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+            typesStatusMessage = $"تمت إضافة نوع كتاب الشكر '{trimmed}' وتحديد القِدم بنجاح.";
+            newTypeName = "";
+            newTypeYears = 0;
+            newTypeMonths = 0;
+            newTypeDays = 0;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create appreciation letter type");
+            typesStatusMessage = "حدث خطأ أثناء إضافة النوع.";
+        }
+    }
+
+    private async Task SaveTypeAsync(AppreciationLetterType type)
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var entity = await db.AppreciationLetterTypes.FindAsync(type.Id);
+            if (entity != null)
+            {
+                entity.Name = type.Name.Trim();
+                entity.SeniorityYears = Math.Max(0, type.SeniorityYears);
+                entity.SeniorityMonths = Math.Max(0, type.SeniorityMonths);
+                entity.SeniorityDays = Math.Max(0, type.SeniorityDays);
+                await db.SaveChangesAsync();
+
+                typesStatusMessage = $"تم حفظ تعديلات النوع '{entity.Name}' بنجاح.";
+                await LoadLookupsAsync();
+                await LoadDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to update appreciation letter type");
+            typesStatusMessage = "حدث خطأ أثناء حفظ التعديل.";
+        }
+    }
+
+    private async Task SaveAllTypesAsync()
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            foreach (var t in availableTypes)
+            {
+                var entity = await db.AppreciationLetterTypes.FindAsync(t.Id);
+                if (entity != null)
+                {
+                    entity.Name = t.Name.Trim();
+                    entity.SeniorityYears = Math.Max(0, t.SeniorityYears);
+                    entity.SeniorityMonths = Math.Max(0, t.SeniorityMonths);
+                    entity.SeniorityDays = Math.Max(0, t.SeniorityDays);
+                }
+            }
+
+            await db.SaveChangesAsync();
+            typesStatusMessage = "تم حفظ كافة أنواع كتب الشكر ومدد القِدم بنجاح.";
+            await LoadLookupsAsync();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save all appreciation letter types");
+            typesStatusMessage = "حدث خطأ أثناء حفظ التغييرات.";
+        }
+    }
+
+    private static bool HasSeniority(AppreciationLetterType? t) =>
+        t != null && (t.SeniorityYears > 0 || t.SeniorityMonths > 0 || t.SeniorityDays > 0);
+
+    private static string FormatTypeSeniority(AppreciationLetterType? t)
+    {
+        if (t == null || (t.SeniorityYears == 0 && t.SeniorityMonths == 0 && t.SeniorityDays == 0))
+            return "غير محدد";
+
+        var parts = new List<string>();
+        if (t.SeniorityYears > 0) parts.Add($"{t.SeniorityYears} {(t.SeniorityYears == 1 ? "سنة" : (t.SeniorityYears == 2 ? "سنتان" : (t.SeniorityYears <= 10 ? "سنوات" : "سنة")))}");
+        if (t.SeniorityMonths > 0) parts.Add($"{t.SeniorityMonths} {(t.SeniorityMonths == 1 ? "شهر" : (t.SeniorityMonths == 2 ? "شهران" : (t.SeniorityMonths <= 10 ? "أشهر" : "شهراً")))}");
+        if (t.SeniorityDays > 0) parts.Add($"{t.SeniorityDays} {(t.SeniorityDays == 1 ? "يوم" : (t.SeniorityDays == 2 ? "يومان" : (t.SeniorityDays <= 10 ? "أيام" : "يوماً")))}");
+
+        return string.Join(" و", parts);
+    }
+
+    private static string FormatSeniority(AppreciationLetter letter)
+    {
+        var count = letter.Count ?? 1;
+        if (count <= 0) count = 1;
+        var type = letter.Type;
+        if (type != null && (type.SeniorityYears > 0 || type.SeniorityMonths > 0 || type.SeniorityDays > 0))
+        {
+            var totalY = type.SeniorityYears * count;
+            var totalM = type.SeniorityMonths * count;
+            var totalD = type.SeniorityDays * count;
+
+            if (totalD >= 30) { totalM += totalD / 30; totalD %= 30; }
+            if (totalM >= 12) { totalY += totalM / 12; totalM %= 12; }
+
+            var parts = new List<string>();
+            if (totalY > 0) parts.Add($"{totalY} {(totalY == 1 ? "سنة" : (totalY == 2 ? "سنتان" : (totalY <= 10 ? "سنوات" : "سنة")))}");
+            if (totalM > 0) parts.Add($"{totalM} {(totalM == 1 ? "شهر" : (totalM == 2 ? "شهران" : (totalM <= 10 ? "أشهر" : "شهراً")))}");
+            if (totalD > 0) parts.Add($"{totalD} {(totalD == 1 ? "يوم" : (totalD == 2 ? "يومان" : (totalD <= 10 ? "أيام" : "يوماً")))}");
+
+            return parts.Count > 0 ? "+" + string.Join(" و ", parts) + " قِدم" : "بدون قِدم";
+        }
+
+        return "بدون قِدم";
+    }
+
+    private static string FormatTotalDossierSeniority(IEnumerable<AppreciationLetter> letters)
+    {
+        var list = letters.ToList();
+        if (list.Count == 0) return "بدون قِدم";
+
+        int totalY = 0;
+        int totalM = 0;
+        int totalD = 0;
+
+        foreach (var l in list)
+        {
+            var c = l.Count ?? 1;
+            if (c <= 0) c = 1;
+            if (l.Type != null)
+            {
+                totalY += l.Type.SeniorityYears * c;
+                totalM += l.Type.SeniorityMonths * c;
+                totalD += l.Type.SeniorityDays * c;
+            }
+        }
+
+        if (totalD >= 30)
+        {
+            totalM += totalD / 30;
+            totalD = totalD % 30;
+        }
+        if (totalM >= 12)
+        {
+            totalY += totalM / 12;
+            totalM = totalM % 12;
+        }
+
+        var parts = new List<string>();
+        if (totalY > 0) parts.Add($"{totalY} {(totalY == 1 ? "سنة" : (totalY == 2 ? "سنتان" : (totalY <= 10 ? "سنوات" : "سنة")))}");
+        if (totalM > 0) parts.Add($"{totalM} {(totalM == 1 ? "شهر" : (totalM == 2 ? "شهران" : (totalM <= 10 ? "أشهر" : "شهراً")))}");
+        if (totalD > 0) parts.Add($"{totalD} {(totalD == 1 ? "يوم" : (totalD == 2 ? "يومان" : (totalD <= 10 ? "أيام" : "يوماً")))}");
+
+        if (parts.Count == 0) return "بدون قِدم";
+        return "+" + string.Join(" و ", parts);
+    }
+
+    private static string N(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    public void Dispose()
+    {
+    }
+
+    public sealed class LetterFormModel
+    {
+        public int EmployeeId { get; set; }
+        public int? TitleId { get; set; }
+        public string Title { get; set; } = "";
+        public DateOnly? LetterDate { get; set; }
+        public int Count { get; set; } = 1;
+        public int? TypeId { get; set; }
+        public string LetterNumber { get; set; } = "";
+        public string Notes { get; set; } = "";
+    }
+}

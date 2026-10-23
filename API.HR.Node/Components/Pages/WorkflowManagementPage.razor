@@ -1,0 +1,1410 @@
+@page "/workflows"
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@rendermode InteractiveServer
+
+@using API.HR.Node.Data.Workflows
+@using API.HR.Node.Services.Workflows
+@using System.Text.Json
+
+@inject IWorkflowEngine WorkflowEngine
+@inject IWorkflowTimelineService TimelineService
+@inject IServiceScopeFactory ScopeFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject ILogger<WorkflowManagementPage> Logger
+
+<PageTitle>المسارات الإدارية | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Workflow engine.
+
+    Five jobs on one page, so they are real tabs: a tablist, aria-selected,
+    one panel at a time. The tab that matters most — pending tasks assigned
+    to the signed-in user — leads, and carries its count so the badge is
+    readable without opening it.
+
+    The API sandbox is a developer surface living inside an operator's
+    system. It keeps its console look on purpose, but the console is now a
+    contained region with brand-derived tones rather than a second colour
+    scheme competing with the page around it.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">مساحة العمل</span>
+            <h1 class="hr-h1">المسارات الإدارية وحوكمة العمليات</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                محرك المسارات الديناميكي: تعريف الإجراءات، إطلاق المعاملات، تتبّع الخط الزمني، وضبط الأذونات وحماية التزامن.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <span class="hr-badge hr-badge-warn">
+                <Icon Name="inbox" Size="xs" />
+                <span>مهامي <span class="hr-num">@myTasks.Count</span></span>
+            </span>
+            <span class="hr-badge hr-badge-accent">
+                <Icon Name="arrow-path" Size="xs" />
+                <span>سارية <span class="hr-num">@activeInstancesCount</span></span>
+            </span>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadAllDataAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>جارٍ التحديث…</span>
+                }
+                else
+                {
+                    <Icon Name="arrow-path" Size="sm" />
+                    <span>تحديث</span>
+                }
+            </button>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="hr-alert @(isError ? "hr-alert-danger" : "hr-alert-ok")" role="alert">
+            <Icon Name="@(isError ? "exclamation-triangle" : "check-circle")" Size="sm" />
+            <div class="hr-alert-grow"><p class="hr-wrap-any">@statusMessage</p></div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                    @onclick="() => statusMessage = null" aria-label="إخفاء الرسالة">
+                <Icon Name="x-mark" Size="sm" />
+            </button>
+        </div>
+    }
+
+    <div class="hr-tabs" role="tablist" aria-label="أقسام المسارات الإدارية">
+        <button type="button" role="tab" class="hr-tab" id="tab-tasks" aria-controls="panel-tasks"
+                aria-selected="@((currentTab == "tasks") ? "true" : "false")" @onclick='() => currentTab = "tasks"'>
+            <Icon Name="inbox" Size="sm" />
+            <span>مهامي المعلقة</span>
+            <span class="hr-badge hr-num">@myTasks.Count</span>
+        </button>
+
+        <button type="button" role="tab" class="hr-tab" id="tab-start" aria-controls="panel-start"
+                aria-selected="@((currentTab == "start") ? "true" : "false")" @onclick='() => currentTab = "start"'>
+            <Icon Name="plus" Size="sm" />
+            <span>إطلاق معاملة</span>
+        </button>
+
+        <button type="button" role="tab" class="hr-tab" id="tab-instances" aria-controls="panel-instances"
+                aria-selected="@((currentTab == "instances") ? "true" : "false")" @onclick='() => currentTab = "instances"'>
+            <Icon Name="rectangle-stack" Size="sm" />
+            <span>المعاملات السارية</span>
+        </button>
+
+        <button type="button" role="tab" class="hr-tab" id="tab-definitions" aria-controls="panel-definitions"
+                aria-selected="@((currentTab == "definitions") ? "true" : "false")" @onclick='() => currentTab = "definitions"'>
+            <Icon Name="cog-6-tooth" Size="sm" />
+            <span>تعاريف المسارات</span>
+        </button>
+
+        <button type="button" role="tab" class="hr-tab" id="tab-simulator" aria-controls="panel-simulator"
+                aria-selected="@((currentTab == "simulator") ? "true" : "false")" @onclick='() => currentTab = "simulator"'>
+            <Icon Name="code-bracket" Size="sm" />
+            <span>محاكي الواجهات</span>
+        </button>
+    </div>
+
+    @* ---------- my tasks ---------- *@
+    @if (currentTab == "tasks")
+    {
+        <section id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks" tabindex="0" class="hr-card">
+            <div class="hr-card-head">
+                <div>
+                    <h2 class="hr-h2">المهام الموجّهة إلى حسابك</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        المعاملات المعلّقة التي تنتظر قرارك: موافقة، رفض، أو إعادة للتعديل.
+                    </p>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="hr-card-body">
+                    @for (var i = 0; i < 4; i++)
+                    {
+                        <div class="hr-skeleton" style="height:3rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                    }
+                </div>
+            }
+            else if (myTasks.Count == 0)
+            {
+                <div class="hr-empty">
+                    <span class="hr-empty-art hr-empty-art-ok" aria-hidden="true"><Icon Name="check-circle" Size="lg" /></span>
+                    <p class="hr-h3">لا توجد مهام معلّقة</p>
+                    <p class="hr-sub hr-measure-sm">كل المعاملات الموجّهة إليك مكتملة.</p>
+                </div>
+            }
+            else
+            {
+                <div class="hr-tablewrap">
+                    <table class="hr-table">
+                        <caption class="hr-sr">المهام المعلّقة الموجّهة إلى حسابك</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">المهمة</th>
+                                <th scope="col">المعاملة</th>
+                                <th scope="col">المرحلة الحالية</th>
+                                <th scope="col">تاريخ الإسناد</th>
+                                <th scope="col">الاستحقاق</th>
+                                <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var task in myTasks)
+                            {
+                                <tr @key="task.Id">
+                                    <td class="hr-num">@task.Id</td>
+                                    <td><span class="hr-cell-strong hr-num">@task.WorkflowInstanceId</span></td>
+                                    <td>
+                                        <span class="hr-cell-strong">@task.StepName</span>
+                                        <span class="hr-cell-sub hr-num">@task.StepCode</span>
+                                    </td>
+                                    <td class="hr-num">@task.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                    <td>
+                                        @if (task.DueAt.HasValue)
+                                        {
+                                            <span class="hr-badge hr-badge-warn">
+                                                <Icon Name="clock" Size="xs" />
+                                                <span class="hr-num">@task.DueAt.Value.ToLocalTime().ToString("yyyy/MM/dd")</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-meta">مفتوح</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="hr-rowactions">
+                                            <button type="button" class="hr-btn hr-btn-primary hr-btn-sm"
+                                                    @onclick="() => OpenActionModal(task.WorkflowInstanceId)">
+                                                <Icon Name="check" Size="xs" />
+                                                <span>اتخاذ إجراء</span>
+                                            </button>
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm"
+                                                    @onclick="() => ViewTimelineAsync(task.WorkflowInstanceId)">
+                                                <Icon Name="clock" Size="xs" />
+                                                <span>الخط الزمني</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+
+    @* ---------- start a workflow ---------- *@
+    @if (currentTab == "start")
+    {
+        <section id="panel-start" role="tabpanel" aria-labelledby="tab-start" tabindex="0" class="hr-card hr-narrow">
+            <div class="hr-card-head">
+                <div>
+                    <h2 class="hr-h2">إطلاق معاملة جديدة</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        اختر نوع المسار وحدّد الكيان المعني لبدء الحركة الإدارية.
+                    </p>
+                </div>
+            </div>
+
+            <div class="hr-card-body">
+                <div class="hr-field">
+                    <label class="hr-field-label" for="wf-code">نوع المسار الإداري</label>
+                    <select id="wf-code" class="hr-select" @bind="newWorkflowCode">
+                        @foreach (var def in workflowDefinitions.Where(d => d.IsEnabled))
+                        {
+                            <option value="@def.Code">@def.Name (@def.Code)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="wf-entity-type">نوع الكيان المرتبط</label>
+                    <input id="wf-entity-type" type="text" class="hr-input" dir="ltr" @bind="newEntityType"
+                           placeholder="AppreciationLetter, LeaveRequest…" />
+                    <p class="hr-help">اسم الكيان كما هو معرّف في النظام، باللاتينية.</p>
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="wf-entity-id">معرّف الكيان</label>
+                    <input id="wf-entity-id" type="text" inputmode="numeric" class="hr-input" dir="ltr" @bind="newEntityId"
+                           placeholder="1001" />
+                </div>
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="StartNewWorkflowAsync" disabled="@isSubmitting">
+                    @if (isSubmitting)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ الإطلاق…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="plus" Size="xs" />
+                        <span>إطلاق المعاملة</span>
+                    }
+                </button>
+            </div>
+        </section>
+    }
+
+    @* ---------- running instances ---------- *@
+    @if (currentTab == "instances")
+    {
+        <section id="panel-instances" role="tabpanel" aria-labelledby="tab-instances" tabindex="0" class="hr-card">
+            <div class="hr-card-head">
+                <div>
+                    <h2 class="hr-h2">المعاملات والمسارات السارية</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        كل المعاملات وحالاتها وموقعها الحالي في الخطة الإدارية.
+                    </p>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="hr-card-body">
+                    @for (var i = 0; i < 5; i++)
+                    {
+                        <div class="hr-skeleton" style="height:3rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                    }
+                </div>
+            }
+            else if (allInstances.Count == 0)
+            {
+                <div class="hr-empty">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="rectangle-stack" Size="lg" /></span>
+                    <p class="hr-h3">لا توجد معاملات</p>
+                    <p class="hr-sub hr-measure-sm">لم تُطلق أي معاملة في المسارات الإدارية بعد.</p>
+                </div>
+            }
+            else
+            {
+                <div class="hr-tablewrap">
+                    <table class="hr-table">
+                        <caption class="hr-sr">المعاملات الجارية في المسارات الإدارية</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">المعاملة</th>
+                                <th scope="col">المسار</th>
+                                <th scope="col">الكيان</th>
+                                <th scope="col">المرحلة</th>
+                                <th scope="col">المُطلِق</th>
+                                <th scope="col">الحالة</th>
+                                <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var inst in allInstances)
+                            {
+                                <tr @key="inst.Id">
+                                    <td class="hr-num">@inst.Id</td>
+                                    <td>
+                                        <span class="hr-cell-strong hr-truncate hr-cell-wide">@inst.WorkflowVersion.WorkflowDefinition.Name</span>
+                                        <span class="hr-cell-sub hr-num">@inst.WorkflowVersion.WorkflowDefinition.Code</span>
+                                    </td>
+                                    <td>
+                                        <span class="hr-cell-strong">@inst.EntityType</span>
+                                        <span class="hr-cell-sub hr-num">@inst.EntityId</span>
+                                    </td>
+                                    <td><span class="hr-badge hr-badge-accent">@inst.CurrentStep.Name</span></td>
+                                    <td><span class="hr-truncate hr-cell-wide">@inst.InitiatorUserId</span></td>
+                                    <td>
+                                        @if (inst.Status == WorkflowInstanceStatus.Running)
+                                        {
+                                            <span class="hr-badge hr-badge-warn">
+                                                <Icon Name="clock" Size="xs" />
+                                                <span>جارية</span>
+                                            </span>
+                                        }
+                                        else if (inst.Status == WorkflowInstanceStatus.Completed)
+                                        {
+                                            <span class="hr-badge hr-badge-ok">
+                                                <Icon Name="check-circle" Size="xs" />
+                                                <span>مكتملة</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-badge hr-badge-danger">
+                                                <Icon Name="no-symbol" Size="xs" />
+                                                <span>@inst.Status</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="hr-rowactions">
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                    @onclick="() => OpenActionModal(inst.Id)">
+                                                <Icon Name="check" Size="xs" />
+                                                <span>الإجراءات</span>
+                                            </button>
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => ViewTimelineAsync(inst.Id)"
+                                                    aria-label="@($"الخط الزمني للمعاملة {inst.Id}")" title="الخط الزمني">
+                                                <Icon Name="clock" Size="xs" />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+
+    @* ---------- definitions ---------- *@
+    @if (currentTab == "definitions")
+    {
+        <div id="panel-definitions" role="tabpanel" aria-labelledby="tab-definitions" tabindex="0" class="hr-stack-sm">
+            <div class="hr-section-head">
+                <div>
+                    <h2 class="hr-h2">تعاريف المسارات والنسخ المنشورة</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        تصميم المسارات وتفعيلها مباشرة للنظام وتطبيق الهاتف، دون كتابة كود.
+                    </p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateWorkflowModal">
+                    <Icon Name="plus" Size="sm" />
+                    <span>مسار جديد</span>
+                </button>
+            </div>
+
+            @if (workflowDefinitions.Count == 0)
+            {
+                <div class="hr-card">
+                    <div class="hr-empty">
+                        <span class="hr-empty-art" aria-hidden="true"><Icon Name="cog-6-tooth" Size="lg" /></span>
+                        <p class="hr-h3">لا توجد مسارات معرّفة</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="hr-grid-cards">
+                    @foreach (var def in workflowDefinitions)
+                    {
+                        <article class="hr-card" @key="def.Id">
+                            <div class="hr-card-body">
+                                <div class="hr-idcell">
+                                    <span class="hr-iconplate" aria-hidden="true"><Icon Name="square-3-stack-3d" Size="sm" /></span>
+                                    <div class="hr-idcell-text">
+                                        <h3 class="hr-h3 hr-truncate">@def.Name</h3>
+                                        <span class="hr-cell-sub hr-num">@def.Code</span>
+                                    </div>
+                                    @if (def.IsEnabled)
+                                    {
+                                        <span class="hr-badge hr-badge-ok">
+                                            <Icon Name="check-circle" Size="xs" />
+                                            <span>مفعّل</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-warn">
+                                            <Icon Name="no-symbol" Size="xs" />
+                                            <span>موقوف</span>
+                                        </span>
+                                    }
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(def.Description))
+                                {
+                                    <p class="hr-sub" style="margin-block-start:.75rem">@def.Description</p>
+                                }
+
+                                <dl class="hr-deflist" style="margin-block-start:.75rem">
+                                    <div class="hr-deflist-row">
+                                        <dt>عدد النسخ</dt>
+                                        <dd class="hr-num">@def.Versions.Count</dd>
+                                    </div>
+                                    <div class="hr-deflist-row">
+                                        <dt>النسخة المفعّلة</dt>
+                                        <dd class="hr-num">
+                                            v@(def.Versions.FirstOrDefault(v => v.Status == WorkflowVersionStatus.Published)?.VersionNumber ?? 1)
+                                        </dd>
+                                    </div>
+                                </dl>
+                            </div>
+
+                            <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                        @onclick="() => OpenFormSchemaEditor(def)">
+                                    <Icon Name="document-text" Size="xs" />
+                                    <span>استمارة الطلب</span>
+                                </button>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @* ---------- API sandbox ---------- *@
+    @if (currentTab == "simulator")
+    {
+        <div id="panel-simulator" role="tabpanel" aria-labelledby="tab-simulator" tabindex="0" class="hr-stack-sm">
+
+            <div class="hr-alert hr-alert-accent">
+                <Icon Name="information-circle" Size="sm" />
+                <div class="hr-alert-grow">
+                    <p class="hr-alert-title">محاكي واجهات العميل والهاتف</p>
+                    <p style="margin-block-start:.25rem">
+                        بيئة تجريبية لتتبّع تسلسل طلبات الـ REST كما يرسلها التطبيق، مع عرض الحمولة والاستجابة.
+                        <span class="hr-num hr-wrap-any" dir="ltr">https://apihr.iraqservice.uk/api</span>
+                    </p>
+                </div>
+            </div>
+
+            @* Progress through the sandbox: each step states its own number
+               and label, so the sequence reads without relying on fill. *@
+            <ol class="hr-steps">
+                <li class="hr-step @(simStep >= 1 ? "is-done" : "")">
+                    <span class="hr-step-mark hr-num">1</span>
+                    <span>إطلاق المعاملة</span>
+                </li>
+                <li class="hr-step @(simStep >= 2 ? "is-done" : "")">
+                    <span class="hr-step-mark hr-num">2</span>
+                    <span>المهام والإجراءات</span>
+                </li>
+                <li class="hr-step @(simStep >= 3 ? "is-done" : "")">
+                    <span class="hr-step-mark hr-num">3</span>
+                    <span>تنفيذ القرار</span>
+                </li>
+                <li class="hr-step @(simStep >= 4 ? "is-done" : "")">
+                    <span class="hr-step-mark hr-num">4</span>
+                    <span>الخط الزمني</span>
+                </li>
+            </ol>
+
+            <div class="hr-grid-sandbox">
+                <section class="hr-card">
+                    <div class="hr-card-head">
+                        <div>
+                            <h2 class="hr-h2">إرسال الطلب</h2>
+                            <p class="hr-meta hr-num" style="margin-block-start:.25rem" dir="ltr">POST /api/workflows/{code}/start</p>
+                        </div>
+                    </div>
+
+                    <div class="hr-card-body">
+                        <div class="hr-filterbar-row" style="align-items:flex-start">
+                            <div class="hr-field hr-filter-grow">
+                                <label class="hr-field-label" for="sim-code">نوع المسار</label>
+                                <select id="sim-code" class="hr-select" @bind="simWorkflowCode" @bind:after="OnSimWorkflowChanged">
+                                    @foreach (var def in workflowDefinitions.Where(d => d.IsEnabled))
+                                    {
+                                        <option value="@def.Code">@def.Name (@def.Code)</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="hr-field hr-filter-item">
+                                <label class="hr-field-label" for="sim-entity">معرّف الطلب</label>
+                                <input id="sim-entity" type="text" class="hr-input hr-num" dir="ltr" @bind="simEntityId" />
+                            </div>
+                        </div>
+
+                        <fieldset class="hr-fieldset" style="margin-block-start:1rem">
+                            <legend class="hr-legend-title">حقول الاستمارة المعرَّفة لهذا المسار</legend>
+
+                            @if (simFormFields.Count > 0)
+                            {
+                                @foreach (var field in simFormFields)
+                                {
+                                    <div class="hr-field">
+                                        <label class="hr-field-label" for="@($"simf-{field.Name}")">
+                                            @field.Label
+                                            @if (field.Required)
+                                            {
+                                                <span class="hr-req" aria-hidden="true">*</span>
+                                                <span class="hr-sr">(حقل مطلوب)</span>
+                                            }
+                                        </label>
+                                        @if (field.Type == "select" && field.Options != null)
+                                        {
+                                            <select id="@($"simf-{field.Name}")" class="hr-select" @bind="simFormValues[field.Name]">
+                                                @foreach (var opt in field.Options)
+                                                {
+                                                    <option value="@opt">@opt</option>
+                                                }
+                                            </select>
+                                        }
+                                        else
+                                        {
+                                            <input id="@($"simf-{field.Name}")" type="text" class="hr-input"
+                                                   placeholder="@field.Placeholder" @bind="simFormValues[field.Name]" />
+                                        }
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <p class="hr-help">لا توجد حقول خاصة معرّفة لهذا المسار.</p>
+                            }
+                        </fieldset>
+
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-block" style="margin-block-start:1rem"
+                                @onclick="SimulateStartWorkflowAsync">
+                            <Icon Name="arrow-up-tray" Size="xs" />
+                            <span>إرسال طلب الإطلاق</span>
+                        </button>
+
+                        @if (simActiveInstanceId != null)
+                        {
+                            <div class="hr-divider" style="margin-block:1.5rem"></div>
+
+                            <h3 class="hr-h3">تنفيذ الإجراء</h3>
+                            <p class="hr-meta hr-num hr-wrap-any" style="margin-block-start:.25rem" dir="ltr">
+                                POST /api/workflow-instances/{id}/actions/{actionCode}
+                            </p>
+
+                            <dl class="hr-deflist" style="margin-block-start:.75rem">
+                                <div class="hr-deflist-row">
+                                    <dt>المعاملة الجارية</dt>
+                                    <dd class="hr-num">@simActiveInstanceId</dd>
+                                </div>
+                                <div class="hr-deflist-row">
+                                    <dt>المرحلة الحالية</dt>
+                                    <dd>@simCurrentStepName <span class="hr-num">(@simCurrentStepCode)</span></dd>
+                                </div>
+                                <div class="hr-deflist-row">
+                                    <dt>RowVersion</dt>
+                                    <dd class="hr-num hr-wrap-any">@simRowVersion</dd>
+                                </div>
+                            </dl>
+
+                            <div class="hr-field" style="margin-block-start:1rem">
+                                <label class="hr-field-label" for="sim-comment">ملاحظات القرار</label>
+                                <input id="sim-comment" type="text" class="hr-input"
+                                       placeholder="سبب الاعتماد أو الرفض" @bind="simActionComment" />
+                            </div>
+
+                            <div class="hr-chips" style="margin-block-start:.75rem">
+                                @foreach (var act in simAvailableActions)
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                            @onclick="() => SimulateExecuteActionAsync(act)">
+                                        <Icon Name="check" Size="xs" />
+                                        <span>@act</span>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="hr-card hr-console" aria-labelledby="console-heading">
+                    <div class="hr-console-head">
+                        <h2 id="console-heading" class="hr-h3">سجل الطلب والاستجابة</h2>
+                        <span class="hr-meta">JSON</span>
+                    </div>
+
+                    <div class="hr-console-body">
+                        <p class="hr-console-label">آخر طلب مرسل</p>
+                        <pre class="hr-console-pre" dir="ltr"><code>@simHttpRequestJson</code></pre>
+
+                        <p class="hr-console-label" style="margin-block-start:1rem">آخر استجابة مستلمة</p>
+                        <pre class="hr-console-pre" dir="ltr"><code>@simHttpResponseJson</code></pre>
+                    </div>
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+@* ---------- form schema editor ---------- *@
+<Modal IsOpen="@(editingFormSchemaDef != null)"
+       Title="استمارة الطلب"
+       Subtitle="@editingFormSchemaDef?.Name"
+       Icon="document-text"
+       Size="lg"
+       OnClose="() => editingFormSchemaDef = null">
+    <Body>
+        <div class="hr-field">
+            <label class="hr-field-label" for="schema-json">تعريف الحقول (JSON)</label>
+            <textarea id="schema-json" class="hr-textarea hr-num" dir="ltr" rows="12"
+                      aria-describedby="schema-help"
+                      @bind="editingFormSchemaJson"></textarea>
+            <p id="schema-help" class="hr-help">
+                مصفوفة من الحقول تُعرض تلقائياً للمستخدم عند تقديم الطلب. كل حقل يقبل
+                <span class="hr-num">name</span>، <span class="hr-num">label</span>،
+                <span class="hr-num">type</span>، و<span class="hr-num">required</span>.
+            </p>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => editingFormSchemaDef = null">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveFormSchemaAsync">
+            <Icon Name="check" Size="xs" />
+            <span>حفظ الاستمارة</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- take action ---------- *@
+<Modal IsOpen="@(selectedInstance != null)"
+       Title="اتخاذ إجراء على المعاملة"
+       Subtitle="@(selectedInstance is null ? null : $"المعاملة رقم {selectedInstance.Id}")"
+       Icon="check"
+       OnClose="() => selectedInstance = null">
+    <Body>
+        @if (selectedInstance is not null)
+        {
+            <dl class="hr-deflist">
+                <div class="hr-deflist-row">
+                    <dt>نوع المسار</dt>
+                    <dd>@selectedInstance.WorkflowName</dd>
+                </div>
+                <div class="hr-deflist-row">
+                    <dt>المرحلة الحالية</dt>
+                    <dd>@selectedInstance.CurrentStepName <span class="hr-num">(@selectedInstance.CurrentStepCode)</span></dd>
+                </div>
+            </dl>
+
+            <fieldset class="hr-fieldset" style="margin-block-start:1.25rem">
+                <legend class="hr-legend-title">الإجراء المطلوب</legend>
+                <div class="hr-optiongrid" style="margin-block-start:.5rem">
+                    @foreach (var action in selectedInstance.AvailableActions)
+                    {
+                        <button type="button"
+                                class="hr-optioncard hr-optioncard-btn @(selectedActionCode == action.Code ? "is-selected" : "")"
+                                aria-pressed="@((selectedActionCode == action.Code) ? "true" : "false")"
+                                @onclick="() => selectedActionCode = action.Code">
+                            <span class="hr-optioncard-text">
+                                <span class="hr-optioncard-title">@action.Label</span>
+                                <span class="hr-optioncard-code hr-num">@action.Code</span>
+                            </span>
+                        </button>
+                    }
+                </div>
+            </fieldset>
+
+            <div class="hr-field" style="margin-block-start:1.25rem">
+                <label class="hr-field-label" for="action-comment">التعليق والسبب الإداري</label>
+                <textarea id="action-comment" class="hr-textarea" rows="3"
+                          placeholder="سبب الاعتماد أو الرفض" @bind="actionComment"></textarea>
+                <p class="hr-help">يُحفظ التعليق في الخط الزمني للمعاملة ويظهر لبقية المعنيين.</p>
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => selectedInstance = null" disabled="@isExecutingAction">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="ExecuteActionAsync"
+                disabled="@(string.IsNullOrWhiteSpace(selectedActionCode) || isExecutingAction)">
+            @if (isExecutingAction)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ المعالجة…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>تنفيذ الإجراء</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- timeline ---------- *@
+<Modal IsOpen="@(selectedTimelineItems != null)"
+       Title="الخط الزمني للمعاملة"
+       Subtitle="@($"المعاملة رقم {selectedTimelineInstanceId}")"
+       Icon="clock"
+       Size="lg"
+       OnClose="() => selectedTimelineItems = null">
+    <Body>
+        @if (selectedTimelineItems is not null && selectedTimelineItems.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="clock" Size="lg" /></span>
+                <p class="hr-h3">لا توجد أحداث</p>
+                <p class="hr-sub hr-measure-sm">لم تُسجَّل أي حركة على هذه المعاملة بعد.</p>
+            </div>
+        }
+        else if (selectedTimelineItems is not null)
+        {
+            <ol class="hr-timeline">
+                @foreach (var item in selectedTimelineItems)
+                {
+                    <li class="hr-timeline-item">
+                        <div class="hr-timeline-head">
+                            <span class="hr-h3">@item.Title</span>
+                            <time class="hr-meta hr-num" dir="ltr">@item.OccurredAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</time>
+                        </div>
+                        <p class="hr-meta" style="margin-block-start:.25rem">بواسطة @item.PerformedByDisplayName</p>
+                        @if (!string.IsNullOrWhiteSpace(item.Comment))
+                        {
+                            <p class="hr-timeline-comment hr-wrap-any">@item.Comment</p>
+                        }
+                    </li>
+                }
+            </ol>
+        }
+    </Body>
+</Modal>
+
+@* ---------- workflow builder ---------- *@
+<Modal IsOpen="@isCreateModalOpen"
+       Title="تصميم مسار جديد"
+       Subtitle="تعريف المسار ومراحله ونشره مباشرة"
+       Icon="square-3-stack-3d"
+       Size="xl"
+       OnClose="() => isCreateModalOpen = false">
+    <Body>
+        <fieldset class="hr-fieldset">
+            <legend class="hr-legend-title">بيانات المسار</legend>
+
+            <div class="hr-filterbar-row" style="align-items:flex-start;margin-block-start:.5rem">
+                <div class="hr-field hr-filter-grow">
+                    <label class="hr-field-label" for="def-code">
+                        رمز المسار <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                    </label>
+                    <input id="def-code" type="text" class="hr-input hr-num" dir="ltr"
+                           placeholder="LEAVE_REQUEST" @bind="newDefCode" />
+                    <p class="hr-help">حروف لاتينية كبيرة وشرطة سفلية، يُستخدم في نداءات الواجهة البرمجية.</p>
+                </div>
+
+                <div class="hr-field hr-filter-grow">
+                    <label class="hr-field-label" for="def-name">
+                        اسم المسار <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                    </label>
+                    <input id="def-name" type="text" class="hr-input"
+                           placeholder="مسار طلبات الإجازات" @bind="newDefName" />
+                </div>
+            </div>
+
+            <div class="hr-field">
+                <label class="hr-field-label" for="def-desc">وصف المسار</label>
+                <input id="def-desc" type="text" class="hr-input"
+                       placeholder="مسار عام لمعالجة ومصادقة إجازات الموظفين" @bind="newDefDescription" />
+            </div>
+        </fieldset>
+
+        <fieldset class="hr-fieldset" style="margin-block-start:1.5rem">
+            <div class="hr-section-head" style="margin-block-end:.75rem">
+                <legend class="hr-legend-title">المراحل المتسلسلة</legend>
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="AddDraftStep">
+                    <Icon Name="plus" Size="xs" />
+                    <span>إضافة مرحلة</span>
+                </button>
+            </div>
+
+            @if (draftSteps.Count == 0)
+            {
+                <p class="hr-contactempty">لم تُضَف أي مرحلة بعد. يبدأ كل مسار بمرحلة بدء وينتهي بمرحلة نهاية.</p>
+            }
+            else
+            {
+                <ol class="hr-steplist">
+                    @for (int i = 0; i < draftSteps.Count; i++)
+                    {
+                        var index = i;
+                        var step = draftSteps[index];
+                        <li class="hr-steprow">
+                            <span class="hr-steprow-num hr-num" aria-hidden="true">@(index + 1)</span>
+
+                            <div class="hr-field hr-filter-grow">
+                                <label class="hr-sr" for="@($"step-name-{index}")">اسم المرحلة @(index + 1)</label>
+                                <input id="@($"step-name-{index}")" type="text" class="hr-input"
+                                       placeholder="اسم المرحلة" @bind="step.Name" />
+                            </div>
+
+                            <div class="hr-field hr-steprow-code">
+                                <label class="hr-sr" for="@($"step-code-{index}")">رمز المرحلة @(index + 1)</label>
+                                <input id="@($"step-code-{index}")" type="text" class="hr-input hr-num" dir="ltr"
+                                       placeholder="STEP_CODE" @bind="step.Code" />
+                            </div>
+
+                            <div class="hr-field hr-steprow-type">
+                                <label class="hr-sr" for="@($"step-type-{index}")">نوع المرحلة @(index + 1)</label>
+                                <select id="@($"step-type-{index}")" class="hr-select" @bind="step.StepType">
+                                    <option value="@WorkflowStepType.Start">بدء</option>
+                                    <option value="@WorkflowStepType.Approval">موافقة</option>
+                                    <option value="@WorkflowStepType.Review">مراجعة</option>
+                                    <option value="@WorkflowStepType.HumanTask">مهمة عمل</option>
+                                    <option value="@WorkflowStepType.End">نهاية</option>
+                                </select>
+                            </div>
+                        </li>
+                    }
+                </ol>
+            }
+        </fieldset>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => isCreateModalOpen = false" disabled="@isSavingWorkflow">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveAndPublishNewWorkflowAsync" disabled="@isSavingWorkflow">
+            @if (isSavingWorkflow)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ الحفظ والنشر…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>حفظ ونشر المسار</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    private string currentTab = "tasks";
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private bool isExecutingAction = false;
+    private string? statusMessage;
+    private bool isError;
+
+    private List<WorkflowTaskDto> myTasks = new();
+    private List<WorkflowInstance> allInstances = new();
+    private List<WorkflowDefinition> workflowDefinitions = new();
+    private int activeInstancesCount = 0;
+
+    // Start Workflow Form
+    private string newWorkflowCode = "APPRECIATION_LETTER";
+    private string newEntityType = "AppreciationLetter";
+    private string newEntityId = $"APP-{Random.Shared.Next(1000, 9999)}";
+
+    // Action Execution Modal State
+    private WorkflowInstanceDto? selectedInstance;
+    private string? selectedActionCode;
+    private string? actionComment;
+
+    // Timeline Modal State
+    private long selectedTimelineInstanceId;
+    private List<WorkflowTimelineItemDto>? selectedTimelineItems;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAllDataAsync();
+    }
+
+    private async Task LoadAllDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "systemadmin";
+
+            // 1. Fetch My Tasks
+            var tasks = await dbContext.WorkflowTasks
+                .AsNoTracking()
+                .Include(t => t.WorkflowStep)
+                .Include(t => t.WorkflowInstance)
+                .Where(t => (t.AssignedUserId == username || t.AssignedUserId == null) && t.Status == WorkflowTaskStatus.Pending)
+                .OrderByDescending(t => t.CreatedAt)
+                .ToListAsync();
+
+            myTasks = tasks.Select(t => new WorkflowTaskDto(
+                t.Id,
+                t.WorkflowInstanceId,
+                t.WorkflowStep.Code,
+                t.WorkflowStep.Name,
+                t.Status,
+                t.AssignedUserId,
+                t.AssignedRoleId,
+                t.AssignedDepartmentId,
+                t.CreatedAt,
+                t.DueAt,
+                t.CompletedAt)).ToList();
+
+            // 2. Fetch Active Instances
+            allInstances = await dbContext.WorkflowInstances
+                .AsNoTracking()
+                .Include(i => i.CurrentStep)
+                .Include(i => i.WorkflowVersion)
+                .ThenInclude(v => v.WorkflowDefinition)
+                .OrderByDescending(i => i.StartedAt)
+                .ToListAsync();
+
+            activeInstancesCount = allInstances.Count(i => i.Status == WorkflowInstanceStatus.Running);
+
+            // 3. Fetch Workflow Definitions
+            workflowDefinitions = await dbContext.WorkflowDefinitions
+                .AsNoTracking()
+                .Include(d => d.Versions)
+                .ToListAsync();
+
+            if (workflowDefinitions.Count > 0 && string.IsNullOrWhiteSpace(newWorkflowCode))
+            {
+                newWorkflowCode = workflowDefinitions[0].Code;
+            }
+
+            LoadSimFormFields();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading workflow management data");
+            statusMessage = $"تعذر تحميل بيانات المسارات: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task StartNewWorkflowAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newWorkflowCode) || string.IsNullOrWhiteSpace(newEntityType) || string.IsNullOrWhiteSpace(newEntityId))
+        {
+            statusMessage = "يرجى اختيار نوع المسار وتعبئة نوع الكيان ومعرفه المطلوب.";
+            isError = true;
+            return;
+        }
+
+        isSubmitting = true;
+        statusMessage = null;
+        isError = false;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "systemadmin";
+
+            var command = new StartWorkflowCommand(
+                WorkflowCode: newWorkflowCode,
+                EntityType: newEntityType,
+                EntityId: newEntityId,
+                InitiatorUserId: username);
+
+            var result = await WorkflowEngine.StartAsync(command);
+
+            statusMessage = $"تم إطلاق المعاملة بنجاح لرقم الكيان {newEntityId}. معرف المسار الجاري: #{result.WorkflowInstanceId}. المرحلة الأولى: {result.CurrentStepName}.";
+            isError = false;
+
+            // Generate next unique EntityId for subsequent launches
+            newEntityId = $"{newEntityType.Substring(0, Math.Min(3, newEntityType.Length)).ToUpperInvariant()}-{Random.Shared.Next(1000, 9999)}";
+
+            await LoadAllDataAsync();
+            currentTab = "tasks";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to start workflow");
+            statusMessage = $"فشل إطلاق المعاملة: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task OpenActionModal(long instanceId)
+    {
+        try
+        {
+            selectedInstance = await WorkflowEngine.GetInstanceAsync(instanceId);
+            selectedActionCode = selectedInstance.AvailableActions.FirstOrDefault()?.Code;
+            actionComment = null;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"تعذر فتح المعاملة: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    private async Task ExecuteActionAsync()
+    {
+        if (selectedInstance == null || string.IsNullOrWhiteSpace(selectedActionCode)) return;
+
+        isExecutingAction = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "systemadmin";
+
+            var command = new ExecuteWorkflowActionCommand(
+                WorkflowInstanceId: selectedInstance.Id,
+                ActionCode: selectedActionCode,
+                UserId: username,
+                Comment: actionComment,
+                RowVersion: selectedInstance.RowVersion,
+                IdempotencyKey: Guid.NewGuid().ToString("N"));
+
+            var result = await WorkflowEngine.ExecuteActionAsync(command);
+
+            statusMessage = $"تم تنفيذ الإجراء ({selectedActionCode}) بنجاح. الانتقال من ({result.FromStepCode}) إلى ({result.ToStepCode}). حالة المعاملة: {result.Status}.";
+            isError = false;
+
+            selectedInstance = null;
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to execute workflow action");
+            statusMessage = $"فشل تنفيذ الإجراء: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isExecutingAction = false;
+        }
+    }
+
+    private async Task ViewTimelineAsync(long instanceId)
+    {
+        try
+        {
+            selectedTimelineInstanceId = instanceId;
+            selectedTimelineItems = await TimelineService.GetTimelineAsync(instanceId);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"تعذر تحميل الخط الزمني: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    // No-Code Creator State
+    private bool isCreateModalOpen = false;
+    private bool isSavingWorkflow = false;
+    private string newDefCode = "LEAVE_REQUEST";
+    private string newDefName = "مسار طلبات الإجازات";
+    private string newDefDescription = "مسار عام لمعالجة ومصادقة إجازات الموظفين";
+
+    private class DraftStepItem
+    {
+        public string Code { get; set; } = "";
+        public string Name { get; set; } = "";
+        public WorkflowStepType StepType { get; set; } = WorkflowStepType.HumanTask;
+    }
+
+    private List<DraftStepItem> draftSteps = new();
+
+    private void OpenCreateWorkflowModal()
+    {
+        newDefCode = $"WF_{DateTime.UtcNow:yyyyMMddHHmm}";
+        newDefName = "مسار عمل جديد";
+        newDefDescription = "وصف المسار التوضيحي";
+        draftSteps = new List<DraftStepItem>
+        {
+            new DraftStepItem { Code = "SUBMITTED", Name = "تقديم الطلب", StepType = WorkflowStepType.Start },
+            new DraftStepItem { Code = "MANAGER_APPROVAL", Name = "موافقة المدير المباشر", StepType = WorkflowStepType.Approval },
+            new DraftStepItem { Code = "COMPLETED", Name = "مكتمل ومعتمد", StepType = WorkflowStepType.End }
+        };
+        isCreateModalOpen = true;
+    }
+
+    private void AddDraftStep()
+    {
+        draftSteps.Add(new DraftStepItem
+        {
+            Code = $"STEP_{draftSteps.Count + 1}",
+            Name = $"المرحلة {draftSteps.Count + 1}",
+            StepType = WorkflowStepType.HumanTask
+        });
+    }
+
+    private async Task SaveAndPublishNewWorkflowAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newDefCode) || string.IsNullOrWhiteSpace(newDefName) || draftSteps.Count < 2)
+        {
+            statusMessage = "يرجى تعبئة رمز واسم المسار وإضافة مرحلتين على الأقل.";
+            isError = true;
+            return;
+        }
+
+        isSavingWorkflow = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "systemadmin";
+
+            var def = new WorkflowDefinition
+            {
+                Code = newDefCode.Trim().ToUpperInvariant(),
+                Name = newDefName.Trim(),
+                Description = newDefDescription,
+                IsEnabled = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+                CreatedBy = username
+            };
+
+            var ver = new WorkflowVersion
+            {
+                WorkflowDefinition = def,
+                VersionNumber = 1,
+                Status = WorkflowVersionStatus.Published,
+                ChangeDescription = "النسخة الأولى المنشورة من شاشة إدارة المسارات بدون كود",
+                CreatedAt = DateTimeOffset.UtcNow,
+                CreatedBy = username,
+                PublishedAt = DateTimeOffset.UtcNow,
+                PublishedBy = username
+            };
+
+            var createdSteps = new List<WorkflowStep>();
+            for (int i = 0; i < draftSteps.Count; i++)
+            {
+                var item = draftSteps[i];
+                var s = new WorkflowStep
+                {
+                    WorkflowVersion = ver,
+                    Code = item.Code.Trim().ToUpperInvariant(),
+                    Name = item.Name.Trim(),
+                    StepType = item.StepType,
+                    IsStart = i == 0,
+                    IsFinal = i == draftSteps.Count - 1,
+                    SortOrder = i + 1,
+                    ConfigurationJson = "{\"assignmentType\":\"INITIATOR\"}"
+                };
+                ver.Steps.Add(s);
+                createdSteps.Add(s);
+            }
+
+            // Create automatic sequential APPROVE transitions
+            for (int i = 0; i < createdSteps.Count - 1; i++)
+            {
+                ver.Transitions.Add(new WorkflowTransition
+                {
+                    WorkflowVersion = ver,
+                    FromStep = createdSteps[i],
+                    ToStep = createdSteps[i + 1],
+                    ActionCode = i == 0 ? "SUBMIT" : "APPROVE",
+                    Priority = 1
+                });
+            }
+
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            dbContext.WorkflowDefinitions.Add(def);
+            await dbContext.SaveChangesAsync();
+
+            statusMessage = $"تم حفظ ونشر المسار الجديد ({def.Name}) بنجاح في قاعدة البيانات وتفعيله فوراً لجميع الأجهزة والـ API!";
+            isError = false;
+            isCreateModalOpen = false;
+
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save workflow definition");
+            statusMessage = $"فشل حفظ المسار: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isSavingWorkflow = false;
+        }
+    }
+
+    // Form Schema Editor Modal State
+    private WorkflowDefinition? editingFormSchemaDef;
+    private string editingFormSchemaJson = "";
+
+    // Live Simulator State
+    private int simStep = 1;
+    private string simWorkflowCode = "WORK_CONTINUATION_REQUEST";
+    private string simEntityId = $"SIM-{Random.Shared.Next(1000, 9999)}";
+    private Dictionary<string, string> simFormValues = new();
+    private List<FormFieldSchema> simFormFields = new();
+
+    private long? simActiveInstanceId;
+    private string? simCurrentStepCode;
+    private string? simCurrentStepName;
+    private string? simRowVersion;
+    private List<string> simAvailableActions = new();
+    private string? simActionComment;
+
+    private string simHttpRequestJson = "// اضغط على أزرار المحاكي لعرض الـ HTTP Payload";
+    private string simHttpResponseJson = "// شاشة استجابة الـ HTTP Response المباشرة";
+
+    public class FormFieldSchema
+    {
+        public string Name { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Type { get; set; } = "text";
+        public bool Required { get; set; } = false;
+        public string? Placeholder { get; set; }
+        public List<string>? Options { get; set; }
+    }
+
+    private void OpenFormSchemaEditor(WorkflowDefinition def)
+    {
+        editingFormSchemaDef = def;
+        editingFormSchemaJson = def.FormSchemaJson ?? "[\n  {\n    \"name\": \"purpose\",\n    \"label\": \"سبب تقديم الطلب\",\n    \"type\": \"text\",\n    \"required\": true\n  }\n]";
+    }
+
+    private async Task SaveFormSchemaAsync()
+    {
+        if (editingFormSchemaDef == null) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var def = await dbContext.WorkflowDefinitions.FindAsync(editingFormSchemaDef.Id);
+            if (def != null)
+            {
+                def.FormSchemaJson = editingFormSchemaJson;
+                await dbContext.SaveChangesAsync();
+                statusMessage = $"تم تحديث حقول استمارة الأدمن للمسار ({def.Name}) بنجاح!";
+                isError = false;
+                editingFormSchemaDef = null;
+                await LoadAllDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"فشل حفظ الاستمارة: {ex.Message}";
+            isError = true;
+        }
+    }
+
+    private void OnSimWorkflowChanged()
+    {
+        LoadSimFormFields();
+    }
+
+    private void LoadSimFormFields()
+    {
+        simFormFields.Clear();
+        simFormValues.Clear();
+        var def = workflowDefinitions.FirstOrDefault(d => d.Code == simWorkflowCode);
+        if (def != null && !string.IsNullOrWhiteSpace(def.FormSchemaJson))
+        {
+            try
+            {
+                var fields = JsonSerializer.Deserialize<List<FormFieldSchema>>(def.FormSchemaJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (fields != null)
+                {
+                    simFormFields = fields;
+                    foreach (var f in fields)
+                    {
+                        simFormValues[f.Name] = f.Options?.FirstOrDefault() ?? "";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to parse FormSchemaJson for simulation");
+            }
+        }
+    }
+
+    private async Task SimulateStartWorkflowAsync()
+    {
+        simStep = 1;
+        var reqPayload = new
+        {
+            workflowCode = simWorkflowCode,
+            entityType = "SimulatedRequest",
+            entityId = simEntityId,
+            initialContext = simFormValues
+        };
+        simHttpRequestJson = JsonSerializer.Serialize(reqPayload, new JsonSerializerOptions { WriteIndented = true });
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "systemadmin";
+
+            var initialContextDict = simFormValues.ToDictionary(k => k.Key, v => (object)v.Value);
+
+            var command = new StartWorkflowCommand(
+                WorkflowCode: simWorkflowCode,
+                EntityType: "SimulatedRequest",
+                EntityId: simEntityId,
+                InitiatorUserId: username,
+                InitialContext: initialContextDict);
+
+            var result = await WorkflowEngine.StartAsync(command);
+
+            simHttpResponseJson = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+            simActiveInstanceId = result.WorkflowInstanceId;
+            simCurrentStepCode = result.CurrentStepCode;
+            simCurrentStepName = result.CurrentStepName;
+            simStep = 2;
+
+            await RefreshSimActionsAsync();
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            simHttpResponseJson = JsonSerializer.Serialize(new { error = ex.Message }, new JsonSerializerOptions { WriteIndented = true });
+        }
+    }
+
+    private async Task RefreshSimActionsAsync()
+    {
+        if (simActiveInstanceId == null) return;
+        try
+        {
+            var instanceDto = await WorkflowEngine.GetInstanceAsync(simActiveInstanceId.Value);
+            simCurrentStepCode = instanceDto.CurrentStepCode;
+            simCurrentStepName = instanceDto.CurrentStepName;
+            simRowVersion = Convert.ToBase64String(instanceDto.RowVersion);
+            simAvailableActions = instanceDto.AvailableActions.Select(a => a.Code).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to refresh sim actions");
+        }
+    }
+
+    private async Task SimulateExecuteActionAsync(string actionCode)
+    {
+        if (simActiveInstanceId == null) return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var username = authState.User.Identity?.Name ?? "systemadmin";
+
+        var actionPayload = new
+        {
+            actionCode = actionCode,
+            comment = simActionComment,
+            rowVersion = simRowVersion,
+            idempotencyKey = Guid.NewGuid().ToString("N")
+        };
+        simHttpRequestJson = JsonSerializer.Serialize(actionPayload, new JsonSerializerOptions { WriteIndented = true });
+
+        try
+        {
+            var command = new ExecuteWorkflowActionCommand(
+                WorkflowInstanceId: simActiveInstanceId.Value,
+                ActionCode: actionCode,
+                UserId: username,
+                Comment: simActionComment,
+                RowVersion: Convert.FromBase64String(simRowVersion ?? ""),
+                IdempotencyKey: Guid.NewGuid().ToString("N"));
+
+            var result = await WorkflowEngine.ExecuteActionAsync(command);
+            simHttpResponseJson = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+
+            if (result.Status == WorkflowInstanceStatus.Completed || result.Status == WorkflowInstanceStatus.Rejected)
+            {
+                simStep = 4;
+            }
+            else
+            {
+                simStep = 3;
+            }
+
+            await RefreshSimActionsAsync();
+            await LoadAllDataAsync();
+        }
+        catch (Exception ex)
+        {
+            simHttpResponseJson = JsonSerializer.Serialize(new { error = ex.Message }, new JsonSerializerOptions { WriteIndented = true });
+        }
+    }
+}

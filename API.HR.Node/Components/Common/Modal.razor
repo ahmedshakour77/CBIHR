@@ -1,0 +1,131 @@
+@*
+    Modal shell.
+
+    One dialog implementation for the whole system, so every overlay shares
+    the same escape routes: a close button, click on the scrim, and Escape.
+    Focus moves into the panel on open, the panel is labelled by its own
+    heading, and the body scrolls inside the panel rather than the page
+    behind it.
+
+        <Modal IsOpen="@open" Title="…" OnClose="Close">
+            <Body>…</Body>
+            <Footer>…</Footer>
+        </Modal>
+*@
+
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@if (IsOpen)
+{
+    @* Close on the scrim only when the press also started there. Selecting
+       text in a field and releasing past the panel's edge fires a click on
+       the scrim, and used to close the dialog and lose the form. *@
+    <div class="hr-modal-scrim" @onmousedown="() => pressedOnScrim = true" @onclick="ScrimClickAsync">
+        <div class="hr-modal @SizeClass"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="@titleId"
+             tabindex="-1"
+             @ref="panel"
+             @onmousedown:stopPropagation="true"
+             @onclick:stopPropagation="true"
+             @onkeydown="OnKeyDownAsync">
+
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    @if (!string.IsNullOrWhiteSpace(Icon))
+                    {
+                        <span class="hr-iconplate" aria-hidden="true">
+                            <Icon Name="@Icon" Size="sm" />
+                        </span>
+                    }
+                    <div class="hr-modal-titles">
+                        <h2 id="@titleId" class="hr-h2 hr-balance">@Title</h2>
+                        @if (!string.IsNullOrWhiteSpace(Subtitle))
+                        {
+                            <p class="hr-meta" style="margin-block-start:.25rem">@Subtitle</p>
+                        }
+                    </div>
+                </div>
+
+                <button type="button"
+                        class="hr-btn hr-btn-quiet hr-btn-icon"
+                        @onclick="CloseAsync"
+                        aria-label="@Lang.T("common.close", "إغلاق")">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body">
+                @Body
+            </div>
+
+            @if (Footer is not null)
+            {
+                <div class="hr-modal-foot">
+                    @Footer
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+
+    /// <summary>Heroicons catalog key for the header plate. Optional.</summary>
+    [Parameter] public string? Icon { get; set; }
+
+    /// <summary>sm | md | lg | xl</summary>
+    [Parameter] public string Size { get; set; } = "md";
+
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public RenderFragment? Body { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    private readonly string titleId = $"md-{Guid.NewGuid():N}";
+    private ElementReference panel;
+    private bool wasOpen;
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "hr-modal-confirm",
+        "lg" => "hr-modal-lg",
+        "xl" => "hr-modal-xl",
+        _ => string.Empty
+    };
+
+    private bool pressedOnScrim;
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+
+    private Task ScrimClickAsync()
+    {
+        var fromScrim = pressedOnScrim;
+        pressedOnScrim = false;
+        return fromScrim ? CloseAsync() : Task.CompletedTask;
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await CloseAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !wasOpen)
+        {
+            wasOpen = true;
+            await panel.FocusAsync();
+        }
+        else if (!IsOpen)
+        {
+            wasOpen = false;
+        }
+    }
+}

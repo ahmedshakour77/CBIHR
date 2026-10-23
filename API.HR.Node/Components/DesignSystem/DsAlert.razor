@@ -1,0 +1,90 @@
+@namespace API.HR.Node.Components.DesignSystem
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@if (!isDismissed)
+{
+    <div class="@ComputedClass" role="alert" @attributes="AdditionalAttributes">
+        <div class="hr-alert-icon" aria-hidden="true">
+            <Icon Name="@EffectiveIcon" Size="sm" />
+        </div>
+        <div class="hr-alert-content">
+            @if (!string.IsNullOrEmpty(Title))
+            {
+                <h4 class="hr-alert-title">@Title</h4>
+            }
+            <div class="hr-alert-body">
+                @if (ChildContent != null)
+                {
+                    @ChildContent
+                }
+                else if (!string.IsNullOrEmpty(Message))
+                {
+                    <p>@Message</p>
+                }
+            </div>
+        </div>
+        @if (Dismissible)
+        {
+            <button type="button" class="hr-alert-close" @onclick="Dismiss" aria-label="@Lang.T("alert.close", "إغلاق التنبيه")">
+                <Icon Name="x-mark" Size="xs" />
+            </button>
+        }
+    </div>
+}
+
+@code {
+    public enum AlertVariant
+    {
+        Info,
+        Success,
+        Warning,
+        Danger
+    }
+
+    [Parameter] public AlertVariant Variant { get; set; } = AlertVariant.Info;
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string? IconName { get; set; }
+    [Parameter] public bool Dismissible { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnDismissed { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool isDismissed;
+
+    private string EffectiveIcon => !string.IsNullOrEmpty(IconName) ? IconName : Variant switch
+    {
+        AlertVariant.Success => "check-circle",
+        AlertVariant.Warning => "exclamation-triangle",
+        AlertVariant.Danger => "x-circle",
+        _ => "information-circle"
+    };
+
+    private string ComputedClass
+    {
+        get
+        {
+            var variantClass = Variant switch
+            {
+                AlertVariant.Success => "hr-alert-ok",
+                AlertVariant.Warning => "hr-alert-warn",
+                AlertVariant.Danger => "hr-alert-danger",
+                _ => "hr-alert-accent"
+            };
+
+            var classes = new List<string> { "hr-alert", variantClass };
+            if (!string.IsNullOrEmpty(Class)) classes.Add(Class);
+            return string.Join(" ", classes);
+        }
+    }
+
+    private async Task Dismiss()
+    {
+        isDismissed = true;
+        if (OnDismissed.HasDelegate)
+        {
+            await OnDismissed.InvokeAsync();
+        }
+    }
+}

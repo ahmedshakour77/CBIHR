@@ -1,0 +1,59 @@
+@namespace API.HR.Node.Components.DesignSystem
+
+<div class="@ComputedClass" @attributes="AdditionalAttributes">
+    <div class="hr-tabs" role="tablist" aria-label="@AriaLabel">
+        @foreach (var tab in Items)
+        {
+            var isSelected = tab.Key == ActiveKey;
+            <button type="button"
+                    role="tab"
+                    class="hr-tab @(isSelected ? "is-active" : "")"
+                    aria-selected="@(isSelected ? "true" : "false")"
+                    id="@($"tab-{tab.Key}")"
+                    @onclick="() => SelectTab(tab.Key)">
+                @if (!string.IsNullOrEmpty(tab.Icon))
+                {
+                    <Icon Name="@tab.Icon" Size="xs" />
+                }
+                <span>@tab.Label</span>
+                @if (tab.BadgeCount.HasValue)
+                {
+                    <span class="hr-tab-badge hr-num">@tab.BadgeCount.Value</span>
+                }
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    public sealed record TabItem(string Key, string Label, string? Icon = null, int? BadgeCount = null);
+
+    [Parameter, EditorRequired] public IReadOnlyList<TabItem> Items { get; set; } = Array.Empty<TabItem>();
+    [Parameter, EditorRequired] public string ActiveKey { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ActiveKeyChanged { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "التبويبات";
+    [Parameter] public string? Class { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string ComputedClass
+    {
+        get
+        {
+            var classes = new List<string> { "hr-tabs-nav" };
+            if (!string.IsNullOrEmpty(Class)) classes.Add(Class);
+            return string.Join(" ", classes);
+        }
+    }
+
+    private async Task SelectTab(string key)
+    {
+        if (key != ActiveKey)
+        {
+            ActiveKey = key;
+            if (ActiveKeyChanged.HasDelegate)
+            {
+                await ActiveKeyChanged.InvokeAsync(key);
+            }
+        }
+    }
+}

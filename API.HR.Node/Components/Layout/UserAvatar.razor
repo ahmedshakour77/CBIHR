@@ -1,0 +1,56 @@
+@using API.HR.Node.Services.ProfilePhotos
+@inject IUserAvatarService AvatarService
+
+@if (!string.IsNullOrEmpty(resolvedPhotoUrl))
+{
+    <span class="hr-avatar @SizeClass @Class" style="@Style" aria-hidden="true">
+        <img src="@resolvedPhotoUrl" alt="@(UserName ?? "صورة المستخدم")" loading="lazy" decoding="async" />
+    </span>
+}
+else
+{
+    @* Silhouette shadow figure for users without an uploaded photo *@
+    <span class="hr-avatar hr-avatar-silhouette @SizeClass @Class" style="@Style" title="@(UserName ?? "المستخدم")" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" style="width: 72%; height: 72%; opacity: 0.78;" aria-hidden="true">
+            <path fill-rule="evenodd" d="M7.5 6a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM3.751 20.105a8.25 8.25 0 0116.498 0 .75.75 0 01-.437.695A18.683 18.683 0 0112 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 01-.437-.695z" clip-rule="evenodd" />
+        </svg>
+    </span>
+}
+
+@code {
+    [Parameter] public string? EmployeeId { get; set; }
+    [Parameter] public string? UserName { get; set; }
+    [Parameter] public string? PhotoUrl { get; set; }
+    [Parameter] public string Size { get; set; } = "sm";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public string? Style { get; set; }
+
+    private string? resolvedPhotoUrl;
+
+    private string SizeClass => Size switch
+    {
+        "xs" => "hr-avatar-xs",
+        "sm" => "hr-avatar-sm",
+        "md" => "",
+        "lg" => "hr-avatar-lg",
+        "xl" => "hr-avatar-xl",
+        _ => ""
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(PhotoUrl))
+        {
+            resolvedPhotoUrl = PhotoUrl;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(EmployeeId) && string.IsNullOrWhiteSpace(UserName))
+        {
+            resolvedPhotoUrl = null;
+            return;
+        }
+
+        resolvedPhotoUrl = await AvatarService.GetAvatarDataUrlAsync(EmployeeId, UserName);
+    }
+}

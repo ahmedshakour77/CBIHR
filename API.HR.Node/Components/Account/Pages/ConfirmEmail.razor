@@ -1,0 +1,65 @@
+﻿@page "/Account/ConfirmEmail"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>تأكيد البريد الإلكتروني | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="envelope" Size="lg" /></span>
+                <h1 class="hr-h1">تأكيد البريد الإلكتروني</h1>
+                <div style="width:100%;text-align:start">
+                    <StatusMessage Message="@statusMessage" />
+                </div>
+                <a class="hr-btn hr-btn-primary" href="Account/Login" style="margin-block-start:.5rem">
+                    <Icon Name="arrow-right-on-rectangle" Size="sm" />
+                    <span>تسجيل الدخول</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? statusMessage;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? UserId { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Code { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (UserId is null || Code is null)
+        {
+            RedirectManager.RedirectTo("");
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(UserId);
+        if (user is null)
+        {
+            HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
+            statusMessage = $"Error: تعذّر العثور على الحساب صاحب المعرّف {UserId}.";
+        }
+        else
+        {
+            var code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
+            var result = await UserManager.ConfirmEmailAsync(user, code);
+            statusMessage = result.Succeeded ? "تم تأكيد بريدك الإلكتروني بنجاح." : "Error: تعذّر تأكيد البريد الإلكتروني. قد يكون الرابط منتهي الصلاحية.";
+        }
+    }
+}

@@ -1,0 +1,39 @@
+@*
+    Record completeness, one bullet meter per document or contact. The
+    status colour is always paired with the percentage, and the gap is a
+    button that opens the list of employees still missing it.
+*@
+<ul class="hr-viz-meters" aria-label="@(Label ?? (Lang.IsKurdish ? "تەواوبوونی تۆمارەکان" : "اكتمال السجلات"))">
+    @foreach (var m in Items)
+    {
+        var share = Viz.Share(m.Count, Total);
+        var gap = Total - m.Count;
+        <li @key="m.Key" class="hr-viz-meter @Band(share)">
+            <span class="hr-viz-meter-name">@m.Label</span>
+            <span class="hr-viz-meter-pct hr-num">@Viz.Pct(m.Count, Total)</span>
+            <span class="hr-viz-meter-track" aria-hidden="true">
+                <span class="hr-viz-meter-fill" style="--v:@Viz.Css(share / 100)"></span>
+            </span>
+            @if (gap > 0 && OnGap.HasDelegate)
+            {
+                <button type="button" class="hr-viz-meter-gap" @onclick="() => OnGap.InvokeAsync(m.Key)">
+                    @(Lang.IsKurdish ? "کەمە" : "ينقص") <span class="hr-num">@gap.ToString("N0")</span>
+                    <span class="hr-sr">@(Lang.IsKurdish ? $"فەرمانبەر بێ {m.Label}، پیشاندانی لیست" : $"موظفاً بلا {m.Label}، عرض القائمة")</span>
+                </button>
+            }
+            else
+            {
+                <span class="hr-viz-meter-gap is-done">@(gap > 0 ? (Lang.IsKurdish ? $"کەمە {gap:N0}" : $"ينقص {gap:N0}") : (Lang.IsKurdish ? "تەواوە" : "مكتمل"))</span>
+            }
+        </li>
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<RecordMeter> Items { get; set; } = [];
+    [Parameter] public int Total { get; set; }
+    [Parameter] public EventCallback<string> OnGap { get; set; }
+    [Parameter] public string? Label { get; set; }
+
+    private static string Band(double pct) => pct >= 85 ? "is-ok" : pct >= 50 ? "is-warn" : "is-danger";
+}

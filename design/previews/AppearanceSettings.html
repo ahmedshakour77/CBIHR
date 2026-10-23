@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&family=Cairo:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="../../wwwroot/css/hr-tokens.css"><link rel="stylesheet" href="../../wwwroot/css/hr-components.css"><meta charset="utf-8">
+<style>
+body{margin:0} .wrap{padding:24px}
+.demo{display:grid;gap:12px;align-content:start}
+.demo .hr-card__body{display:grid;gap:12px}
+.demo p{margin:0}
+</style></head>
+<body class="hr-root">
+<div class="wrap hr-prefs">
+<div class="hr-prefs__cols">
+<form class="hr-card" id="prefs" aria-labelledby="t">
+  <div class="hr-card__head"><h2 class="hr-card__title" id="t">المظهر والتفضيلات</h2><span class="hr-muted" style="margin-inline-start:auto;font-size:.8125rem">تُحفظ في حسابك</span></div>
+  <div class="hr-card__body">
+    <fieldset class="hr-prefs__group"><legend>لون النظام</legend>
+      <div class="hr-swatches"><label class="hr-swatch" title="بنفسجي (افتراضي)"><input type="radio" name="brand" value="purple" checked aria-label="بنفسجي (افتراضي)"><span style="background:var(--b-500)"></span></label>
+<label class="hr-swatch" title="نيلي"><input type="radio" name="brand" value="indigo" aria-label="نيلي"><span style="background:var(--indigo-500)"></span></label>
+<label class="hr-swatch" title="أزرق"><input type="radio" name="brand" value="blue" aria-label="أزرق"><span style="background:var(--blue-500)"></span></label>
+<label class="hr-swatch" title="فيروزي"><input type="radio" name="brand" value="teal" aria-label="فيروزي"><span style="background:var(--teal-500)"></span></label>
+<label class="hr-swatch" title="أخضر"><input type="radio" name="brand" value="green" aria-label="أخضر"><span style="background:var(--green-500)"></span></label>
+<label class="hr-swatch" title="زيتوني"><input type="radio" name="brand" value="olive" aria-label="زيتوني"><span style="background:var(--olive-500)"></span></label>
+<label class="hr-swatch" title="ذهبي"><input type="radio" name="brand" value="gold" aria-label="ذهبي"><span style="background:var(--gold-500)"></span></label>
+<label class="hr-swatch" title="نحاسي"><input type="radio" name="brand" value="copper" aria-label="نحاسي"><span style="background:var(--copper-500)"></span></label>
+<label class="hr-swatch" title="قرمزي"><input type="radio" name="brand" value="crimson" aria-label="قرمزي"><span style="background:var(--crimson-500)"></span></label>
+<label class="hr-swatch" title="وردي"><input type="radio" name="brand" value="rose" aria-label="وردي"><span style="background:var(--rose-500)"></span></label>
+<label class="hr-swatch" title="رمادي"><input type="radio" name="brand" value="slate" aria-label="رمادي"><span style="background:var(--slate-500)"></span></label></div>
+      <p class="hr-muted" style="margin:8px 0 0;font-size:.8125rem" id="brandName">بنفسجي (افتراضي)</p>
+    </fieldset>
+    <fieldset class="hr-prefs__group"><legend>الخط</legend>
+      <div class="hr-seg hr-fonts"><label><input type="radio" name="font" value="plex" checked><span><em style="font-family:var(--font-plex)">أبجد هوز ١٢٣</em><small class="hr-num" style="font-size:.75rem;color:var(--text-muted)">IBM Plex Sans Arabic</small></span></label>
+<label><input type="radio" name="font" value="cairo"><span><em style="font-family:var(--font-cairo)">أبجد هوز ١٢٣</em><small class="hr-num" style="font-size:.75rem;color:var(--text-muted)">Cairo</small></span></label>
+<label><input type="radio" name="font" value="tajawal"><span><em style="font-family:var(--font-tajawal)">أبجد هوز ١٢٣</em><small class="hr-num" style="font-size:.75rem;color:var(--text-muted)">Tajawal</small></span></label>
+<label><input type="radio" name="font" value="noto"><span><em style="font-family:var(--font-noto)">أبجد هوز ١٢٣</em><small class="hr-num" style="font-size:.75rem;color:var(--text-muted)">Noto Sans Arabic</small></span></label>
+<label><input type="radio" name="font" value="alexandria"><span><em style="font-family:var(--font-alexandria)">أبجد هوز ١٢٣</em><small class="hr-num" style="font-size:.75rem;color:var(--text-muted)">Alexandria</small></span></label></div>
+    </fieldset>
+    <fieldset class="hr-prefs__group"><legend>الوضع</legend>
+      <div class="hr-seg">
+        <label><input type="radio" name="mode" value="light" checked><span>فاتح</span></label>
+        <label><input type="radio" name="mode" value="dark"><span>داكن</span></label>
+        <label><input type="radio" name="mode" value="system"><span>حسب الجهاز</span></label>
+      </div>
+    </fieldset>
+    <fieldset class="hr-prefs__group"><legend>حجم الخط</legend>
+      <div class="hr-seg">
+        <label><input type="radio" name="size" value="sm"><span style="font-size:.8125rem">صغير</span></label>
+        <label><input type="radio" name="size" value="md" checked><span>متوسط</span></label>
+        <label><input type="radio" name="size" value="lg"><span style="font-size:1rem">كبير</span></label>
+        <label><input type="radio" name="size" value="xl"><span style="font-size:1.125rem">كبير جداً</span></label>
+      </div>
+    </fieldset>
+    <fieldset class="hr-prefs__group"><legend>كثافة العرض</legend>
+      <div class="hr-seg">
+        <label><input type="radio" name="density" value="compact"><span>مضغوط</span></label>
+        <label><input type="radio" name="density" value="comfortable" checked><span>مريح</span></label>
+        <label><input type="radio" name="density" value="spacious"><span>واسع</span></label>
+      </div>
+    </fieldset>
+  </div>
+</form>
+<aside class="demo" aria-label="معاينة">
+  <div class="hr-card">
+    <div class="hr-card__head"><h3 class="hr-card__title">معاينة مباشرة</h3></div>
+    <div class="hr-card__body">
+      <div class="hr-person"><div class="hr-avatar">س</div><div><b>سارة محمد العبيدي</b><div class="hr-muted" style="font-size:.8125rem">محللة موارد بشرية</div></div></div>
+      <p>طلب الإجازة الاعتيادية رقم <span class="hr-num">LV-2026-0911</span> لمدة <span class="hr-num">3</span> أيام.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="hr-badge hr-badge--warn">بانتظار الموافقة</span><span class="hr-badge hr-badge--brand hr-badge--plain">إجازة اعتيادية</span></div>
+      <div class="hr-progress" role="progressbar" aria-valuenow="60" aria-valuemin="0" aria-valuemax="100" aria-label="رصيد مستخدم"><span style="inline-size:60%"></span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="hr-btn hr-btn--primary">موافقة</button><button type="button" class="hr-btn hr-btn--secondary">طلب تعديل</button><button type="button" class="hr-btn hr-btn--danger">رفض</button></div>
+    </div>
+  </div>
+</aside>
+</div>
+</div>
+<script>
+(function(){
+  var root=document.documentElement, f=document.getElementById('prefs');
+  var mq=window.matchMedia('(prefers-color-scheme: dark)');
+  function apply(){
+    var d=new FormData(f);
+    var b=d.get('brand'); if(b==='purple') root.removeAttribute('data-brand'); else root.setAttribute('data-brand',b);
+    root.setAttribute('data-font',d.get('font'));
+    var m=d.get('mode'); root.setAttribute('data-theme', m==='system' ? (mq.matches?'dark':'light') : m);
+    root.setAttribute('data-font-size',d.get('size'));
+    root.setAttribute('data-density',d.get('density'));
+    var sel=f.querySelector('input[name=brand]:checked'); document.getElementById('brandName').textContent=sel.getAttribute('aria-label');
+  }
+  var cur=root.getAttribute('data-theme'); if(cur==='dark') f.querySelector('input[name=mode][value=dark]').checked=true;
+  f.addEventListener('change',apply); apply();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,511 @@
+@page "/v/{Token}"
+@rendermode InteractiveServer
+@attribute [AllowAnonymous]
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Pdf
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<VerifyDossier> Logger
+
+<PageTitle>التحقق من صحة الوثيقة الرسمية | البنك المركزي العراقي</PageTitle>
+
+<div class="hr-verify-wrapper" dir="rtl">
+    <div class="hr-verify-card">
+        @* Top Official Institution Header *@
+        <div class="hr-verify-header">
+            <div class="hr-verify-emblem">
+                <img src="img/logo.png" alt="شعار البنك المركزي العراقي" class="hr-verify-logo" />
+            </div>
+            <div class="hr-verify-titles">
+                <span class="hr-verify-gov">جمهورية العراق · البنك المركزي العراقي</span>
+                <h1 class="hr-verify-h1">منظومة الموارد البشرية الموحدة</h1>
+                <span class="hr-verify-sub">بوابة التحقق الإلكتروني من صحة ومطابقة الوثائق الرسمية</span>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="hr-verify-loading">
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <p>جارٍ التحقق من السجل الرقمي المشفر للوثيقة…</p>
+            </div>
+        }
+        else if (auditRecord is null)
+        {
+            @* Invalid / Expired Token *@
+            <div class="hr-verify-status-banner hr-verify-status-invalid">
+                <div class="hr-verify-status-icon">
+                    <Icon Name="exclamation-triangle" Size="lg" />
+                </div>
+                <div class="hr-verify-status-text">
+                    <h2>رمز التحقق غير مسجل أو غير صالح</h2>
+                    <p>لم يتم العثور على أي وثيقة رسمية صادرة بهذا المعرف الرقمي في قاعدة بيانات البنك المركزي العراقي. يُرجى التأكد من مسح الرمز الأصلي الصادر من المنظومة حصراً.</p>
+                </div>
+            </div>
+
+            <div class="hr-verify-meta-box">
+                <div class="hr-verify-meta-item">
+                    <span class="hr-verify-label">رمز الفحص المدخل:</span>
+                    <code class="hr-verify-code">@Token</code>
+                </div>
+                <div class="hr-verify-meta-item">
+                    <span class="hr-verify-label">وقت المحاولة:</span>
+                    <span>@DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")</span>
+                </div>
+            </div>
+        }
+        else
+        {
+            @* Valid Document Record Found *@
+            <div class="hr-verify-status-banner hr-verify-status-valid">
+                <div class="hr-verify-status-icon">
+                    <Icon Name="shield-check" Size="lg" />
+                </div>
+                <div class="hr-verify-status-text">
+                    <h2>وثيقة رسمية صادرة ومعتمدة</h2>
+                    <p>تم استخراج هذه الوثيقة رسمياً عبر منظومة إدارة الموارد البشرية المركزية للبنك المركزي العراقي وموثقة بسجل التصدير المعتمد.</p>
+                </div>
+            </div>
+
+            @* Data Drift / Match Advisory Notice *@
+            @if (isDataCurrent)
+            {
+                <div class="hr-verify-integrity hr-verify-integrity-ok">
+                    <Icon Name="check-circle" Size="sm" />
+                    <span><strong>حالة البيانات:</strong> مطابقة تماماً لسجلات الموظف الحالية في المنظومة.</span>
+                </div>
+            }
+            else
+            {
+                <div class="hr-verify-integrity hr-verify-integrity-warn">
+                    <Icon Name="information-circle" Size="sm" />
+                    <span><strong>ملاحظة تحديث:</strong> صدرت هذه الوثيقة بتاريخ (@auditRecord.CreatedAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm"))، وطرأ تحديث إداري على سجلات الموظف بعدها في المنظومة.</span>
+                </div>
+            }
+
+            @* Official Comparison Data Table (For cross-checking with the physical paper) *@
+            <div class="hr-verify-details-section">
+                <h3 class="hr-verify-section-title">
+                    <Icon Name="document-text" Size="sm" />
+                    <span>بيانات الوثيقة للمطابقة الميدانية</span>
+                </h3>
+
+                <div class="hr-verify-grid">
+                    <div class="hr-verify-field">
+                        <span class="hr-verify-field-label">اسم الموظف الكامل</span>
+                        <strong class="hr-verify-field-val">@auditRecord.EmployeeName</strong>
+                    </div>
+
+                    <div class="hr-verify-field">
+                        <span class="hr-verify-field-label">الرقم الوظيفي</span>
+                        <strong class="hr-verify-field-val hr-verify-badge-num">@auditRecord.EmployeeIDNumber</strong>
+                    </div>
+
+                    <div class="hr-verify-field">
+                        <span class="hr-verify-field-label">التشكيل الإداري / الدائرة</span>
+                        <strong class="hr-verify-field-val">@(auditRecord.FormationName ?? "المركز الرئيسي")</strong>
+                    </div>
+
+                    <div class="hr-verify-field">
+                        <span class="hr-verify-field-label">العنوان الوظيفي المعتمد</span>
+                        <strong class="hr-verify-field-val">@(auditRecord.JobTitleName ?? "—")</strong>
+                    </div>
+
+                    <div class="hr-verify-field">
+                        <span class="hr-verify-field-label">تاريخ ووقت صدور الوثيقة</span>
+                        <span class="hr-verify-field-val">@auditRecord.CreatedAtUtc.ToLocalTime().ToString("yyyy/MM/dd — HH:mm")</span>
+                    </div>
+
+                    <div class="hr-verify-field">
+                        <span class="hr-verify-field-label">المعرف الرقمي للوثيقة</span>
+                        <code class="hr-verify-code">@auditRecord.VerificationToken</code>
+                    </div>
+                </div>
+            </div>
+
+            @* Privileged / Administrative View (Admins & Respective Formation Managers) *@
+            @if (canViewPrivilegedDetails)
+            {
+                <div class="hr-verify-admin-box">
+                    <div class="hr-verify-admin-badge">
+                        <Icon Name="lock-closed" Size="xs" />
+                        <span>معلومات التدقيق الإداري الخاصة (خاصة بالإدارة والمسؤولين)</span>
+                    </div>
+
+                    <div class="hr-verify-grid" style="margin-top: 0.75rem;">
+                        <div class="hr-verify-field">
+                            <span class="hr-verify-field-label">المستخدم الذي قام بالتصدير</span>
+                            <span class="hr-verify-field-val">@(auditRecord.ExportedByUserName ?? "النظام")</span>
+                        </div>
+
+                        <div class="hr-verify-field">
+                            <span class="hr-verify-field-label">عنوان الـ IP عند التصدير</span>
+                            <span class="hr-verify-field-val">@(auditRecord.ExportedFromIp ?? "—")</span>
+                        </div>
+
+                        <div class="hr-verify-field">
+                            <span class="hr-verify-field-label">مرات فحص ومسح الرمز</span>
+                            <span class="hr-verify-field-val">@auditRecord.VerificationCount مرة</span>
+                        </div>
+
+                        <div class="hr-verify-field">
+                            <span class="hr-verify-field-label">بصمة التشفير اللحظية (SHA-256)</span>
+                            <code class="hr-verify-code hr-truncate" title="@auditRecord.SnapshotDataDigest">@auditRecord.SnapshotDataDigest</code>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <a href="portal?emp=@auditRecord.EmployeeIDNumber" class="hr-btn hr-btn-primary hr-btn-sm">
+                            <Icon Name="user-circle" Size="sm" />
+                            <span>فتح السجل الوظيفي الكامل للموظف</span>
+                        </a>
+                    </div>
+                </div>
+            }
+        }
+
+        @* Legal Footer Note *@
+        <div class="hr-verify-footer">
+            <p>تنبيه رسمي: تخضع هذه الصفحة لنظام التدقيق الأمني والتحقق الإلكتروني المركزي للبنك المركزي العراقي. يُعد أي تلاعب أو تزوير في الوثائق الرسمية مخالفة قانونية تخضع للمساءلة والملاحقة القضائية.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* The public verification page. It is opened from a QR code by someone
+       outside the organisation, so it stands alone rather than sitting in
+       the app shell, but it is drawn in the system's tokens: it follows the
+       visitor's light or dark preference and the brand like every other
+       page. The old slate palette put its footer at 2.56:1 and its header
+       line at 4.1:1. */
+    .hr-verify-wrapper {
+        min-height: 100dvh;
+        background: var(--ground);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--s-6);
+        font-family: var(--font-ui);
+        color: var(--text);
+    }
+
+    .hr-verify-card {
+        background: var(--surface-raised);
+        border-radius: var(--r-xl);
+        box-shadow: var(--shadow-pop);
+        max-width: 48rem;
+        width: 100%;
+        padding: var(--s-8);
+        border: 1px solid var(--line);
+    }
+
+    @@media (max-width: 40rem) {
+        .hr-verify-wrapper { padding: var(--s-3); }
+        .hr-verify-card { padding: var(--s-5); }
+    }
+
+    .hr-verify-header {
+        display: flex;
+        align-items: center;
+        gap: var(--s-5);
+        padding-block-end: var(--s-6);
+        border-block-end: 1px solid var(--line);
+    }
+
+    .hr-verify-emblem { flex: none; }
+
+    .hr-verify-logo {
+        width: 4.5rem;
+        height: 4.5rem;
+        object-fit: contain;
+    }
+
+    .hr-verify-titles {
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-1);
+        min-width: 0;
+    }
+
+    .hr-verify-gov {
+        font-size: var(--fs-control);
+        font-weight: 700;
+        color: var(--accent-text);
+    }
+
+    .hr-verify-h1 {
+        font-size: var(--fs-h1);
+        font-weight: 800;
+        line-height: 1.35;
+        color: var(--text);
+        margin: 0;
+        text-wrap: balance;
+    }
+
+    .hr-verify-sub {
+        font-size: var(--fs-label);
+        color: var(--text-3);
+    }
+
+    .hr-verify-loading {
+        padding: var(--s-12) var(--s-4);
+        text-align: center;
+        color: var(--text-3);
+    }
+
+    .hr-verify-status-banner {
+        margin-block-start: var(--s-6);
+        border-radius: var(--r-lg);
+        padding: var(--s-5);
+        display: flex;
+        align-items: flex-start;
+        gap: var(--s-4);
+    }
+
+    .hr-verify-status-icon { flex: none; }
+
+    .hr-verify-status-valid {
+        background: var(--ok-tint);
+        border: 1px solid var(--ok-line);
+        color: var(--ok);
+    }
+
+    .hr-verify-status-invalid {
+        background: var(--danger-tint);
+        border: 1px solid var(--danger-line);
+        color: var(--danger);
+    }
+
+    .hr-verify-status-text h2 {
+        font-size: var(--fs-title);
+        font-weight: 800;
+        margin: 0 0 var(--s-1);
+    }
+
+    .hr-verify-status-text p {
+        font-size: var(--fs-control);
+        margin: 0;
+        line-height: 1.6;
+        color: var(--text-2);
+    }
+
+    .hr-verify-integrity {
+        margin-block-start: var(--s-4);
+        padding: var(--s-3) var(--s-4);
+        border-radius: var(--r-md);
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        font-size: var(--fs-label);
+        font-weight: 600;
+    }
+
+    .hr-verify-integrity-ok {
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        color: var(--ok);
+    }
+
+    .hr-verify-integrity-warn {
+        background: var(--warn-tint);
+        border: 1px solid var(--warn-line);
+        color: var(--warn);
+    }
+
+    .hr-verify-details-section {
+        margin-block-start: var(--s-8);
+    }
+
+    .hr-verify-section-title {
+        font-size: var(--fs-lead);
+        font-weight: 800;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: var(--s-2);
+        margin: 0 0 var(--s-4);
+    }
+
+    .hr-verify-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+        gap: var(--s-4);
+    }
+
+    .hr-verify-field {
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        padding: var(--s-3);
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-1);
+        min-width: 0;
+    }
+
+    .hr-verify-field-label,
+    .hr-verify-label {
+        font-size: var(--fs-caption);
+        color: var(--text-3);
+        font-weight: 600;
+    }
+
+    .hr-verify-field-val {
+        font-size: var(--fs-body);
+        color: var(--text);
+        overflow-wrap: anywhere;
+    }
+
+    .hr-verify-badge-num {
+        color: var(--accent-text);
+        font-family: var(--font-numeric);
+        font-variant-numeric: tabular-nums;
+        font-size: var(--fs-lead);
+        font-weight: 700;
+    }
+
+    .hr-verify-code {
+        font-family: var(--font-numeric);
+        background: var(--surface-inset);
+        padding: 0.125rem var(--s-2);
+        border-radius: var(--r-xs);
+        font-size: var(--fs-label);
+        color: var(--text-2);
+        overflow-wrap: anywhere;
+    }
+
+    /* What was entered, shown back on a failed check. */
+    .hr-verify-meta-box {
+        margin-block-start: var(--s-5);
+        display: grid;
+        gap: var(--s-3);
+        padding: var(--s-4);
+        border-radius: var(--r-md);
+        background: var(--surface-sunken);
+        border: 1px solid var(--line);
+    }
+
+    .hr-verify-meta-item {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--s-2);
+        font-size: var(--fs-control);
+        min-width: 0;
+    }
+
+    .hr-verify-admin-box {
+        margin-block-start: var(--s-8);
+        background: var(--surface-sunken);
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--r-lg);
+        padding: var(--s-5);
+    }
+
+    .hr-verify-admin-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--s-1);
+        font-size: var(--fs-caption);
+        font-weight: 700;
+        color: var(--text-2);
+    }
+
+    .hr-verify-footer {
+        margin-block-start: var(--s-8);
+        padding-block-start: var(--s-4);
+        border-block-start: 1px solid var(--line);
+        text-align: center;
+        font-size: var(--fs-caption);
+        color: var(--text-3);
+        line-height: 1.6;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string Token { get; set; } = string.Empty;
+
+    private bool isLoading = true;
+    private DossierExportAudit? auditRecord;
+    private bool isDataCurrent = true;
+    private bool canViewPrivilegedDetails = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Token))
+        {
+            isLoading = false;
+            return;
+        }
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            auditRecord = await db.DossierExportAudits
+                .FirstOrDefaultAsync(a => a.VerificationToken == Token);
+
+            if (auditRecord is not null)
+            {
+                // Increment verification counter for audit tracking
+                auditRecord.VerificationCount++;
+                auditRecord.LastVerifiedAtUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+
+                // Load current employee profile state to compare data digest
+                var currentEmp = await db.Employees.AsNoTracking()
+                    .Include(e => e.Formation)
+                    .Include(e => e.JobTitle)
+                    .Include(e => e.PositionTitle)
+                    .Include(e => e.Grade)
+                    .Include(e => e.Stage)
+                    .Include(e => e.EmployeeStatus)
+                    .FirstOrDefaultAsync(e => e.Id == auditRecord.EmployeeId || e.EmployeeID == auditRecord.EmployeeIDNumber);
+
+                if (currentEmp is not null)
+                {
+                    var currentDigest = DossierVerificationHelper.ComputeEmployeeDataDigest(currentEmp);
+                    isDataCurrent = string.Equals(currentDigest, auditRecord.SnapshotDataDigest, StringComparison.OrdinalIgnoreCase);
+                }
+
+                // Check authorization role of current visitor
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = authState.User;
+
+                if (user.Identity?.IsAuthenticated == true)
+                {
+                    var isAdmin = user.IsInRole("Admin") || user.IsInRole("HRManager");
+                    if (isAdmin)
+                    {
+                        canViewPrivilegedDetails = true;
+                    }
+                    else
+                    {
+                        // Check if current user is formation manager for auditRecord.FormationName
+                        var userEmpId = user.FindFirst("EmployeeID")?.Value;
+                        if (!string.IsNullOrWhiteSpace(userEmpId) && !string.IsNullOrWhiteSpace(auditRecord.FormationName))
+                        {
+                            var managesUnit = await db.AdministrativeUnits.AsNoTracking()
+                                .AnyAsync(u => u.ManagerEmployeeId == userEmpId && u.Name == auditRecord.FormationName);
+                            if (managesUnit)
+                            {
+                                canViewPrivilegedDetails = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error verifying dossier token {Token}", Token);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

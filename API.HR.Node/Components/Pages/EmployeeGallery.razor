@@ -1,0 +1,415 @@
+@page "/gallery"
+@rendermode InteractiveServer
+@using API.HR.Node.Contracts
+@using API.HR.Node.Data
+@using API.HR.Node.Services.ProfilePhotos
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,HRManager")]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject ILogger<EmployeeGallery> Logger
+
+<PageTitle>معرض الصور | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Photo wall.
+
+    Each tile is a real button with the employee's name as its accessible
+    name, so the grid is reachable by keyboard and announces who is who.
+    The detail that used to live in a hover-only popover — and was therefore
+    invisible to touch and to keyboard — now opens in the preview dialog,
+    which every input method can reach.
+
+    Tiles scale with how many are on screen, but the frame size is what
+    changes; nothing grows on hover into its neighbours' space, so the grid
+    never jitters under the pointer.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">مساحة العمل</span>
+            <h1 class="hr-h1">معرض صور الموظفين</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                جدار الصور الشخصية مرتّباً حسب التشكيل الإداري. اختر صورة لعرض بطاقة الموظف كاملة.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <span class="hr-badge hr-badge-accent">
+                <Icon Name="camera" Size="xs" />
+                <span><span class="hr-num">@filteredEmployees.Count</span> معروضة</span>
+            </span>
+        </div>
+    </header>
+
+    <section class="hr-card">
+        <div class="hr-toolbar">
+            <div class="hr-toolbar-search">
+                <label class="hr-field-label" for="gal-formation">التشكيل الإداري</label>
+                <select id="gal-formation" class="hr-select" value="@selectedFormation" @onchange="OnFormationChanged">
+                    <option value="">كافة التشكيلات (@allEmployeesList.Count موظف)</option>
+                    @foreach (var form in formationsList)
+                    {
+                        <option value="@form.Name">@form.Name</option>
+                    }
+                </select>
+                <p class="hr-help">يقتصر العرض على أول <span class="hr-num">500</span> سجل.</p>
+            </div>
+
+            <div class="hr-toolbar-actions">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadData" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ التحميل…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="arrow-path" Size="sm" />
+                        <span>تحديث</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            @* Skeleton tiles occupy the real tile footprint, so the grid does
+               not reflow when the photos arrive. *@
+            <div class="hr-card-body">
+                <div class="hr-wall" style="--tile:5rem">
+                    @for (var i = 0; i < 36; i++)
+                    {
+                        <div class="hr-skeleton hr-wall-tile" aria-hidden="true"></div>
+                    }
+                </div>
+                <p class="hr-sr">جارٍ تحميل المعرض…</p>
+            </div>
+        }
+        else if (filteredEmployees.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="photo" Size="lg" /></span>
+                <p class="hr-h3">لا توجد صور في هذا التشكيل</p>
+                <p class="hr-sub hr-measure-sm">اختر تشكيلاً آخر، أو اعرض كافة التشكيلات.</p>
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick='() => SelectFormation("")'>
+                    <Icon Name="squares-2x2" Size="xs" />
+                    <span>عرض كافة التشكيلات</span>
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="hr-card-body">
+                <ul class="hr-wall" style="--tile:@TileSize">
+                    @foreach (var emp in filteredEmployees)
+                    {
+                        <li @key="emp.EmployeeID">
+                            <button type="button"
+                                    class="hr-wall-tile hr-wall-btn"
+                                    @onclick="() => ViewFullPhoto(emp)"
+                                    aria-label="@($"{emp.Name}، الرقم الوظيفي {emp.EmployeeID} — عرض البطاقة")"
+                                    title="@emp.Name">
+                                @if (emp.HasProfilePhoto && !failedThumbnails.Contains(emp.EmployeeID))
+                                {
+                                    <img src="@ProfilePhotoUrls.Thumbnail(emp.EmployeeID, emp.ProfilePhotoVersion)"
+                                         alt="@($"صورة {emp.Name}")" loading="lazy" decoding="async"
+                                         @onerror="() => failedThumbnails.Add(emp.EmployeeID)" />
+                                }
+                                else
+                                {
+                                    <span class="hr-wall-initials" style="background:@AvatarTone(emp.EmployeeID)" aria-hidden="true">
+                                        @AvatarInitials.FromName(emp.Name)
+                                    </span>
+                                }
+                            </button>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    </section>
+</div>
+
+@* ---------- preview ---------- *@
+<Modal IsOpen="@(selectedEmployeeForView != null)"
+       Title="@(selectedEmployeeForView?.Name ?? "بطاقة الموظف")"
+       Subtitle="@(selectedEmployeeForView is null ? null : $"الرقم الوظيفي {selectedEmployeeForView.EmployeeID}")"
+       Icon="identification"
+       Size="lg"
+       OnClose="ClosePhotoModal">
+    <Body>
+        @if (selectedEmployeeForView is not null)
+        {
+            <div class="hr-preview">
+                <div class="hr-preview-media">
+                    @* The original loads straight from the photo endpoint. It stays
+                       hidden behind the skeleton until it has decoded, so the frame
+                       never shows a half-painted image. *@
+                    @if (!string.IsNullOrEmpty(fullPhotoModalUrl))
+                    {
+                        <img src="@fullPhotoModalUrl" alt="@($"صورة {selectedEmployeeForView.Name}")"
+                             hidden="@isPhotoLoading"
+                             @onload="() => isPhotoLoading = false"
+                             @onerror="OnFullPhotoFailed" />
+                    }
+                    @if (isPhotoLoading)
+                    {
+                        <div class="hr-skeleton" style="width:100%;aspect-ratio:3/4;border-radius:var(--r-md)" aria-hidden="true"></div>
+                        <p class="hr-sr">جارٍ تحميل الصورة…</p>
+                    }
+                    else if (string.IsNullOrEmpty(fullPhotoModalUrl))
+                    {
+                        <div class="hr-preview-none">
+                            <Icon Name="photo" Size="xl" />
+                            <p class="hr-meta" style="margin-block-start:.5rem">لا توجد صورة شخصية</p>
+                        </div>
+                    }
+                </div>
+
+                <dl class="hr-deflist">
+                    <div class="hr-deflist-row">
+                        <dt>التشكيل الإداري</dt>
+                        <dd>@Or(selectedEmployeeForView.Formation)</dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>العنوان الوظيفي</dt>
+                        <dd>@Or(selectedEmployeeForView.JobTitle)</dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>الدرجة والمرحلة</dt>
+                        <dd>
+                            <span class="hr-badge">@Or(selectedEmployeeForView.Grade)</span>
+                            <span class="hr-badge">@Or(selectedEmployeeForView.Stage)</span>
+                        </dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>تاريخ التعيين</dt>
+                        <dd class="hr-num">@(selectedEmployeeForView.HireDate?.ToString("yyyy/MM/dd") ?? "—")</dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>تاريخ الميلاد</dt>
+                        <dd>
+                            <span class="hr-num">@(selectedEmployeeForView.BirthDate?.ToString("yyyy/MM/dd") ?? "—")</span>
+                            @if (CalculateDetailedAge(selectedEmployeeForView.BirthDate) is string detailedAge)
+                            {
+                                <span class="hr-meta" style="display:block;margin-block-start:2px">@detailedAge</span>
+                            }
+                        </dd>
+                    </div>
+                    <div class="hr-deflist-row">
+                        <dt>الحالة الوظيفية</dt>
+                        <dd>@Or(selectedEmployeeForView.EmployeeStatus)</dd>
+                    </div>
+                </dl>
+            </div>
+        }
+    </Body>
+    <Footer>
+        @if (!string.IsNullOrEmpty(fullPhotoModalUrl) && !isPhotoLoading && selectedEmployeeForView is not null)
+        {
+            <a class="hr-btn hr-btn-secondary"
+               href="@fullPhotoModalUrl"
+               download="@($"Employee_{selectedEmployeeForView.EmployeeID}_Profile.jpg")">
+                <Icon Name="arrow-down-tray" Size="xs" />
+                <span>تحميل الصورة</span>
+            </a>
+        }
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="ClosePhotoModal">إغلاق</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<EmployeeResponse> allEmployeesList = [];
+    private List<EmployeeResponse> filteredEmployees = [];
+    private List<Formation> formationsList = [];
+    private string selectedFormation = string.Empty;
+
+    // Tiles whose thumbnail request failed fall back to initials.
+    private readonly HashSet<string> failedThumbnails = new();
+    private bool isLoading = true;
+    private bool isPhotoLoading;
+
+    private EmployeeResponse? selectedEmployeeForView;
+    private string? fullPhotoModalUrl;
+
+    private static string Or(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    // Tile size follows the crowd: fewer faces, bigger frames. The frame is
+    // what changes, not a hover transform, so the grid stays still.
+    private string TileSize => filteredEmployees.Count switch
+    {
+        <= 40 => "7rem",
+        <= 100 => "5.5rem",
+        <= 250 => "4rem",
+        _ => "3.25rem"
+    };
+
+    // A placeholder needs to be distinguishable, not decorative, so the
+    // tones are steps on the brand ramp rather than six unrelated hues.
+    private static string AvatarTone(string employeeID)
+    {
+        var tones = new[] { "var(--b-800)", "var(--b-700)", "var(--b-600)", "var(--b-500)" };
+        var index = Math.Abs(employeeID.GetHashCode()) % tones.Length;
+        return tones[index];
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // Load Formations list
+            formationsList = await dbContext.Formations
+                .AsNoTracking()
+                .OrderBy(f => f.Name)
+                .ToListAsync();
+
+            // Set default initial formation filter to "المحافظية" if present
+            var defaultForm = formationsList.FirstOrDefault(f => f.Name.Contains("المحافظية"));
+            if (defaultForm != null)
+            {
+                selectedFormation = defaultForm.Name;
+            }
+            else if (formationsList.Count > 0)
+            {
+                selectedFormation = formationsList[0].Name;
+            }
+
+            // Fetch up to 500 employees max per user request
+            allEmployeesList = await dbContext.Employees
+                .AsNoTracking()
+                .OrderBy(e => e.EmployeeID)
+                // .Take(500)
+                .Select(e => new EmployeeResponse(
+                    e.Formation == null ? string.Empty : e.Formation.Name,
+                    e.EmployeeID,
+                    e.Name,
+                    e.JobTitle == null ? string.Empty : e.JobTitle.Name,
+                    e.PositionTitle == null ? string.Empty : e.PositionTitle.Name,
+                    e.Stage == null ? string.Empty : e.Stage.Name,
+                    e.Grade == null ? string.Empty : e.Grade.Name,
+                    e.EducationLevel == null ? string.Empty : e.EducationLevel.Name,
+                    e.Specialization == null ? string.Empty : e.Specialization.Name,
+                    e.LastJobTitleDate,
+                    e.HireDate,
+                    e.Gender == null ? string.Empty : e.Gender.Name,
+                    e.Religion == null ? string.Empty : e.Religion.Name,
+                    e.Nationality == null ? string.Empty : e.Nationality.Name,
+                    e.FirstDepartment ?? string.Empty,
+                    e.BirthDate,
+                    e.EmployeeStatus == null ? string.Empty : e.EmployeeStatus.Name,
+                    dbContext.EmployeeProfilePhotos.Any(p => p.EmployeeID == e.EmployeeID && p.IsActive),
+                    dbContext.EmployeeProfilePhotos.Where(p => p.EmployeeID == e.EmployeeID && p.IsActive).Select(p => (int?)p.Version).FirstOrDefault()))
+                .ToListAsync();
+
+            ApplyFormationFilter();
+
+            // Thumbnails are not fetched here: each tile points at the photo
+            // endpoint and the browser loads the ones that scroll into view.
+            failedThumbnails.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load gallery data.");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OnFormationChanged(ChangeEventArgs e)
+    {
+        selectedFormation = e.Value?.ToString() ?? string.Empty;
+        ApplyFormationFilter();
+    }
+
+    private void SelectFormation(string formationName)
+    {
+        selectedFormation = formationName;
+        ApplyFormationFilter();
+    }
+
+    private void ApplyFormationFilter()
+    {
+        if (string.IsNullOrWhiteSpace(selectedFormation))
+        {
+            filteredEmployees = allEmployeesList.ToList();
+        }
+        else
+        {
+            filteredEmployees = allEmployeesList
+                .Where(e => e.Formation.Equals(selectedFormation, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    private void ViewFullPhoto(EmployeeResponse emp)
+    {
+        selectedEmployeeForView = emp;
+        isPhotoLoading = emp.HasProfilePhoto;
+        fullPhotoModalUrl = emp.HasProfilePhoto
+            ? ProfilePhotoUrls.Original(emp.EmployeeID, emp.ProfilePhotoVersion)
+            : null;
+    }
+
+    private void OnFullPhotoFailed()
+    {
+        Logger.LogWarning("Full photo failed to load for {EmployeeId}.", selectedEmployeeForView?.EmployeeID);
+        fullPhotoModalUrl = null;
+        isPhotoLoading = false;
+    }
+
+    private void ClosePhotoModal()
+    {
+        selectedEmployeeForView = null;
+        fullPhotoModalUrl = null;
+        isPhotoLoading = false;
+    }
+
+    private static string? CalculateDetailedAge(DateOnly? birthDate)
+    {
+        if (!birthDate.HasValue) return null;
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var birth = birthDate.Value;
+
+        if (birth > today) return null;
+
+        int years = today.Year - birth.Year;
+        int months = today.Month - birth.Month;
+        int days = today.Day - birth.Day;
+
+        if (days < 0)
+        {
+            months--;
+            var prevMonth = today.AddMonths(-1);
+            days += DateTime.DaysInMonth(prevMonth.Year, prevMonth.Month);
+        }
+
+        if (months < 0)
+        {
+            years--;
+            months += 12;
+        }
+
+        var parts = new List<string>();
+        if (years > 0) parts.Add($"{years} سنة");
+        if (months > 0) parts.Add($"{months} شهر");
+        if (days > 0 || parts.Count == 0) parts.Add($"{days} يوم");
+
+        return string.Join(" و ", parts);
+    }
+}

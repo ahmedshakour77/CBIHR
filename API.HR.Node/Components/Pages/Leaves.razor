@@ -1,0 +1,1867 @@
+@page "/leaves"
+@rendermode InteractiveServer
+@implements IDisposable
+@using System.Globalization
+@using API.HR.Node.Services.ProfilePhotos
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JSRuntime
+@inject ILogger<Leaves> Logger
+
+<PageTitle>إدارة وسجلات إجازات الموظفين | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+
+    @* ---------- 1. Page Header & Actions ---------- *@
+    <header class="hr-pagehead hr-no-print">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>الرئيسية</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">سجلات وإدارة الإجازات</span>
+            </nav>
+            <h1 class="hr-h1" style="margin-block-start:.5rem">إدارة وسجلات إجازات الموظفين</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.25rem">
+                متابعة أرصدة وسجلات الإجازات الاعتيادية والمرضية والدراسية، والاطلاع على أضبارة إجازات كل موظف، وتدقيق أوامر الانقطاع والمباشرة.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateLeaveModal">
+                <Icon Name="plus" Size="xs" />
+                <span>تسجيل إجازة جديدة</span>
+            </button>
+
+            <a href="data-import" class="hr-btn hr-btn-secondary">
+                <Icon Name="arrow-up-tray" Size="xs" />
+                <span>استيراد ملف Excel</span>
+            </a>
+
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-icon" @onclick="PrintPage" title="طباعة الصفحة" aria-label="طباعة الصفحة">
+                <Icon Name="printer" Size="xs" />
+            </button>
+        </div>
+    </header>
+
+    @* ---------- 2. Top Executive KPI Cards ---------- *@
+    <section class="hr-grid-kpi hr-no-print" aria-label="مؤشرات الإجازات العامة">
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">إجمالي سجلات الإجازات</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="clipboard-document-list" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(totalRecordsCount)</span>
+            </div>
+            <p class="hr-kpi-hint">سجل إجازة موثق في قاعدة البيانات</p>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">مجموع الأيام المستهلكة</span>
+                <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true"><Icon Name="clock" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(totalDaysConsumed)</span>
+                <span class="hr-kpi-unit">يوم</span>
+            </div>
+            <p class="hr-kpi-hint">إجمالي أيام التمتع الفعلي بالإجازات</p>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">المجازون اليوم</span>
+                <span class="hr-iconplate hr-iconplate-ok" aria-hidden="true"><Icon Name="calendar-days" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(currentlyOnLeaveCount)</span>
+                <span class="hr-kpi-unit">موظف</span>
+            </div>
+            <p class="hr-kpi-hint">في فترة إجازة سارية بتاريخ اليوم (@D(today))</p>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">أنواع الإجازات المعتمدة</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="rectangle-stack" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <span class="hr-num">@N(leaveTypes.Count)</span>
+                <span class="hr-kpi-unit">نوع</span>
+            </div>
+            <p class="hr-kpi-hint">اعتيادية، مرضية، دراسية، أمومة وغيرها</p>
+        </article>
+    </section>
+
+    @* ---------- 3. Quick Employee Dossier Lookup Card ---------- *@
+    <section class="hr-card hr-no-print" style="background:linear-gradient(to left, var(--surface-sunken), var(--surface));border-color:var(--accent-tint)">
+        <div class="hr-card-body" style="padding:1.25rem">
+            <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem">
+                <div style="display:flex;align-items:center;gap:.75rem">
+                    <span class="hr-iconplate" style="background:var(--accent-tint);color:var(--accent)" aria-hidden="true">
+                        <Icon Name="identification" Size="md" />
+                    </span>
+                    <div>
+                        <h2 class="hr-h3">البحث السريع واستعراض أضبارة إجازات الموظف</h2>
+                        <p class="hr-meta">اختر أي موظف لمعاينة رصيده وسجله التاريخي الكامل وكشف الإجازات القابل للطباعة فوراً.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex;align-items:center;gap:.75rem;min-width:min(20rem, 100%);flex:1;max-width:540px;position:relative">
+                    <div class="hr-search" style="flex:1">
+                        <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <input type="search"
+                               class="hr-input"
+                               placeholder="اكتب اسم الموظف أو رقمه الوظيفي..."
+                               @bind="empLookupQuery"
+                               @bind:event="oninput"
+                               @bind:after="OnEmpLookupQueryChanged"
+                               aria-label="البحث عن موظف لمعاينة إجازاته" />
+                    </div>
+
+                    @if (isLookupSearching)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                    }
+
+                    @if (lookupResults.Count > 0)
+                    {
+                        <div class="hr-lookup-popover" role="listbox" aria-label="نتائج مطابقة الموظفين">
+                            @foreach (var emp in lookupResults)
+                            {
+                                <button type="button" class="hr-lookup-item" @onclick="() => SelectLookupEmployee(emp)">
+                                    <span class="hr-avatar hr-avatar-sm" style="background:@AvatarTone(emp.EmployeeID);color:#fff" aria-hidden="true">
+                                        @AvatarInitials.FromName(emp.Name)
+                                    </span>
+                                    <div class="hr-lookup-info">
+                                        <div class="hr-cell-strong">@emp.Name</div>
+                                        <div class="hr-cell-sub">الرقم: <span class="hr-num">@emp.EmployeeID</span> • @Or(emp.Formation?.Name) • @Or(emp.JobTitle?.Name)</div>
+                                    </div>
+                                    <Icon Name="arrow-left" Size="xs" />
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </section>
+
+    @* ---------- 4. Filter Toolbar & Search ---------- *@
+    <section class="hr-card hr-no-print">
+        <div class="hr-filterbar">
+            <div class="hr-filterbar-row">
+                @* Main search *@
+                <div class="hr-field hr-filter-grow">
+                    <label class="hr-field-label" for="leave-search">بحث بالسجلات</label>
+                    <div class="hr-search">
+                        <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <input id="leave-search"
+                               type="search"
+                               class="hr-input"
+                               placeholder="الرقم الوظيفي، اسم الموظف، رقم الأمر، الملاحظات..."
+                               @bind="searchQuery"
+                               @bind:event="oninput"
+                               @bind:after="OnFilterChanged" />
+                    </div>
+                </div>
+
+                @* Leave Type dropdown *@
+                <div class="hr-field hr-filter-item">
+                    <label class="hr-field-label" for="leave-type-filter">نوع الإجازة</label>
+                    <select id="leave-type-filter" class="hr-select" @bind="selectedLeaveTypeId" @bind:after="OnFilterChanged">
+                        <option value="">جميع أنواع الإجازات</option>
+                        @foreach (var type in leaveTypes)
+                        {
+                            <option value="@type.Id">@type.Name</option>
+                        }
+                    </select>
+                </div>
+
+                @* Formation dropdown *@
+                <div class="hr-field hr-filter-item">
+                    <label class="hr-field-label" for="formation-filter">التشكيل الإداري / الدائرة</label>
+                    <select id="formation-filter" class="hr-select" @bind="selectedFormationId" @bind:after="OnFilterChanged">
+                        <option value="">جميع التشكيلات</option>
+                        @foreach (var form in formations)
+                        {
+                            <option value="@form.Id">@form.Name</option>
+                        }
+                    </select>
+                </div>
+
+                @* Status filter *@
+                <div class="hr-field hr-filter-item" style="max-width:140px">
+                    <label class="hr-field-label" for="status-filter">الحالة</label>
+                    <select id="status-filter" class="hr-select" @bind="selectedStatus" @bind:after="OnFilterChanged">
+                        <option value="">الكل</option>
+                        <option value="معتمدة">معتمدة</option>
+                        <option value="قيد المراجعة">قيد المراجعة</option>
+                        <option value="ملغاة">ملغاة</option>
+                    </select>
+                </div>
+
+                @* Date From *@
+                <div class="hr-field hr-filter-item" style="max-width:160px">
+                    <label class="hr-field-label" for="date-from">تبدأ من</label>
+                    <input id="date-from" type="date" class="hr-input" @bind="filterStartDate" @bind:after="OnFilterChanged" />
+                </div>
+
+                @* Date To *@
+                <div class="hr-field hr-filter-item" style="max-width:160px">
+                    <label class="hr-field-label" for="date-to">تنتهي حتى</label>
+                    <input id="date-to" type="date" class="hr-input" @bind="filterEndDate" @bind:after="OnFilterChanged" />
+                </div>
+
+                @* Reset filters *@
+                <div class="hr-field hr-filter-item hr-filter-reset">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-block"
+                            @onclick="ResetFilters" disabled="@(!HasActiveFilters)">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح الفلاتر</span>
+                    </button>
+                </div>
+            </div>
+
+            @if (HasActiveFilters)
+            {
+                <div class="hr-filterbar-row" style="align-items:center;padding-block-start:.5rem">
+                    <span class="hr-meta">عوامل التصفية النشطة:</span>
+                    <div class="hr-chips">
+                        @if (!string.IsNullOrWhiteSpace(searchQuery))
+                        {
+                            <span class="hr-chip">بحث: @searchQuery</span>
+                        }
+                        @if (selectedLeaveTypeId.HasValue)
+                        {
+                            var lt = leaveTypes.FirstOrDefault(t => t.Id == selectedLeaveTypeId.Value);
+                            <span class="hr-chip">النوع: @(lt?.Name ?? "محدد")</span>
+                        }
+                        @if (selectedFormationId.HasValue)
+                        {
+                            var f = formations.FirstOrDefault(x => x.Id == selectedFormationId.Value);
+                            <span class="hr-chip">التشكيل: @(f?.Name ?? "محدد")</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(selectedStatus))
+                        {
+                            <span class="hr-chip">الحالة: @selectedStatus</span>
+                        }
+                        @if (filterStartDate.HasValue)
+                        {
+                            <span class="hr-chip">من: @D(filterStartDate)</span>
+                        }
+                        @if (filterEndDate.HasValue)
+                        {
+                            <span class="hr-chip">إلى: @D(filterEndDate)</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+
+    @* ---------- 5. Records Table Section ---------- *@
+    <section class="hr-card">
+        <div class="hr-card-head hr-recordhead hr-no-print">
+            <div>
+                <h2 class="hr-h2">سجلات الإجازات</h2>
+                <p class="hr-meta" style="margin-block-start:.25rem" aria-live="polite">
+                    عرض <span class="hr-num">@N(leaves.Count)</span> من إجمالي <span class="hr-num">@N(totalFilteredCount)</span> نتيجة مطابقة
+                </p>
+            </div>
+
+            <div class="hr-recordhead-controls">
+                <div class="hr-inlinefield">
+                    <label class="hr-meta" for="leaves-pagesize">لكل صفحة</label>
+                    <select id="leaves-pagesize" class="hr-select hr-select-compact" value="@pageSize" @onchange="OnPageSizeChanged">
+                        <option value="15">15</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="hr-card-body">
+                <div class="hr-stack-sm">
+                    @for (var i = 0; i < 6; i++)
+                    {
+                        <div class="hr-skeleton" style="height:3.5rem;border-radius:var(--r)" aria-hidden="true"></div>
+                    }
+                </div>
+                <p class="hr-sr" aria-live="polite">جارٍ تحميل سجلات الإجازات…</p>
+            </div>
+        }
+        else if (loadFailed)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-danger" aria-hidden="true"><Icon Name="exclamation-triangle" Size="lg" /></span>
+                <p class="hr-h3">تعذّر تحميل سجلات الإجازات</p>
+                <p class="hr-sub hr-measure-sm">حدث خطأ أثناء قراءة قاعدة البيانات. يُرجى إعادة المحاولة.</p>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="LoadDataAsync">
+                    <Icon Name="arrow-path" Size="xs" />
+                    <span>إعادة المحاولة</span>
+                </button>
+            </div>
+        }
+        else if (leaves.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-warn" aria-hidden="true"><Icon Name="calendar-days" Size="lg" /></span>
+                <p class="hr-h3">لا توجد سجلات إجازات مطابقة</p>
+                <p class="hr-sub hr-measure-sm">
+                    @(HasActiveFilters ? "لم يتم العثور على أي نتائج تطابق معايير البحث والتصفية المحددة." : "لم يتم تسجيل أي إجازات في النظام بعد.")
+                </p>
+                @if (HasActiveFilters)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ResetFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح عوامل التصفية</span>
+                    </button>
+                }
+                else
+                {
+                    <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenCreateLeaveModal">
+                        <Icon Name="plus" Size="xs" />
+                        <span>تسجيل أول إجازة</span>
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table hr-table-tight">
+                    <caption class="hr-sr">قائمة وسجلات إجازات الموظفين</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col" style="min-width:240px">الموظف والرقم الوظيفي</th>
+                            <th scope="col">التشكيل الإداري والمنصب</th>
+                            <th scope="col">نوع الإجازة</th>
+                            <th scope="col">فترة الإجازة</th>
+                            <th scope="col" style="text-align:center">عدد الأيام</th>
+                            <th scope="col">الأمر الإداري</th>
+                            <th scope="col">الملاحظات</th>
+                            <th scope="col">الحالة</th>
+                            <th scope="col" class="hr-no-print" style="text-align:center;min-width:140px">الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in leaves)
+                        {
+                            var emp = item.Employee;
+                            var isCurrentlyActive = item.StartDate <= today && item.EndDate >= today;
+                            <tr @key="item.Id">
+                                @* 1. Employee Identity *@
+                                <td>
+                                    <div class="hr-identity">
+                                        <button type="button" class="hr-avatar hr-avatar-btn"
+                                                @onclick="() => OpenEmployeeDossier(emp.EmployeeID)"
+                                                aria-label="@($"فتح أضبارة إجازات {emp.Name}")"
+                                                title="معاينة أضبارة إجازات الموظف">
+                                            @if (photoThumbnails.TryGetValue(emp.EmployeeID, out var thumb))
+                                            {
+                                                <img src="@thumb" alt="@($"الصورة الشخصية للموظف {emp.Name}")" loading="lazy" decoding="async"
+                                                     @onerror="() => photoThumbnails.Remove(emp.EmployeeID)" />
+                                            }
+                                            else
+                                            {
+                                                <span style="background:@AvatarTone(emp.EmployeeID);color:#fff;display:grid;place-items:center;width:100%;height:100%;border-radius:inherit;font-weight:600">
+                                                    @AvatarInitials.FromName(emp.Name)
+                                                </span>
+                                            }
+                                        </button>
+
+                                        <div>
+                                            <button type="button" class="hr-linklike hr-cell-strong"
+                                                    style="text-align:start"
+                                                    @onclick="() => OpenEmployeeDossier(emp.EmployeeID)">
+                                                @emp.Name
+                                            </button>
+                                            <div class="hr-cell-sub">
+                                                الرقم: <span class="hr-num">@emp.EmployeeID</span>
+                                                @if (emp.LeaveBalance.HasValue)
+                                                {
+                                                    <span class="hr-badge" style="font-size:var(--fs-caption);padding:0.1rem 0.35rem;margin-inline-start:0.35rem;background:color-mix(in srgb, var(--cbi-copper) 12%, var(--surface));color:var(--cbi-copper);">
+                                                        الرصيد: @($"{emp.LeaveBalance.Value:G29} يوم")
+                                                    </span>
+                                                }
+                                                @if (isCurrentlyActive)
+                                                {
+                                                    <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:0.1rem 0.35rem;margin-right:0.35rem">
+                                                        مجاز اليوم
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                @* 2. Formation & Job *@
+                                <td>
+                                    <div class="hr-cell-strong hr-truncate" title="@emp.Formation?.Name">
+                                        @Or(emp.Formation?.Name)
+                                    </div>
+                                    <div class="hr-cell-sub hr-truncate" title="@emp.PositionTitle?.Name">
+                                        @Or(emp.PositionTitle?.Name, Or(emp.JobTitle?.Name))
+                                    </div>
+                                </td>
+
+                                @* 3. Leave Type *@
+                                <td>
+                                    <span class="hr-badge @LeaveTypeBadgeClass(item.LeaveType?.Name)">
+                                        <Icon Name="calendar-days" Size="xs" />
+                                        <span>@(item.LeaveType?.Name ?? "غير محدد")</span>
+                                    </span>
+                                </td>
+
+                                @* 4. Period (From -> To) *@
+                                <td>
+                                    <div class="hr-num" style="font-weight:500">
+                                        @D(item.StartDate) <span style="color:var(--text-muted);margin:0 0.2rem">←</span> @D(item.EndDate)
+                                    </div>
+                                    @if (item.StartDate > today)
+                                    {
+                                        <span class="hr-cell-sub" style="color:var(--accent)">مستقبلية (تبدأ بعد @((item.StartDate.DayNumber - today.DayNumber)) يوم)</span>
+                                    }
+                                    else if (isCurrentlyActive)
+                                    {
+                                        <span class="hr-cell-sub" style="color:var(--ok)">سارية حالياً (يتبقى @((item.EndDate.DayNumber - today.DayNumber + 1)) يوم)</span>
+                                    }
+                                </td>
+
+                                @* 5. Days Count *@
+                                <td style="text-align:center">
+                                    <span class="hr-badge hr-num" style="font-size:var(--fs-control);font-weight:600">
+                                        @N(item.DaysCount) @(item.DaysCount == 1 ? "يوم" : (item.DaysCount <= 10 ? "أيام" : "يوماً"))
+                                    </span>
+                                </td>
+
+                                @* 6. Order Number & Date *@
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(item.OrderNumber))
+                                    {
+                                        <div class="hr-num" style="font-weight:500">@item.OrderNumber</div>
+                                        <div class="hr-cell-sub hr-num">@D(item.OrderDate)</div>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-cell-sub">—</span>
+                                    }
+                                </td>
+
+                                @* 7. Notes *@
+                                <td>
+                                    <span class="hr-cell-sub hr-truncate" style="max-width:180px;display:inline-block" title="@item.Notes">
+                                        @Or(item.Notes)
+                                    </span>
+                                </td>
+
+                                @* 8. Status *@
+                                <td>
+                                    <span class="hr-badge @(item.Status == "معتمدة" ? "hr-badge-ok" : (item.Status == "قيد المراجعة" ? "hr-badge-warn" : "hr-badge-danger"))">
+                                        @item.Status
+                                    </span>
+                                </td>
+
+                                @* 9. Actions *@
+                                <td class="hr-no-print" style="text-align:center">
+                                    <div class="hr-rowactions" style="justify-content:center">
+                                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-btn-icon"
+                                                @onclick="() => OpenEmployeeDossier(emp.EmployeeID)"
+                                                aria-label="@($"أضبارة إجازات {emp.Name}")"
+                                                title="أضبارة إجازات الموظف الكاملة">
+                                            <Icon Name="identification" Size="xs" />
+                                        </button>
+
+                                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-btn-icon"
+                                                @onclick="() => OpenEditLeaveModal(item)"
+                                                aria-label="@($"تعديل إجازة {emp.Name}")"
+                                                title="تعديل الإجازة">
+                                            <Icon Name="pencil-square" Size="xs" />
+                                        </button>
+
+                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                @onclick="() => PromptDeleteLeave(item)"
+                                                aria-label="@($"حذف إجازة {emp.Name}")"
+                                                title="حذف الإجازة">
+                                            <Icon Name="trash" Size="xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Pager *@
+            <div class="hr-card-foot hr-no-print">
+                <div class="hr-pager">
+                    <p class="hr-meta">
+                        عرض <span class="hr-num">@N(RangeStart)</span>
+                        إلى <span class="hr-num">@N(RangeEnd)</span>
+                        من <span class="hr-num">@N(totalFilteredCount)</span>
+                    </p>
+
+                    <div class="hr-pager-controls">
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(1)"
+                                disabled="@(currentPage == 1)" aria-label="الصفحة الأولى">
+                            <Icon Name="chevron-double-right" Size="xs" />
+                        </button>
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(currentPage - 1)"
+                                disabled="@(currentPage == 1)" aria-label="الصفحة السابقة">
+                            <Icon Name="chevron-right" Size="xs" />
+                        </button>
+
+                        <span class="hr-meta hr-pager-status" aria-live="polite">
+                            صفحة <span class="hr-num">@currentPage</span> من <span class="hr-num">@totalPages</span>
+                        </span>
+
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(currentPage + 1)"
+                                disabled="@(currentPage >= totalPages)" aria-label="الصفحة التالية">
+                            <Icon Name="chevron-left" Size="xs" />
+                        </button>
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(totalPages)"
+                                disabled="@(currentPage >= totalPages)" aria-label="الصفحة الأخيرة">
+                            <Icon Name="chevron-double-left" Size="xs" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </section>
+
+</div>
+
+@* =========================================================================
+   6. Executive Employee Leave Dossier Modal ("أضبارة إجازات الموظف")
+   ========================================================================= *@
+<Modal IsOpen="@isDossierOpen"
+       Title="@(dossierEmployee is not null ? $"أضبارة وسجل إجازات الموظف — {dossierEmployee.Name}" : "أضبارة إجازات الموظف")"
+       Subtitle="الملف الموثق لجميع الإجازات الممنوحة، تفصيل الأرصدة، والموقف الفعلي للدوام"
+       Icon="calendar-days"
+       Size="xl"
+       OnClose="CloseEmployeeDossier">
+    <Body>
+        @if (isDossierLoading)
+        {
+            <div class="hr-stack" style="padding:2rem 1rem;text-align:center">
+                <span class="hr-spinner" style="width:2.5rem;height:2.5rem;margin:0 auto" aria-hidden="true"></span>
+                <p class="hr-meta">جارٍ استرجاع أضبارة إجازات الموظف وسجلاته التاريخية…</p>
+            </div>
+        }
+        else if (dossierEmployee is null)
+        {
+            <div class="hr-empty">
+                <p class="hr-h3">تعذّر العثور على الموظف المطلوب</p>
+            </div>
+        }
+        else
+        {
+            <div class="hr-stack" id="printable-employee-dossier">
+
+                @* A. Official Print Header (print only). Not headings: the page title above is the one h1. *@
+                <div class="hr-print-only" aria-hidden="true" style="display:none;margin-block-end:1.5rem;border-bottom:2px solid #333;padding-bottom:1rem">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--s-2);">
+                        <div style="text-align:right">
+                            <p style="font-size:var(--fs-h2);font-weight:bold;margin:0">البنك المركزي العراقي</p>
+                            <p style="font-size:var(--fs-lead);margin:0">مكتب مكافحة غسل الأموال وتمويل الإرهاب</p>
+                            <p style="font-size:var(--fs-control);margin:0">قسم الموارد البشرية والتدريب</p>
+                        </div>
+                        <div style="text-align:center">
+                            <p style="font-size:var(--fs-h1);font-weight:bold;margin:0">خلاصة السجل التاريخي للإجازات</p>
+                            <p style="font-size:var(--fs-control);margin:0">تاريخ الاستخراج: @D(today)</p>
+                        </div>
+                        <div style="text-align:left">
+                            <p style="font-size:var(--fs-control);margin:0">الرقم الوظيفي: @dossierEmployee.EmployeeID</p>
+                            <p style="font-size:var(--fs-control);margin:0">رقم الاضبارة: @dossierEmployee.Id</p>
+                        </div>
+                    </div>
+                </div>
+
+                @* B. Employee Identity Card Header *@
+                <div class="hr-card" style="background:var(--surface-sunken);border-color:var(--line-soft)">
+                    <div class="hr-card-body" style="padding:1.25rem">
+                        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:1.25rem">
+                            @* Avatar *@
+                            <div class="hr-avatar" style="width:4.5rem;height:4.5rem;font-size:var(--fs-h1);background:@AvatarTone(dossierEmployee.EmployeeID);color:#fff;border-radius:var(--r-lg);box-shadow:var(--shadow-sm)">
+                                @if (dossierPhotoUrl is not null)
+                                {
+                                    <img src="@dossierPhotoUrl" alt="@dossierEmployee.Name" style="width:100%;height:100%;object-fit:cover;border-radius:inherit"
+                                         @onerror="() => dossierPhotoUrl = null" />
+                                }
+                                else
+                                {
+                                    @AvatarInitials.FromName(dossierEmployee.Name)
+                                }
+                            </div>
+
+                            @* Details *@
+                            <div style="flex:1;min-width:min(260px, 100%)">
+                                <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+                                    <h2 class="hr-h2" style="margin:0">@dossierEmployee.Name</h2>
+                                    <span class="hr-badge hr-num" style="font-weight:600">الرقم: @dossierEmployee.EmployeeID</span>
+                                    @if (dossierCurrentLeave is not null)
+                                    {
+                                        <span class="hr-badge hr-badge-ok">
+                                            <Icon Name="calendar-days" Size="xs" />
+                                            <span>يتمتع حالياً بإجازة (@(dossierCurrentLeave.LeaveType?.Name ?? "إجازة")) حتى @D(dossierCurrentLeave.EndDate)</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge">
+                                            <Icon Name="check-circle" Size="xs" />
+                                            <span>على رأس عمله (مستمر بالدوام)</span>
+                                        </span>
+                                    }
+                                </div>
+
+                                <div class="hr-chips" style="margin-block-start:.5rem">
+                                    <span class="hr-badge" title="التشكيل الإداري">
+                                        <Icon Name="building-office-2" Size="xs" />
+                                        <span>@Or(dossierEmployee.Formation?.Name)</span>
+                                    </span>
+                                    <span class="hr-badge" title="العنوان الوظيفي">
+                                        <Icon Name="briefcase" Size="xs" />
+                                        <span>@Or(dossierEmployee.PositionTitle?.Name, Or(dossierEmployee.JobTitle?.Name))</span>
+                                    </span>
+                                    @if (dossierEmployee.HireDate.HasValue)
+                                    {
+                                        <span class="hr-badge" title="تاريخ التعيين والخدمة">
+                                            <Icon Name="clock" Size="xs" />
+                                            <span>تاريخ المباشرة: @D(dossierEmployee.HireDate) (@FormatServiceLength(dossierEmployee.HireDate))</span>
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+
+                            @* Quick Profile Link *@
+                            <div class="hr-no-print">
+                                <a href="employees/@dossierEmployee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm" target="_blank">
+                                    <Icon Name="user-circle" Size="xs" />
+                                    <span>الملف الإلكتروني الشامل</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @* C. Employee Personal Leave KPI Strip *@
+                <div class="hr-grid-kpi" style="grid-template-columns:repeat(auto-fit, minmax(min(180px, 100%), 1fr))">
+                    <div class="hr-kpi" style="border: 1px solid var(--cbi-copper); background: color-mix(in srgb, var(--cbi-copper) 5%, var(--surface));">
+                        <div class="hr-kpi-head">
+                            <span class="hr-kpi-label" style="color: var(--cbi-copper); font-weight: 700;">رصيد الإجازات المتبقي</span>
+                            <span class="hr-iconplate" style="background: var(--cbi-copper); color: #fff;"><Icon Name="clock" Size="sm" /></span>
+                        </div>
+                        <div class="hr-kpi-value" style="color: var(--cbi-copper);">
+                            @if (dossierEmployee?.LeaveBalance.HasValue == true)
+                            {
+                                <span class="hr-num">@($"{dossierEmployee.LeaveBalance.Value:G29}")</span>
+                                <span class="hr-kpi-unit">يوم</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </div>
+                        <p class="hr-kpi-hint">الرصيد الفعلي المعتمد للموظف</p>
+                    </div>
+
+                    <div class="hr-kpi">
+                        <div class="hr-kpi-head">
+                            <span class="hr-kpi-label">مجموع أيام الإجازات</span>
+                            <span class="hr-iconplate hr-iconplate-warn"><Icon Name="clock" Size="sm" /></span>
+                        </div>
+                        <div class="hr-kpi-value">
+                            <span class="hr-num">@N(dossierTotalDays)</span>
+                            <span class="hr-kpi-unit">يوم</span>
+                        </div>
+                        <p class="hr-kpi-hint">مجموع كافة الإجازات الممنوحة</p>
+                    </div>
+
+                    <div class="hr-kpi">
+                        <div class="hr-kpi-head">
+                            <span class="hr-kpi-label">عدد طلبات الإجازة</span>
+                            <span class="hr-iconplate"><Icon Name="clipboard-document-list" Size="sm" /></span>
+                        </div>
+                        <div class="hr-kpi-value">
+                            <span class="hr-num">@N(dossierLeaves.Count)</span>
+                            <span class="hr-kpi-unit">طلب</span>
+                        </div>
+                        <p class="hr-kpi-hint">عدد فترات الانقطاع الموثقة</p>
+                    </div>
+
+                    <div class="hr-kpi">
+                        <div class="hr-kpi-head">
+                            <span class="hr-kpi-label">إجازات العام الحالي (@today.Year)</span>
+                            <span class="hr-iconplate hr-iconplate-ok"><Icon Name="calendar-days" Size="sm" /></span>
+                        </div>
+                        <div class="hr-kpi-value">
+                            <span class="hr-num">@N(dossierThisYearDays)</span>
+                            <span class="hr-kpi-unit">يوم</span>
+                        </div>
+                        <p class="hr-kpi-hint">مجموع الأيام المستهلكة في @today.Year</p>
+                    </div>
+
+                    <div class="hr-kpi">
+                        <div class="hr-kpi-head">
+                            <span class="hr-kpi-label">آخر إجازة متمتع بها</span>
+                            <span class="hr-iconplate"><Icon Name="clock" Size="sm" /></span>
+                        </div>
+                        <div class="hr-kpi-value" style="font-size:var(--fs-title)">
+                            @if (dossierLastLeave is not null)
+                            {
+                                <span class="hr-num">@D(dossierLastLeave.StartDate)</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </div>
+                        <p class="hr-kpi-hint">@(dossierLastLeave?.LeaveType?.Name ?? "لا توجد إجازات سابقة")</p>
+                    </div>
+                </div>
+
+                @* D. Leave Types Breakdown (توزيع الإجازات حسب النوع) *@
+                @if (dossierTypeBreakdown.Count > 0)
+                {
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3 class="hr-h3">توزيع الإجازات حسب النوع</h3>
+                                <p class="hr-meta">تحليل الأيام الممنوحة موزعة على أنواع الإجازات الرسمية</p>
+                            </div>
+                        </div>
+                        <div class="hr-card-body">
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(220px, 100%), 1fr));gap:1rem">
+                                @foreach (var item in dossierTypeBreakdown)
+                                {
+                                    var pct = dossierTotalDays > 0 ? (item.TotalDays * 100.0 / dossierTotalDays) : 0;
+                                    <div style="background:var(--surface-sunken);border:1px solid var(--line-soft);border-radius:var(--r);padding:1rem">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;margin-block-end:.5rem;flex-wrap:wrap;gap:var(--s-2);">
+                                            <span class="hr-badge @LeaveTypeBadgeClass(item.TypeName)" style="font-weight:600">
+                                                @item.TypeName
+                                            </span>
+                                            <span class="hr-meta"><span class="hr-num">@item.Count</span> طلب</span>
+                                        </div>
+                                        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s-2);">
+                                            <div style="font-size:var(--fs-h2);font-weight:700" class="hr-num">
+                                                @N(item.TotalDays) <span style="font-size:var(--fs-caption);font-weight:400;color:var(--text-muted)">يوم</span>
+                                            </div>
+                                            <span class="hr-num" style="font-size:var(--fs-control);color:var(--text-muted)">@pct.ToString("0.0")%</span>
+                                        </div>
+                                        <div style="height:6px;background:var(--surface-inset);border-radius:var(--r-xs);margin-block-start:.5rem;overflow:hidden">
+                                            <div style="width:@pct.ToString("0.0", CultureInfo.InvariantCulture)%;height:100%;background:var(--accent);border-radius:var(--r-xs)"></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @* E. Chronological Leaves History Table *@
+                <div class="hr-card">
+                    <div class="hr-card-head hr-no-print" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--s-2);">
+                        <div>
+                            <h3 class="hr-h3">السجل التاريخي للإجازات</h3>
+                            <p class="hr-meta">مرتبة تنازلياً من الأحدث إلى الأقدم (@dossierLeaves.Count سجل)</p>
+                        </div>
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="() => { if (dossierEmployee != null) OpenCreateLeaveForEmployee(dossierEmployee); }" disabled="@(dossierEmployee is null)">
+                            <Icon Name="plus" Size="xs" />
+                            <span>تسجيل إجازة لهذا الموظف</span>
+                        </button>
+                    </div>
+
+                    @if (dossierLeaves.Count == 0)
+                    {
+                        <div class="hr-empty">
+                            <p class="hr-sub">لا توجد أي إجازات مسجلة لهذا الموظف.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="hr-tablewrap">
+                            <table class="hr-table hr-table-tight">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">ت</th>
+                                        <th scope="col">نوع الإجازة</th>
+                                        <th scope="col">تاريخ البدء</th>
+                                        <th scope="col">تاريخ الانتهاء</th>
+                                        <th scope="col" style="text-align:center">المدة</th>
+                                        <th scope="col">الأمر الإداري</th>
+                                        <th scope="col">تاريخ الأمر</th>
+                                        <th scope="col">الملاحظات</th>
+                                        <th scope="col">الحالة</th>
+                                        <th scope="col" class="hr-no-print" style="text-align:center">إجراء</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ var seq = 1; }
+                                    @foreach (var l in dossierLeaves)
+                                    {
+                                        <tr @key="l.Id">
+                                            <td class="hr-num">@(seq++)</td>
+                                            <td>
+                                                <span class="hr-badge @LeaveTypeBadgeClass(l.LeaveType?.Name)">
+                                                    @(l.LeaveType?.Name ?? "غير محدد")
+                                                </span>
+                                            </td>
+                                            <td class="hr-num">@D(l.StartDate)</td>
+                                            <td class="hr-num">@D(l.EndDate)</td>
+                                            <td style="text-align:center">
+                                                <span class="hr-num" style="font-weight:600">@N(l.DaysCount)</span> يوم
+                                            </td>
+                                            <td class="hr-num">@Or(l.OrderNumber)</td>
+                                            <td class="hr-num">@D(l.OrderDate)</td>
+                                            <td><span class="hr-cell-sub">@Or(l.Notes)</span></td>
+                                            <td>
+                                                <span class="hr-badge @(l.Status == "معتمدة" ? "hr-badge-ok" : "hr-badge-warn")">
+                                                    @l.Status
+                                                </span>
+                                            </td>
+                                            <td class="hr-no-print" style="text-align:center">
+                                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => OpenEditLeaveModal(l)" title="تعديل" aria-label="تعديل">
+                                                    <Icon Name="pencil-square" Size="xs" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                @* F. Print Official Signatures Footer (Visible on print only) *@
+                <div class="hr-print-only" style="display:none;margin-block-start:2rem;padding-top:1.5rem;border-top:1px solid #ccc">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;text-align:center">
+                        <div>
+                            <p style="font-weight:bold;margin-bottom:2.5rem">منظم الكشف</p>
+                            <p>التوقيع: .....................</p>
+                        </div>
+                        <div>
+                            <p style="font-weight:bold;margin-bottom:2.5rem">مدقق السجلات</p>
+                            <p>التوقيع: .....................</p>
+                        </div>
+                        <div>
+                            <p style="font-weight:bold;margin-bottom:2.5rem">مدير الموارد البشرية والتدريب</p>
+                            <p>التوقيع: .....................</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        }
+    </Body>
+    <Footer>
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;flex-wrap:wrap;gap:var(--s-2);">
+            <div style="display:flex;gap:.5rem">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="PrintEmployeeDossier" disabled="@(dossierEmployee is null)">
+                    <Icon Name="printer" Size="xs" />
+                    <span>طباعة كشف الإجازات الرسمي</span>
+                </button>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet" @onclick="CloseEmployeeDossier">
+                إغلاق
+            </button>
+        </div>
+    </Footer>
+</Modal>
+
+@* =========================================================================
+   7. Create / Edit Leave Modal
+   ========================================================================= *@
+<Modal IsOpen="@isEditorOpen"
+       Title="@(editingLeaveId.HasValue ? "تعديل سجل إجازة" : "تسجيل إجازة جديدة")"
+       Subtitle="توثيق أمر إجازة موظف، احتساب المدة والأيام، وتحديث السجل التاريخي"
+       Icon="calendar-days"
+       Size="lg"
+       OnClose="CloseEditor">
+    <Body>
+        <div class="hr-form-grid">
+
+            @* Employee Picker *@
+            <div class="hr-form-full">
+                <label class="hr-field-label" for="leave-emp-input">
+                    الموظف <span style="color:var(--danger)">*</span>
+                </label>
+                @if (editorSelectedEmployee is not null)
+                {
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface-sunken);border:1px solid var(--line);border-radius:var(--r);padding:.75rem 1rem;flex-wrap:wrap;gap:var(--s-2);">
+                        <div style="display:flex;align-items:center;gap:.75rem">
+                            <span class="hr-avatar hr-avatar-sm" style="background:@AvatarTone(editorSelectedEmployee.EmployeeID);color:#fff">
+                                @AvatarInitials.FromName(editorSelectedEmployee.Name)
+                            </span>
+                            <div>
+                                <div class="hr-cell-strong">@editorSelectedEmployee.Name</div>
+                                <div class="hr-cell-sub">الرقم: <span class="hr-num">@editorSelectedEmployee.EmployeeID</span> • @Or(editorSelectedEmployee.Formation?.Name)</div>
+                            </div>
+                        </div>
+                        @if (!editingLeaveId.HasValue)
+                        {
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => editorSelectedEmployee = null">
+                                <Icon Name="x-mark" Size="xs" />
+                                <span>تغيير الموظف</span>
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div style="position:relative">
+                        <div class="hr-search">
+                            <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                            <input id="leave-emp-input"
+                                   type="search"
+                                   class="hr-input"
+                                   placeholder="ابحث بالاسم أو الرقم الوظيفي لاختيار الموظف..."
+                                   @bind="editorEmpQuery"
+                                   @bind:event="oninput"
+                                   @bind:after="OnEditorEmpQueryChanged" />
+                        </div>
+                        @if (editorEmpResults.Count > 0)
+                        {
+                            <div class="hr-lookup-popover">
+                                @foreach (var e in editorEmpResults)
+                                {
+                                    <button type="button" class="hr-lookup-item" @onclick="() => SelectEditorEmployee(e)">
+                                        <span class="hr-avatar hr-avatar-sm" style="background:@AvatarTone(e.EmployeeID);color:#fff">
+                                            @AvatarInitials.FromName(e.Name)
+                                        </span>
+                                        <div class="hr-lookup-info">
+                                            <div class="hr-cell-strong">@e.Name</div>
+                                            <div class="hr-cell-sub">@e.EmployeeID • @Or(e.Formation?.Name)</div>
+                                        </div>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            @* Leave Type *@
+            <div class="hr-form-half">
+                <label class="hr-field-label" for="leave-type-select">
+                    نوع الإجازة <span style="color:var(--danger)">*</span>
+                </label>
+                <select id="leave-type-select" class="hr-select" @bind="editorLeaveTypeId">
+                    <option value="0">اختر نوع الإجازة...</option>
+                    @foreach (var t in leaveTypes)
+                    {
+                        <option value="@t.Id">@t.Name</option>
+                    }
+                </select>
+            </div>
+
+            @* Status *@
+            <div class="hr-form-half">
+                <label class="hr-field-label" for="leave-status-select">الحالة</label>
+                <select id="leave-status-select" class="hr-select" @bind="editorStatus">
+                    <option value="معتمدة">معتمدة</option>
+                    <option value="قيد المراجعة">قيد المراجعة</option>
+                    <option value="ملغاة">ملغاة</option>
+                </select>
+            </div>
+
+            @* Start Date *@
+            <div class="hr-form-half">
+                <label class="hr-field-label" for="leave-start">
+                    تاريخ بدء الإجازة <span style="color:var(--danger)">*</span>
+                </label>
+                <input id="leave-start" type="date" class="hr-input" @bind="editorStartDate" @bind:after="RecalculateDays" />
+            </div>
+
+            @* End Date *@
+            <div class="hr-form-half">
+                <label class="hr-field-label" for="leave-end">
+                    تاريخ انتهاء الإجازة <span style="color:var(--danger)">*</span>
+                </label>
+                <input id="leave-end" type="date" class="hr-input" @bind="editorEndDate" @bind:after="RecalculateDays" />
+            </div>
+
+            @* Days Count *@
+            <div class="hr-form-full">
+                <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface-sunken);border:1px solid var(--line-soft);border-radius:var(--r);padding:.75rem 1rem;flex-wrap:wrap;gap:var(--s-2);">
+                    <div>
+                        <span class="hr-cell-strong">عدد الأيام المحتسبة:</span>
+                        <span class="hr-meta" style="margin-right:.5rem">(يتم الاحتساب تلقائياً بناءً على تاريخي البدء والانتهاء)</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:.5rem">
+                        <input type="number" min="1" max="1000" class="hr-input hr-num" aria-label="عدد الأيام المحتسبة" style="width:100px;text-align:center;font-weight:700" @bind="editorDaysCount" />
+                        <span class="hr-cell-strong">يوم</span>
+                    </div>
+                </div>
+            </div>
+
+            @* Order Number *@
+            <div class="hr-form-half">
+                <label class="hr-field-label" for="leave-order-no">رقم الأمر الإداري</label>
+                <input id="leave-order-no" type="text" class="hr-input hr-num" placeholder="مثال: 145/أ" @bind="editorOrderNumber" />
+            </div>
+
+            @* Order Date *@
+            <div class="hr-form-half">
+                <label class="hr-field-label" for="leave-order-date">تاريخ الأمر الإداري</label>
+                <input id="leave-order-date" type="date" class="hr-input" @bind="editorOrderDate" />
+            </div>
+
+            @* Notes *@
+            <div class="hr-form-full">
+                <label class="hr-field-label" for="leave-notes">الملاحظات</label>
+                <textarea id="leave-notes" class="hr-input" rows="2" placeholder="أي ملاحظات أو أسباب تخص الإجازة..." @bind="editorNotes"></textarea>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(editorErrorMessage))
+            {
+                <div class="hr-form-full">
+                    <div class="hr-alert hr-alert-danger">
+                        <Icon Name="exclamation-triangle" Size="xs" />
+                        <span>@editorErrorMessage</span>
+                    </div>
+                </div>
+            }
+
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseEditor" disabled="@isSaving">
+            إلغاء
+        </button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveLeaveAsync" disabled="@isSaving">
+            @if (isSaving)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ الحفظ…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>حفظ السجل</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@* =========================================================================
+   8. Confirm Delete Dialog
+   ========================================================================= *@
+<ConfirmDialog IsOpen="@(leaveToDelete is not null)"
+               Title="تأكيد حذف سجل الإجازة"
+               Subject="@(leaveToDelete is not null ? $"الموظف: {leaveToDelete.Employee?.Name} • النوع: {leaveToDelete.LeaveType?.Name} ({leaveToDelete.DaysCount} يوم)" : "")"
+               Message="هل أنت متأكد من رغبتك في حذف سجل هذه الإجازة نهائياً من قاعدة البيانات؟ لا يمكن التراجع عن هذا الإجراء."
+               Destructive="true"
+               ConfirmText="نعم، حذف السجل"
+               CancelText="إلغاء"
+               IsBusy="@isDeleting"
+               OnConfirm="ConfirmDeleteAsync"
+               OnCancel="@(() => leaveToDelete = null)" />
+
+@* Toast message notification *@
+@if (!string.IsNullOrWhiteSpace(toastMessage))
+{
+    <div class="hr-toast @(toastIsSuccess ? "hr-toast-success" : "hr-toast-danger")" role="alert">
+        <Icon Name="@(toastIsSuccess ? "check-circle" : "exclamation-circle")" Size="sm" />
+        <span>@toastMessage</span>
+        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-xs" @onclick="@(() => toastMessage = null)" aria-label="إغلاق">
+            <Icon Name="x-mark" Size="xs" />
+        </button>
+    </div>
+}
+
+<style>
+    .hr-lookup-popover {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        left: 0;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-lg);
+        max-height: 280px;
+        overflow-y: auto;
+        z-index: calc(var(--z-popover) + 1);
+        padding: 0.25rem;
+    }
+    .hr-lookup-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: none;
+        background: none;
+        border-radius: var(--r);
+        cursor: pointer;
+        text-align: right;
+        transition: background var(--t-state) var(--ease);
+    }
+    .hr-lookup-item:hover, .hr-lookup-item:focus {
+        background: var(--surface-sunken);
+    }
+    .hr-lookup-info {
+        flex: 1;
+        overflow: hidden;
+    }
+    @@media print {
+        body * {
+            visibility: hidden;
+        }
+        #printable-employee-dossier, #printable-employee-dossier * {
+            visibility: visible;
+        }
+        #printable-employee-dossier {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        .hr-print-only {
+            display: block !important;
+        }
+        .hr-no-print {
+            display: none !important;
+        }
+    }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "employeeId")]
+    public string? QueryEmployeeId { get; set; }
+
+    // Page state
+    private bool isLoading = true;
+    private bool loadFailed = false;
+    private DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+
+    // Filter properties
+    private string searchQuery = string.Empty;
+    private int? selectedLeaveTypeId;
+    private int? selectedFormationId;
+    private string selectedStatus = string.Empty;
+    private DateOnly? filterStartDate;
+    private DateOnly? filterEndDate;
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 15;
+    private int totalFilteredCount = 0;
+    private int totalPages => Math.Max(1, (int)Math.Ceiling((double)totalFilteredCount / pageSize));
+    private int RangeStart => totalFilteredCount == 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
+    private int RangeEnd => Math.Min(currentPage * pageSize, totalFilteredCount);
+
+    // KPI Counters
+    private int totalRecordsCount = 0;
+    private int totalDaysConsumed = 0;
+    private int currentlyOnLeaveCount = 0;
+
+    // Data lists
+    private List<EmployeeLeave> leaves = new();
+    private List<LeaveType> leaveTypes = new();
+    private List<Formation> formations = new();
+    private Dictionary<string, string> photoThumbnails = new();
+
+    // Quick employee lookup
+    private string empLookupQuery = string.Empty;
+    private bool isLookupSearching = false;
+    private List<Employee> lookupResults = new();
+    private CancellationTokenSource? lookupCts;
+
+    // Employee Leave Dossier Modal State
+    private bool isDossierOpen = false;
+    private bool isDossierLoading = false;
+    private Employee? dossierEmployee;
+    private string? dossierPhotoUrl;
+    private List<EmployeeLeave> dossierLeaves = new();
+    private List<LeaveTypeSummary> dossierTypeBreakdown = new();
+    private int dossierTotalDays = 0;
+    private int dossierThisYearDays = 0;
+    private EmployeeLeave? dossierCurrentLeave;
+    private EmployeeLeave? dossierLastLeave;
+
+    // Leave Create / Edit Editor State
+    private bool isEditorOpen = false;
+    private bool isSaving = false;
+    private int? editingLeaveId;
+    private Employee? editorSelectedEmployee;
+    private string editorEmpQuery = string.Empty;
+    private List<Employee> editorEmpResults = new();
+    private int editorLeaveTypeId = 0;
+    private string editorStatus = "معتمدة";
+    private DateOnly editorStartDate = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly editorEndDate = DateOnly.FromDateTime(DateTime.Today);
+    private int editorDaysCount = 1;
+    private string? editorOrderNumber;
+    private DateOnly? editorOrderDate;
+    private string? editorNotes;
+    private string? editorErrorMessage;
+
+    // Delete state
+    private EmployeeLeave? leaveToDelete;
+    private bool isDeleting = false;
+
+    // Toast state
+    private string? toastMessage;
+    private bool toastIsSuccess;
+    private CancellationTokenSource? toastCts;
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(searchQuery) ||
+        selectedLeaveTypeId.HasValue ||
+        selectedFormationId.HasValue ||
+        !string.IsNullOrWhiteSpace(selectedStatus) ||
+        filterStartDate.HasValue ||
+        filterEndDate.HasValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookupsAsync();
+        await LoadDataAsync();
+
+        if (!string.IsNullOrWhiteSpace(QueryEmployeeId))
+        {
+            await OpenEmployeeDossier(QueryEmployeeId);
+        }
+    }
+
+    private async Task LoadLookupsAsync()
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            leaveTypes = await db.LeaveTypes.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+            formations = await db.Formations.AsNoTracking().OrderBy(f => f.Name).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed loading leave types or formations lookups");
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        loadFailed = false;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // 1. Overall stats
+            totalRecordsCount = await db.EmployeeLeaves.CountAsync();
+            totalDaysConsumed = totalRecordsCount > 0 ? await db.EmployeeLeaves.SumAsync(l => l.DaysCount) : 0;
+            currentlyOnLeaveCount = await db.EmployeeLeaves
+                .Where(l => l.StartDate <= today && l.EndDate >= today)
+                .Select(l => l.EmployeeId)
+                .Distinct()
+                .CountAsync();
+
+            // 2. Query with filters
+            var query = db.EmployeeLeaves.AsNoTracking()
+                .Include(l => l.Employee)
+                    .ThenInclude(e => e.Formation)
+                .Include(l => l.Employee)
+                    .ThenInclude(e => e.JobTitle)
+                .Include(l => l.Employee)
+                    .ThenInclude(e => e.PositionTitle)
+                .Include(l => l.LeaveType)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var q = searchQuery.Trim().ToLower();
+                query = query.Where(l =>
+                    l.Employee.Name.ToLower().Contains(q) ||
+                    l.Employee.EmployeeID.ToLower().Contains(q) ||
+                    (l.OrderNumber != null && l.OrderNumber.ToLower().Contains(q)) ||
+                    (l.Notes != null && l.Notes.ToLower().Contains(q)));
+            }
+
+            if (selectedLeaveTypeId.HasValue)
+            {
+                query = query.Where(l => l.LeaveTypeId == selectedLeaveTypeId.Value);
+            }
+
+            if (selectedFormationId.HasValue)
+            {
+                query = query.Where(l => l.Employee.FormationId == selectedFormationId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedStatus))
+            {
+                query = query.Where(l => l.Status == selectedStatus);
+            }
+
+            if (filterStartDate.HasValue)
+            {
+                query = query.Where(l => l.StartDate >= filterStartDate.Value);
+            }
+
+            if (filterEndDate.HasValue)
+            {
+                query = query.Where(l => l.EndDate <= filterEndDate.Value);
+            }
+
+            totalFilteredCount = await query.CountAsync();
+
+            leaves = await query
+                .OrderByDescending(l => l.StartDate)
+                .ThenByDescending(l => l.Id)
+                .Skip((currentPage - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            // Thumbnail URLs for employees in view. The browser fetches them from
+            // the photo endpoint; only the active version is read here.
+            var allEmpIds = leaves.Select(l => l.Employee.EmployeeID).Distinct().ToList();
+            var activePhotos = allEmpIds.Count > 0
+                ? await db.EmployeeProfilePhotos.AsNoTracking()
+                    .Where(p => allEmpIds.Contains(p.EmployeeID) && p.IsActive)
+                    .Select(p => new { p.EmployeeID, p.Version })
+                    .ToListAsync()
+                : [];
+
+            photoThumbnails.Clear();
+            foreach (var photo in activePhotos)
+            {
+                photoThumbnails[photo.EmployeeID] = ProfilePhotoUrls.Thumbnail(photo.EmployeeID, photo.Version);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed loading leaves list");
+            loadFailed = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnFilterChanged()
+    {
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task ResetFilters()
+    {
+        searchQuery = string.Empty;
+        selectedLeaveTypeId = null;
+        selectedFormationId = null;
+        selectedStatus = string.Empty;
+        filterStartDate = null;
+        filterEndDate = null;
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var newSize))
+        {
+            pageSize = newSize;
+            currentPage = 1;
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task ChangePage(int newPage)
+    {
+        if (newPage < 1 || newPage > totalPages) return;
+        currentPage = newPage;
+        await LoadDataAsync();
+    }
+
+    // ---------- Quick Employee Lookup ----------
+    private async Task OnEmpLookupQueryChanged()
+    {
+        lookupCts?.Cancel();
+        lookupCts?.Dispose();
+        lookupCts = new CancellationTokenSource();
+        var token = lookupCts.Token;
+
+        if (string.IsNullOrWhiteSpace(empLookupQuery) || empLookupQuery.Trim().Length < 2)
+        {
+            lookupResults.Clear();
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(300, token);
+            if (token.IsCancellationRequested) return;
+
+            isLookupSearching = true;
+            StateHasChanged();
+
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var q = empLookupQuery.Trim().ToLower();
+            lookupResults = await db.Employees.AsNoTracking()
+                .Include(e => e.Formation)
+                .Include(e => e.JobTitle)
+                .Where(e => e.Name.ToLower().Contains(q) || e.EmployeeID.ToLower().Contains(q))
+                .Take(6)
+                .ToListAsync(token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching employees for leave lookup");
+        }
+        finally
+        {
+            isLookupSearching = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectLookupEmployee(Employee emp)
+    {
+        lookupResults.Clear();
+        empLookupQuery = string.Empty;
+        await OpenEmployeeDossier(emp.EmployeeID);
+    }
+
+    // ---------- Employee Dossier Modal ("أضبارة إجازات الموظف") ----------
+    private async Task OpenEmployeeDossier(string employeeNumber)
+    {
+        if (string.IsNullOrWhiteSpace(employeeNumber)) return;
+
+        isDossierOpen = true;
+        isDossierLoading = true;
+        dossierEmployee = null;
+        dossierPhotoUrl = null;
+        dossierLeaves.Clear();
+        dossierTypeBreakdown.Clear();
+        StateHasChanged();
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            dossierEmployee = await db.Employees.AsNoTracking()
+                .Include(e => e.Formation)
+                .Include(e => e.JobTitle)
+                .Include(e => e.PositionTitle)
+                .Include(e => e.Grade)
+                .Include(e => e.Stage)
+                .FirstOrDefaultAsync(e => e.EmployeeID == employeeNumber);
+
+            if (dossierEmployee is null)
+            {
+                ShowToast("لم يتم العثور على سجل الموظف في النظام.", false);
+                return;
+            }
+
+            var photoVersion = await db.EmployeeProfilePhotos.AsNoTracking()
+                .Where(p => p.EmployeeID == employeeNumber && p.IsActive)
+                .Select(p => (int?)p.Version)
+                .FirstOrDefaultAsync();
+            if (photoVersion is not null)
+            {
+                dossierPhotoUrl = ProfilePhotoUrls.Thumbnail(employeeNumber, photoVersion);
+            }
+
+            // Fetch all leaves for this employee
+            dossierLeaves = await db.EmployeeLeaves.AsNoTracking()
+                .Include(l => l.LeaveType)
+                .Where(l => l.EmployeeId == dossierEmployee.Id)
+                .OrderByDescending(l => l.StartDate)
+                .ThenByDescending(l => l.Id)
+                .ToListAsync();
+
+            dossierTotalDays = dossierLeaves.Sum(l => l.DaysCount);
+            dossierThisYearDays = dossierLeaves
+                .Where(l => l.StartDate.Year == today.Year || l.EndDate.Year == today.Year)
+                .Sum(l => l.DaysCount);
+
+            dossierCurrentLeave = dossierLeaves.FirstOrDefault(l => l.StartDate <= today && l.EndDate >= today);
+            dossierLastLeave = dossierLeaves.OrderByDescending(l => l.EndDate).FirstOrDefault();
+
+            dossierTypeBreakdown = dossierLeaves
+                .GroupBy(l => l.LeaveType?.Name ?? "غير محدد")
+                .Select(g => new LeaveTypeSummary
+                {
+                    TypeName = g.Key,
+                    TotalDays = g.Sum(x => x.DaysCount),
+                    Count = g.Count()
+                })
+                .OrderByDescending(x => x.TotalDays)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed loading leave dossier for employee {EmployeeID}", employeeNumber);
+            ShowToast("تعذّر استرجاع أضبارة إجازات الموظف.", false);
+        }
+        finally
+        {
+            isDossierLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseEmployeeDossier()
+    {
+        isDossierOpen = false;
+        dossierEmployee = null;
+        dossierLeaves.Clear();
+    }
+
+    private async Task PrintEmployeeDossier()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private async Task PrintPage()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    // ---------- Create / Edit Modal ----------
+    private void OpenCreateLeaveModal()
+    {
+        editingLeaveId = null;
+        editorSelectedEmployee = null;
+        editorEmpQuery = string.Empty;
+        editorEmpResults.Clear();
+        editorLeaveTypeId = leaveTypes.FirstOrDefault()?.Id ?? 0;
+        editorStatus = "معتمدة";
+        editorStartDate = today;
+        editorEndDate = today;
+        editorDaysCount = 1;
+        editorOrderNumber = null;
+        editorOrderDate = null;
+        editorNotes = null;
+        editorErrorMessage = null;
+        isEditorOpen = true;
+    }
+
+    private void OpenCreateLeaveForEmployee(Employee emp)
+    {
+        OpenCreateLeaveModal();
+        editorSelectedEmployee = emp;
+    }
+
+    private void OpenEditLeaveModal(EmployeeLeave leave)
+    {
+        editingLeaveId = leave.Id;
+        editorSelectedEmployee = leave.Employee;
+        editorEmpQuery = string.Empty;
+        editorEmpResults.Clear();
+        editorLeaveTypeId = leave.LeaveTypeId ?? 0;
+        editorStatus = leave.Status;
+        editorStartDate = leave.StartDate;
+        editorEndDate = leave.EndDate;
+        editorDaysCount = leave.DaysCount;
+        editorOrderNumber = leave.OrderNumber;
+        editorOrderDate = leave.OrderDate;
+        editorNotes = leave.Notes;
+        editorErrorMessage = null;
+        isEditorOpen = true;
+    }
+
+    private void CloseEditor()
+    {
+        isEditorOpen = false;
+        editorSelectedEmployee = null;
+    }
+
+    private void RecalculateDays()
+    {
+        if (editorEndDate >= editorStartDate)
+        {
+            editorDaysCount = editorEndDate.DayNumber - editorStartDate.DayNumber + 1;
+        }
+        else
+        {
+            editorDaysCount = 1;
+        }
+    }
+
+    private async Task OnEditorEmpQueryChanged()
+    {
+        if (string.IsNullOrWhiteSpace(editorEmpQuery) || editorEmpQuery.Trim().Length < 2)
+        {
+            editorEmpResults.Clear();
+            return;
+        }
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var q = editorEmpQuery.Trim().ToLower();
+
+            editorEmpResults = await db.Employees.AsNoTracking()
+                .Include(e => e.Formation)
+                .Where(e => e.Name.ToLower().Contains(q) || e.EmployeeID.ToLower().Contains(q))
+                .Take(6)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed searching employees in editor");
+        }
+    }
+
+    private void SelectEditorEmployee(Employee e)
+    {
+        editorSelectedEmployee = e;
+        editorEmpResults.Clear();
+        editorEmpQuery = string.Empty;
+    }
+
+    private async Task SaveLeaveAsync()
+    {
+        editorErrorMessage = null;
+
+        if (editorSelectedEmployee is null)
+        {
+            editorErrorMessage = "يُرجى اختيار الموظف أولاً.";
+            return;
+        }
+
+        if (editorLeaveTypeId <= 0)
+        {
+            editorErrorMessage = "يُرجى اختيار نوع الإجازة.";
+            return;
+        }
+
+        if (editorEndDate < editorStartDate)
+        {
+            editorErrorMessage = "تاريخ الانتهاء لا يمكن أن يكون قبل تاريخ البدء.";
+            return;
+        }
+
+        if (editorDaysCount <= 0)
+        {
+            editorErrorMessage = "عدد الأيام يجب أن يكون يوماً واحداً على الأقل.";
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            if (editingLeaveId.HasValue)
+            {
+                var existing = await db.EmployeeLeaves.FirstOrDefaultAsync(l => l.Id == editingLeaveId.Value);
+                if (existing is null)
+                {
+                    editorErrorMessage = "السجل المطلوب تعديله غير موجود.";
+                    return;
+                }
+
+                existing.LeaveTypeId = editorLeaveTypeId;
+                existing.StartDate = editorStartDate;
+                existing.EndDate = editorEndDate;
+                existing.DaysCount = editorDaysCount;
+                existing.OrderNumber = editorOrderNumber?.Trim();
+                existing.OrderDate = editorOrderDate;
+                existing.Notes = editorNotes?.Trim();
+                existing.Status = editorStatus;
+
+                await db.SaveChangesAsync();
+                ShowToast("تم تعديل سجل الإجازة بنجاح.", true);
+            }
+            else
+            {
+                var newLeave = new EmployeeLeave
+                {
+                    EmployeeId = editorSelectedEmployee.Id,
+                    LeaveTypeId = editorLeaveTypeId,
+                    StartDate = editorStartDate,
+                    EndDate = editorEndDate,
+                    DaysCount = editorDaysCount,
+                    OrderNumber = editorOrderNumber?.Trim(),
+                    OrderDate = editorOrderDate,
+                    Notes = editorNotes?.Trim(),
+                    Status = editorStatus,
+                    CreatedAtUtc = DateTimeOffset.UtcNow
+                };
+
+                db.EmployeeLeaves.Add(newLeave);
+                await db.SaveChangesAsync();
+                ShowToast("تم تسجيل الإجازة بنجاح.", true);
+            }
+
+            CloseEditor();
+            await LoadDataAsync();
+
+            if (isDossierOpen && dossierEmployee?.Id == editorSelectedEmployee.Id)
+            {
+                await OpenEmployeeDossier(dossierEmployee.EmployeeID);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed saving employee leave");
+            editorErrorMessage = "حدث خطأ أثناء حفظ الإجازة في قاعدة البيانات.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    // ---------- Delete ----------
+    private void PromptDeleteLeave(EmployeeLeave item)
+    {
+        leaveToDelete = item;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (leaveToDelete is null) return;
+        isDeleting = true;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var record = await db.EmployeeLeaves.FirstOrDefaultAsync(l => l.Id == leaveToDelete.Id);
+            if (record is not null)
+            {
+                db.EmployeeLeaves.Remove(record);
+                await db.SaveChangesAsync();
+                ShowToast("تم حذف سجل الإجازة بنجاح.", true);
+            }
+
+            var deletedEmpId = leaveToDelete.Employee?.EmployeeID;
+            leaveToDelete = null;
+            await LoadDataAsync();
+
+            if (isDossierOpen && !string.IsNullOrWhiteSpace(deletedEmpId))
+            {
+                await OpenEmployeeDossier(deletedEmpId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed deleting leave record {Id}", leaveToDelete?.Id);
+            ShowToast("تعذّر حذف السجل بسبب خطأ في النظام.", false);
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    // ---------- Formatting Helpers ----------
+    private static string N(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string Or(string? value, string fallback = "—") =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    private static string D(DateOnly? date) =>
+        date?.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture) ?? "—";
+
+    private static string AvatarTone(string? employeeId)
+    {
+        // Steps on the brand ramp, as in EmployeeDirectory and EmployeeGallery.
+        // The old hsl(hue 55% 40%) put white initials on fills as weak as
+        // 2.84:1 (yellow-green hues) and ignored the brand and theme.
+        var tones = new[] { "var(--b-800)", "var(--b-700)", "var(--b-600)", "var(--b-500)" };
+
+        var sum = 0;
+        foreach (var ch in employeeId ?? string.Empty)
+        {
+            sum = (sum * 31 + ch) & 0x7fffffff;
+        }
+
+        return tones[sum % tones.Length];
+    }
+
+    private static string LeaveTypeBadgeClass(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)) return string.Empty;
+        if (typeName.Contains("مرض")) return "hr-badge-warn";
+        if (typeName.Contains("اعتياد")) return "hr-badge-ok";
+        if (typeName.Contains("دراس")) return "hr-badge-accent";
+        if (typeName.Contains("أمومة") || typeName.Contains("وضع")) return "hr-badge-ok";
+        if (typeName.Contains("بدون راتب")) return "hr-badge-danger";
+        return string.Empty;
+    }
+
+    private static string FormatServiceLength(DateOnly? hireDate)
+    {
+        if (hireDate is null) return "غير محدد";
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (hireDate > today) return "لم تبدأ بعد";
+
+        var years = today.Year - hireDate.Value.Year;
+        var months = today.Month - hireDate.Value.Month;
+        if (months < 0) { years--; months += 12; }
+
+        if (years > 0) return $"{years} سنة{(months > 0 ? $" و {months} شهر" : "")}";
+        return $"{months} شهر";
+    }
+
+    private void ShowToast(string message, bool success)
+    {
+        toastMessage = message;
+        toastIsSuccess = success;
+
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+        toastCts = new CancellationTokenSource();
+        var token = toastCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(5000, token);
+                if (token.IsCancellationRequested) return;
+                toastMessage = null;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (TaskCanceledException) { }
+        });
+
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        lookupCts?.Cancel();
+        lookupCts?.Dispose();
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+    }
+
+    private sealed class LeaveTypeSummary
+    {
+        public string TypeName { get; set; } = string.Empty;
+        public int TotalDays { get; set; }
+        public int Count { get; set; }
+    }
+}

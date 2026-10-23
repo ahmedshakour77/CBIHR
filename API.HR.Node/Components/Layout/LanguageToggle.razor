@@ -1,0 +1,18 @@
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@*
+    Language switch (Arabic <-> Kurdish Sorani).
+
+    Works across static SSR and interactive mode:
+    js/lang.js sets cookie 'hr-lang' and reloads the page so the server
+    renders the shell and interactive pages in the chosen language.
+*@
+
+<button type="button"
+        class="hr-btn hr-btn-quiet hr-lang-toggle"
+        data-hr-lang-toggle
+        aria-label="@(Lang.IsKurdish ? "گۆڕین بۆ زمانی عەرەبی" : "التحويل إلى اللغة الكردية")"
+        title="@(Lang.IsKurdish ? "گۆڕین بۆ زمانی عەرەبی" : "التحويل إلى اللغة الكردية")">
+    <Icon Name="language" Size="xs" />
+    <span class="hr-lang-label">@(Lang.IsKurdish ? "کوردی" : "عربي")</span>
+</button>

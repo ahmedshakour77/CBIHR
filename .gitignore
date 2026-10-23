@@ -1,0 +1,122 @@
+# ==============================================================================
+# .gitignore for API.HR.Node (.NET 10 / Blazor / Visual Studio Solution)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Build, Compiler Outputs & Packages
+# ------------------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Pp]ublish/
+**/[Bb]in/
+**/[Oo]bj/
+**/[Oo]ut/
+**/[Pp]ublish/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+bld/
+[Bb]uild/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ------------------------------------------------------------------------------
+# Visual Studio & IDEs
+# ------------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.launchSettings.json.user
+*.dotCover
+
+# ------------------------------------------------------------------------------
+# ASP.NET Core Runtime Data, Keys & Storage
+# ------------------------------------------------------------------------------
+**/App_Data/
+**/App_Data/**
+**/DataProtection-Keys/
+**/Storage/ProfilePhotos/
+**/Storage/Uploads/
+
+# ------------------------------------------------------------------------------
+# Secrets & Environment Configurations
+# ------------------------------------------------------------------------------
+**/secrets.json
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.Production.json
+**/appsettings.*.local.json
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------------------------
+# Logs, Diagnostic Dumps & Traces
+# ------------------------------------------------------------------------------
+logs/
+**/logs/
+*.log
+*.log.*
+*.dmp
+*.crash
+*.trc
+
+# ------------------------------------------------------------------------------
+# Temporary, Scratch & Local Scripts
+# ------------------------------------------------------------------------------
+**/scratch/
+scratch/
+temp/
+tmp/
+*.tmp
+*.bak
+
+# ------------------------------------------------------------------------------
+# AI Agent Workspaces, Tooling & Reviews
+# ------------------------------------------------------------------------------
+.claude/
+.impeccable/
+.archify/
+.archive/
+.gemini/
+.agents/
+
+# ------------------------------------------------------------------------------
+# Database Artifacts & Backups
+# ------------------------------------------------------------------------------
+*.mdf
+*.ldf
+*.ndf
+*.db-shm
+*.db-wal
+
+# ------------------------------------------------------------------------------
+# Node & Frontend Build Tools (if applicable)
+# ------------------------------------------------------------------------------
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ------------------------------------------------------------------------------
+# Operating System Files
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini

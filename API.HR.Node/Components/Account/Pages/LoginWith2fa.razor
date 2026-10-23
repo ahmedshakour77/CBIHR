@@ -1,0 +1,130 @@
+﻿@page "/Account/LoginWith2fa"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+@inject ILogger<LoginWith2fa> Logger
+
+<PageTitle>التحقق بخطوتين | منظومة الموارد البشرية</PageTitle>
+
+@*
+    The code field carries inputmode="numeric" and autocomplete="one-time-code",
+    so phones open the number pad and can offer the code straight from the
+    notification instead of making the user memorise six digits.
+*@
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="shield-check" Size="sm" /></span>
+                <div class="hr-idcell-text">
+                    <h1 class="hr-h2">التحقق بخطوتين</h1>
+                    <p class="hr-meta" style="margin-block-start:.25rem">أدخل الرمز من تطبيق المصادقة</p>
+                </div>
+            </div>
+        </div>
+
+        <EditForm Model="Input" FormName="login-with-2fa" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+            <input type="hidden" name="RememberMe" value="@RememberMe" />
+            <DataAnnotationsValidator />
+
+            <div class="hr-card-body">
+                <StatusMessage Message="@message" />
+                <ValidationSummary class="hr-error-summary" role="alert" />
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="Input.TwoFactorCode">
+                        رمز التحقق <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                    </label>
+                    <InputText @bind-Value="Input.TwoFactorCode" id="Input.TwoFactorCode"
+                               class="hr-input hr-num hr-otp" dir="ltr"
+                               inputmode="numeric" autocomplete="one-time-code"
+                               aria-required="true" aria-describedby="otp-help" />
+                    <ValidationMessage For="() => Input.TwoFactorCode" class="hr-error" />
+                    <p id="otp-help" class="hr-help">رمز مكوّن من ستة أرقام يتغيّر كل ثلاثين ثانية.</p>
+                </div>
+
+                <label class="hr-check">
+                    <InputCheckbox @bind-Value="Input.RememberMachine" id="remember-machine" />
+                    <span class="hr-label">تذكّر هذا الجهاز</span>
+                </label>
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap">
+                <a class="hr-btn hr-btn-quiet hr-btn-sm" href="Account/LoginWithRecoveryCode?ReturnUrl=@ReturnUrl">
+                    <Icon Name="key" Size="xs" />
+                    <span>الدخول برمز الاسترداد</span>
+                </a>
+                <button type="submit" class="hr-btn hr-btn-primary">
+                    <Icon Name="arrow-right-on-rectangle" Size="xs" />
+                    <span>تسجيل الدخول</span>
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private string? message;
+    private ApplicationUser user = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    private bool RememberMe { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        // Ensure the user has gone through the username & password screen first
+        user = await SignInManager.GetTwoFactorAuthenticationUserAsync() ??
+            throw new InvalidOperationException("Unable to load two-factor authentication user.");
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        var authenticatorCode = Input.TwoFactorCode!.Replace(" ", string.Empty).Replace("-", string.Empty);
+        var result = await SignInManager.TwoFactorAuthenticatorSignInAsync(authenticatorCode, RememberMe, Input.RememberMachine);
+        var userId = await UserManager.GetUserIdAsync(user);
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("User with ID '{UserId}' logged in with 2fa.", userId);
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("User with ID '{UserId}' account locked out.", userId);
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            Logger.LogWarning("Invalid authenticator code entered for user with ID '{UserId}'.", userId);
+            message = "Error: رمز التحقق غير صحيح. تأكد من الرمز المعروض حالياً في تطبيق المصادقة.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "أدخل رمز التحقق.")]
+        [StringLength(7, ErrorMessage = "يتكوّن الرمز من {2} إلى {1} خانات.", MinimumLength = 6)]
+        [DataType(DataType.Text)]
+        [Display(Name = "رمز التحقق")]
+        public string? TwoFactorCode { get; set; }
+
+        [Display(Name = "تذكّر هذا الجهاز")]
+        public bool RememberMachine { get; set; }
+    }
+}

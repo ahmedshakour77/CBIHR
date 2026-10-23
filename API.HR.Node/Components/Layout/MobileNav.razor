@@ -1,0 +1,140 @@
+@rendermode InteractiveServer
+@implements IDisposable
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@*
+    The narrow-screen half of the navigation: the trigger and the drawer it
+    opens, kept together in one interactive island.
+
+    The layout around it renders statically, which is right for a shell made
+    of links — but a drawer needs state, so it lives here rather than forcing
+    the whole shell onto a circuit.
+
+    Both the trigger and the panel are hidden by CSS at >=1024px, where the
+    persistent rail takes over; there is never more than one navigation
+    surface on screen at a time.
+*@
+
+<button type="button"
+        class="hr-btn hr-btn-quiet hr-btn-icon hr-drawer-only"
+        @onclick="Open"
+        aria-label="@Lang.T("nav.open", "فتح قائمة التنقل")"
+        aria-haspopup="dialog"
+        aria-expanded="@(isOpen ? "true" : "false")">
+    <Icon Name="bars-3" />
+</button>
+
+@if (isOpen)
+{
+    <div class="hr-scrim hr-drawer-only" @onclick="Close" aria-hidden="true"></div>
+
+    <div class="hr-drawer hr-drawer-only"
+         role="dialog"
+         aria-modal="true"
+         aria-label="@Lang.T("nav.drawer", "التنقل")"
+         @onkeydown="OnKeyDown"
+         @ref="panel"
+         tabindex="-1">
+
+        <div class="hr-drawer-head">
+            <span class="hr-h3">@Lang.T("nav.drawer", "التنقل")</span>
+            <button type="button"
+                    class="hr-btn hr-btn-quiet hr-btn-icon"
+                    @onclick="Close"
+                    aria-label="@Lang.T("nav.close", "إغلاق قائمة التنقل")">
+                <Icon Name="x-mark" />
+            </button>
+        </div>
+
+        <div class="hr-drawer-body">
+            <NavMenu Groups="Groups" ShowTools="ShowTools" OnNavigate="Close" />
+        </div>
+
+        <div style="padding: var(--s-3); border-block-start: 1px solid var(--line); margin-block-start: auto;">
+            <AuthorizeView>
+                <Authorized>
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap: var(--s-2);">
+                        <div style="display:flex; align-items:center; gap: var(--s-2); min-width: 0;">
+                            <UserAvatar EmployeeId="@context.User.FindFirst("employee_id")?.Value"
+                                        UserName="@context.User.Identity?.Name"
+                                        Size="sm" />
+                            <div style="display:flex; flex-direction:column; min-width: 0;">
+                                <span class="hr-truncate" style="font-size:var(--fs-control); font-weight:600;">@(context.User.Identity?.Name ?? Lang.T("auth.user", "المستخدم"))</span>
+                                <span style="font-size:var(--fs-caption); color: var(--text-3);">@(context.User.IsInRole("Admin") ? Lang.T("auth.admin", "مسؤول النظام") : Lang.T("auth.employee", "موظف"))</span>
+                            </div>
+                        </div>
+                        <form action="Account/Logout" method="post" style="margin:0;">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="ReturnUrl" value="@CurrentPath" />
+                            <button type="submit" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" aria-label="@Lang.T("auth.logout", "تسجيل الخروج")" title="@Lang.T("auth.logout", "تسجيل الخروج")">
+                                <Icon Name="arrow-right-on-rectangle" Size="sm" />
+                            </button>
+                        </form>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="hr-btn hr-btn-primary hr-btn-sm hr-btn-block" href="Account/Login">
+                        <Icon Name="lock-closed" Size="xs" />
+                        <span>@Lang.T("auth.login", "تسجيل الدخول")</span>
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </div>
+}
+
+@code {
+    private string CurrentPath => Nav.ToBaseRelativePath(Nav.Uri);
+
+    /// <summary>Optional navigation groups. Defaults to NavCatalog.All.</summary>
+    [Parameter] public IReadOnlyList<NavGroup>? Groups { get; set; }
+
+    /// <summary>Whether to show the tools section in mobile menu.</summary>
+    [Parameter] public bool ShowTools { get; set; } = true;
+
+    private bool isOpen;
+    private ElementReference panel;
+    private bool shouldFocus;
+
+    protected override void OnInitialized() => Nav.LocationChanged += OnLocationChanged;
+
+    private void Open()
+    {
+        isOpen = true;
+        shouldFocus = true;
+    }
+
+    private void Close() => isOpen = false;
+
+    // Escape is the expected way out of any dismissible overlay.
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            Close();
+        }
+    }
+
+    // Move focus into the panel when it opens, so keyboard and screen
+    // reader users land inside the dialog rather than behind it.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (shouldFocus && isOpen)
+        {
+            shouldFocus = false;
+            await panel.FocusAsync();
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (isOpen)
+        {
+            isOpen = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

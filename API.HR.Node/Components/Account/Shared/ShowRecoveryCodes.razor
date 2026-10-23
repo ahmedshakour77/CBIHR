@@ -1,0 +1,60 @@
+﻿@*
+    Recovery codes are shown exactly once, so the page has to make copying
+    them easy and losing them hard: tabular figures, one code per cell, and
+    the consequence stated above rather than below the list.
+*@
+
+<div class="hr-stack-sm">
+    <StatusMessage Message="@StatusMessage" />
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true">
+                    <Icon Name="key" Size="sm" />
+                </span>
+                <div class="hr-idcell-text">
+                    <h2 class="hr-h2">رموز الاسترداد</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        <span class="hr-num">@RecoveryCodes.Length</span> رمزاً — يُستخدم كل رمز مرة واحدة
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card-body">
+            <div class="hr-alert hr-alert-warn" role="alert">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div>
+                    <p class="hr-alert-title">لن تظهر هذه الرموز مرة أخرى</p>
+                    <p style="margin-block-start:.25rem">
+                        احفظها في مكان آمن الآن. إن فقدت جهازك ولم تكن لديك هذه الرموز،
+                        ستفقد إمكانية الوصول إلى حسابك.
+                    </p>
+                </div>
+            </div>
+
+            <ul class="hr-codegrid" style="margin-block-start:1rem">
+                @foreach (var recoveryCode in RecoveryCodes)
+                {
+                    <li><code class="hr-code hr-num">@recoveryCode</code></li>
+                }
+            </ul>
+        </div>
+
+        <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+            <a class="hr-btn hr-btn-primary" href="Account/Manage/TwoFactorAuthentication">
+                <Icon Name="check" Size="xs" />
+                <span>حفظتُ الرموز، متابعة</span>
+            </a>
+        </div>
+    </section>
+</div>
+
+@code {
+    [Parameter]
+    public string[] RecoveryCodes { get; set; } = [];
+
+    [Parameter]
+    public string? StatusMessage { get; set; }
+}

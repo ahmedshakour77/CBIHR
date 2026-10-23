@@ -1,0 +1,17 @@
+@inherits LayoutComponentBase
+
+@*
+    Chrome-free shell.
+
+    For pages that own the whole viewport — the presentation view, and the
+    account screens that stand outside the app's navigation. Same tokens,
+    same typeface, same theme as everything else; it simply omits the rail
+    and the header rather than substituting a different look.
+
+    AuthLayout is deliberately left alone: the sign-in screen is out of
+    scope for this redesign and keeps its own treatment.
+*@
+
+<div class="hr-app hr-focus">
+    @Body
+</div>

@@ -1,0 +1,38 @@
+@*
+    One 100% bar split by value, legend beneath. For a field read as parts
+    of a whole in a fixed order (generations, employment status).
+*@
+<div class="hr-viz-stack">
+    @if (Total == 0)
+    {
+        <p class="hr-viz-empty">@Viz.NoData(Lang.IsKurdish)</p>
+    }
+    else
+    {
+        <div class="hr-viz-stack-bar" role="img" aria-label="@string.Join("، ", Slices.Select(s => $"{Viz.Display(s.Name, Lang.IsKurdish)} {Viz.Pct(s.Count, Total)}"))">
+            @for (var i = 0; i < Slices.Count; i++)
+            {
+                var s = Slices[i];
+                <span @key="s.Name" class="hr-viz-stack-seg @Viz.Series(i) @(Selected?.Contains(s.Name) == true ? "is-on" : null)"
+                      style="flex-grow:@s.Count" title="@Viz.Display(s.Name, Lang.IsKurdish): @s.Count.ToString("N0")"></span>
+            }
+        </div>
+        <VizLegend Slices="Slices" Total="Total" Selected="Selected" OnPick="OnPick" Label="@Label" Row="true" />
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Items { get; set; } = [];
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public int MaxSlices { get; set; } = 6;
+
+    private int Total => Slices.Sum(i => i.Count);
+    private List<StatItem> Slices = [];
+
+    protected override void OnParametersSet()
+    {
+        Slices = Viz.Fold(Items, MaxSlices - 1, Selected);
+    }
+}

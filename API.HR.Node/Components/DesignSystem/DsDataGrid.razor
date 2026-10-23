@@ -1,0 +1,244 @@
+@namespace API.HR.Node.Components.DesignSystem
+@typeparam TItem
+@using API.HR.Node.Services.DesignSystem
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+<div class="@ComputedGridClass" @attributes="AdditionalAttributes">
+
+    @* ---------- 1. Toolbar ---------- *@
+    <header class="hr-table-toolbar">
+        <div class="hr-table-toolbar-start">
+            @if (!string.IsNullOrEmpty(Title))
+            {
+                <div class="hr-table-heading">
+                    <h3 class="hr-table-title">@Title</h3>
+                    @if (TotalCount.HasValue)
+                    {
+                        <span class="hr-badge hr-badge-accent hr-num">
+                            @TotalCount.Value.ToString("N0") @CountLabel
+                        </span>
+                    }
+                </div>
+            }
+
+            @if (Searchable)
+            {
+                <div class="hr-table-search">
+                    <Icon Name="magnifying-glass" Size="xs" />
+                    <input type="search"
+                           placeholder="@SearchPlaceholder"
+                           value="@currentSearch"
+                           @oninput="HandleSearchInput"
+                           aria-label="@SearchPlaceholder" />
+                    @if (!string.IsNullOrEmpty(currentSearch))
+                    {
+                        <button type="button"
+                                class="hr-table-search-clear"
+                                @onclick="ClearSearch"
+                                aria-label="@Lang.T("grid.clear_search", "مسح البحث")">
+                            <Icon Name="x-mark" Size="xs" />
+                        </button>
+                    }
+                </div>
+            }
+
+            @if (FilterBar != null)
+            {
+                @FilterBar
+            }
+        </div>
+
+        <div class="hr-table-toolbar-end">
+            @if (AllowDensityToggle)
+            {
+                <div class="hr-density-selector" role="group" aria-label="@Lang.T("grid.density", "كثافة الجدول")">
+                    <button type="button"
+                            class="hr-density-btn @(Density == GridDensity.Compact ? "is-active" : "")"
+                            @onclick="() => SetDensity(GridDensity.Compact)"
+                            aria-pressed="@(Density == GridDensity.Compact ? "true" : "false")"
+                            aria-label="@Lang.T("grid.density.compact", "عرض مضغوط")"
+                            title="@Lang.T("grid.density.compact", "عرض مضغوط")">
+                        <Icon Name="bars-3" Size="xs" />
+                    </button>
+                    <button type="button"
+                            class="hr-density-btn @(Density == GridDensity.Comfortable ? "is-active" : "")"
+                            @onclick="() => SetDensity(GridDensity.Comfortable)"
+                            aria-pressed="@(Density == GridDensity.Comfortable ? "true" : "false")"
+                            aria-label="@Lang.T("grid.density.comfortable", "عرض مريح")"
+                            title="@Lang.T("grid.density.comfortable", "عرض مريح")">
+                        @* bars-4 is not in the icon set and rendered nothing. *@
+                        <Icon Name="rectangle-stack" Size="xs" />
+                    </button>
+                </div>
+            }
+
+            @if (ToolbarActions != null)
+            {
+                @ToolbarActions
+            }
+        </div>
+    </header>
+
+    @* ---------- 2. Bulk Action Bar (when rows selected) ---------- *@
+    @if (SelectedItems.Any() && BulkActions != null)
+    {
+        <div class="hr-bulk-bar" role="toolbar" aria-label="@Lang.T("grid.bulk", "إجراءات جماعية")">
+            <span class="hr-bulk-count">
+                تم تحديد <strong class="hr-num">@SelectedItems.Count</strong> عنصر
+            </span>
+            <div class="hr-bulk-actions">
+                @BulkActions
+            </div>
+            <button type="button"
+                    class="hr-btn hr-btn-quiet hr-btn-sm"
+                    @onclick="ClearSelection">
+                إلغاء التحديد
+            </button>
+        </div>
+    }
+
+    @* ---------- 3. Table / Responsive Card Container ---------- *@
+    @if (Loading)
+    {
+        <div class="hr-table-skeleton" aria-hidden="true">
+            <DsSkeleton Type="DsSkeleton.SkeletonType.Row" Count="5" Height="3.5rem" />
+        </div>
+    }
+    else if (Items == null || !Items.Any())
+    {
+        <DsEmptyState Title="@EmptyTitle"
+                     Description="@EmptyDescription"
+                     IconName="inbox">
+            @EmptyAction
+        </DsEmptyState>
+    }
+    else
+    {
+        <!-- Desktop / Wide View Table -->
+        <div class="hr-table-scroll">
+            <table class="hr-table @DensityClass">
+                @if (HeaderContent != null)
+                {
+                    <thead>
+                        @HeaderContent
+                    </thead>
+                }
+                <tbody>
+                    @foreach (var item in Items)
+                    {
+                        var key = KeySelector != null ? KeySelector(item) : item?.GetHashCode();
+                        <tr @key="key" class="@(IsSelected(item) ? "is-row-selected" : "")">
+                            @RowTemplate(item)
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Mobile / Tablet Responsive Cards -->
+        @if (CardTemplate != null)
+        {
+            <div class="hr-table-cards">
+                @foreach (var item in Items)
+                {
+                    var key = KeySelector != null ? KeySelector(item) : item?.GetHashCode();
+                    <div @key="key" class="hr-table-card @(IsSelected(item) ? "is-card-selected" : "")">
+                        @CardTemplate(item)
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    @* ---------- 4. Pagination / Footer ---------- *@
+    @if (PaginationContent != null)
+    {
+        <footer class="hr-table-pagination">
+            @PaginationContent
+        </footer>
+    }
+
+</div>
+
+@code {
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public int? TotalCount { get; set; }
+    [Parameter] public string CountLabel { get; set; } = "نتيجة";
+    [Parameter] public IReadOnlyList<TItem>? Items { get; set; }
+    [Parameter] public Func<TItem, object>? KeySelector { get; set; }
+
+    [Parameter] public bool Searchable { get; set; } = true;
+    [Parameter] public string SearchPlaceholder { get; set; } = "بحث سريع…";
+    [Parameter] public EventCallback<string> OnSearch { get; set; }
+
+    [Parameter] public bool AllowDensityToggle { get; set; } = true;
+    [Parameter] public GridDensity Density { get; set; } = GridDensity.Comfortable;
+    [Parameter] public EventCallback<GridDensity> DensityChanged { get; set; }
+
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string EmptyTitle { get; set; } = "لا توجد بيانات";
+    [Parameter] public string EmptyDescription { get; set; } = "لم يتم العثور على أي نتائج مطابقة للتصفية الحالية.";
+    [Parameter] public RenderFragment? EmptyAction { get; set; }
+
+    [Parameter] public HashSet<TItem> SelectedItems { get; set; } = new();
+    [Parameter] public EventCallback<HashSet<TItem>> SelectedItemsChanged { get; set; }
+
+    [Parameter] public RenderFragment? HeaderContent { get; set; }
+    [Parameter, EditorRequired] public RenderFragment<TItem> RowTemplate { get; set; } = default!;
+    [Parameter] public RenderFragment<TItem>? CardTemplate { get; set; }
+    [Parameter] public RenderFragment? FilterBar { get; set; }
+    [Parameter] public RenderFragment? ToolbarActions { get; set; }
+    [Parameter] public RenderFragment? BulkActions { get; set; }
+    [Parameter] public RenderFragment? PaginationContent { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string currentSearch = "";
+
+    private string ComputedGridClass => string.IsNullOrEmpty(Class) ? "hr-datagrid-wrap" : $"hr-datagrid-wrap {Class}";
+
+    private string DensityClass => Density switch
+    {
+        GridDensity.Compact => "hr-table-compact",
+        GridDensity.Spacious => "hr-table-spacious",
+        _ => string.Empty            // comfortable is the table's own default
+    };
+
+    private bool IsSelected(TItem item) => SelectedItems.Contains(item);
+
+    private async Task SetDensity(GridDensity d)
+    {
+        Density = d;
+        if (DensityChanged.HasDelegate)
+        {
+            await DensityChanged.InvokeAsync(d);
+        }
+    }
+
+    private async Task HandleSearchInput(ChangeEventArgs e)
+    {
+        currentSearch = e.Value?.ToString() ?? "";
+        if (OnSearch.HasDelegate)
+        {
+            await OnSearch.InvokeAsync(currentSearch);
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        currentSearch = "";
+        if (OnSearch.HasDelegate)
+        {
+            await OnSearch.InvokeAsync("");
+        }
+    }
+
+    private async Task ClearSelection()
+    {
+        SelectedItems.Clear();
+        if (SelectedItemsChanged.HasDelegate)
+        {
+            await SelectedItemsChanged.InvokeAsync(SelectedItems);
+        }
+    }
+}

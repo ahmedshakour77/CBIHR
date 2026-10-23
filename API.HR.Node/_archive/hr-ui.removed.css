@@ -1,0 +1,392 @@
+/* Rules pruned from API.HR.Node/wwwroot/hr-ui.css because nothing in the repo
+   referenced their class names. Kept because this project has no
+   version control. Pruned 2026-09-20. */
+
+
+
+.hr-display { font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2rem); font-weight: 700; line-height: 1.2;  letter-spacing: -0.02em;  color: var(--text); }
+
+
+.hr-nav-count {
+    margin-inline-start: auto;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 2px var(--s-2);
+    border-radius: var(--r-full);
+    background: var(--surface-inset);
+    color: var(--text-3);
+}
+
+.hr-stack-lg > * + * { margin-block-start: var(--s-8); }
+
+
+.hr-card-flat  { box-shadow: none; }
+
+
+.hr-btn-tinted { background: var(--accent-tint); color: var(--accent-ink); }
+
+.hr-btn-tinted:hover:not(:disabled) { background: var(--accent-tint-2); }
+
+
+.hr-table-num { font-family: 'Inter', ui-monospace, monospace; font-variant-numeric: tabular-nums; text-align: start; }
+
+.hr-menu-item-danger { color: var(--danger); }
+
+.hr-menu-item-danger:hover { background: var(--danger-tint); }
+
+.hr-avatar-xl { width: 4.5rem;  height: 4.5rem;  font-size: 1.25rem; }
+
+
+.hr-kbd {
+    display: inline-block;
+    padding: 1px var(--s-2);
+    border: 1px solid var(--line-control);
+    border-block-end-width: 2px;
+    border-radius: var(--r-xs);
+    background: var(--surface-sunken);
+    font-family: 'Inter', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--text-3);
+}
+
+
+.hr-deck-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2) var(--s-5);
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-3);
+}
+
+
+.hr-legend-side { display: inline-flex; align-items: center; gap: var(--s-2); }
+
+
+.hr-deck-grid {
+    display: grid;
+    gap: clamp(var(--s-3), 2.2vh, var(--s-5)) var(--s-5);
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+
+.hr-deck-count-sm { font-size: min(clamp(1.25rem, 0.9rem + 1.4vw, 2rem), 4.4vh); }
+
+
+/* Reading and chart side by side once there is width for it. Stacked, the
+   narrative alone costs about a third of a screen before the pyramid even
+   starts; beside it, that height is free. */
+.hr-pyramid-layout {
+    display: grid;
+    gap: clamp(var(--s-4), 2.5vh, var(--s-6)) var(--s-8);
+    grid-template-columns: 1fr;
+    min-height: 0;
+}
+
+
+@media (min-width: 64rem) {
+    .hr-pyramid-layout {
+        grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+        align-items: start;
+    }
+}
+
+
+.hr-pyramid-aside { min-width: 0; }
+
+.hr-pyramid-chart { min-width: 0; }
+
+
+/* The shape the pyramid falls into is the headline; the bands beside it
+   are the evidence. Read the name first, from across the room. */
+.hr-pyramid-type {
+    margin-block-end: clamp(var(--s-3), 2vh, var(--s-5));
+    padding-inline-start: var(--s-4);
+    border-inline-start: 4px solid var(--accent);
+}
+
+
+.hr-pyramid-type-name {
+    margin: 0;
+    font-size: min(clamp(1.25rem, 0.9rem + 1.4vw, 2.125rem), 4.8vh);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text);
+}
+
+
+.hr-pyramid-type-lead {
+    margin: var(--s-2) 0 0;
+    max-width: 68ch;
+    font-size: min(clamp(0.8125rem, 0.75rem + 0.45vw, 1.125rem), 2.6vh);
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--text-2);
+}
+
+
+.hr-pyramid-type-note {
+    margin: var(--s-2) 0 0;
+    font-size: clamp(0.8125rem, 0.75rem + 0.35vw, 1rem);
+    font-weight: 700;
+    color: var(--text-3);
+}
+
+
+/* The tier shares that the classification is read from. */
+.hr-deck-summary {
+    display: grid;
+    gap: clamp(var(--s-2), 1.6vh, var(--s-4));
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    margin: 0;
+    padding: clamp(var(--s-3), 1.8vh, var(--s-4)) var(--s-4);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface-sunken);
+}
+
+
+.hr-deck-summary-item { min-width: 0; text-align: center; }
+
+
+.hr-deck-summary-item dt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-2);
+    font-size: clamp(0.75rem, 0.7rem + 0.25vw, 0.9375rem);
+    font-weight: 600;
+    color: var(--text-3);
+}
+
+
+/* The figures here are Arabic-Indic, so they stay on the system stack —
+   the Latin tabular face used elsewhere has no coverage for them. */
+.hr-deck-summary-item dd {
+    margin: 0;
+    margin-block-start: var(--s-1);
+    font-size: min(clamp(1.25rem, 0.95rem + 1.2vw, 2.125rem), 4.4vh);
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text);
+}
+
+
+.hr-deck-summary-unit {
+    margin-inline-start: 0.25rem;
+    font-size: 0.42em;
+    font-weight: 600;
+    color: var(--text-3);
+}
+
+
+.hr-deck-summary-item dd.hr-deck-summary-text {
+    font-size: clamp(1.0625rem, 0.85rem + 0.8vw, 1.625rem);
+    line-height: 1.3;
+}
+
+
+/* Count on the outside, bar on the inside, on both sides — so the two
+   halves are reflections rather than two bar charts sharing a column. */
+.hr-pyramid-side { display: flex; align-items: center; gap: var(--s-3); width: 38%; }
+
+
+.hr-pyramid-value {
+    flex: none;
+    min-width: 3.5rem;
+    font-family: inherit;
+    font-size: min(clamp(0.9375rem, 0.8rem + 0.7vw, 1.4375rem), 3vh);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text);
+}
+
+
+.hr-pyramid-track {
+    position: relative;
+    flex: 1;
+    height: clamp(0.625rem, 2.1vh, 1.5rem);
+    background: var(--surface-inset);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+}
+
+
+.hr-pyramid-band {
+    width: 24%;
+    padding-inline: var(--s-3);
+    text-align: center;
+}
+
+
+/* The band cell stacks two or three lines and so sets the row height for
+   the whole table. Its leading is set tight and explicitly here rather
+   than inherited from body copy, which is what nine rows can afford. */
+.hr-pyramid-band-label {
+    display: block;
+    font-size: min(clamp(0.8125rem, 0.74rem + 0.5vw, 1.25rem), 2.8vh);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--accent-ink);
+    white-space: nowrap;
+}
+
+
+/* One meaning per position: the bar is a headcount against the largest
+   band, so the share of the whole workforce is stated here in words
+   rather than left to be inferred from a length. */
+.hr-pyramid-band-share {
+    display: block;
+    margin-block-start: 1px;
+    font-size: min(clamp(0.6875rem, 0.65rem + 0.25vw, 0.875rem), 1.9vh);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-3);
+    white-space: nowrap;
+}
+
+
+.hr-pyramid-band-note {
+    display: block;
+    margin-block-start: 1px;
+    font-size: min(clamp(0.625rem, 0.6rem + 0.2vw, 0.8125rem), 1.7vh);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--warn);
+}
+
+
+/* Reference typology. Three silhouettes drawn from stacked bars rather
+   than artwork, so they inherit the palette and the theme for free. */
+.hr-shapelist {
+    display: grid;
+    gap: clamp(var(--s-1), 0.9vh, var(--s-2));
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    list-style: none;
+    margin: clamp(var(--s-3), 2vh, var(--s-5)) 0 0;
+    padding: 0;
+}
+
+
+/* In the narrow aside the three types read as a stacked key, not a row —
+   two columns would leave the third card orphaned on its own line. */
+.hr-pyramid-aside .hr-shapelist { grid-template-columns: 1fr; }
+
+
+.hr-shapecard {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: clamp(var(--s-1), 0.9vh, var(--s-3)) var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    background: var(--surface-sunken);
+}
+
+
+.hr-shape {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 2.75rem;
+}
+
+
+.hr-shape-bar {
+    height: 0.3125rem;
+    border-radius: 1px;
+    background: var(--line-control);
+}
+
+
+.hr-shape-name {
+    font-size: clamp(0.8125rem, 0.75rem + 0.35vw, 1rem);
+    font-weight: 700;
+    color: var(--text-2);
+}
+
+
+.hr-shape-flag {
+    flex: none;
+    margin-inline-start: auto;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--accent-ink);
+}/* Rules pruned from API.HR.Node/wwwroot/hr-ui.css because nothing in the repo
+   referenced their class names. Kept because this project has no
+   version control. Pruned 2026-09-20. */
+
+
+
+.hr-nav-item.active .hr-nav-count { background: var(--surface); color: var(--accent-ink); }
+
+
+.hr-pyramid-a .hr-pyramid-value { text-align: start; }
+
+.hr-pyramid-b .hr-pyramid-value { text-align: end; }
+
+.hr-pyramid tbody tr.is-retirement .hr-pyramid-band-label { color: var(--warn); }
+
+
+/* The match is announced by the phrase inside the card; the tint only
+   agrees with it. */
+.hr-shapecard.is-current {
+    border-color: var(--accent-quiet);
+    background: var(--accent-tint);
+}
+
+
+.hr-shapecard.is-current .hr-shape-bar { background: var(--accent); }
+
+[data-theme="dark"] .hr-shapecard.is-current .hr-shape-bar { background: var(--b-200); }
+
+
+.hr-shapecard.is-current .hr-shape-name { color: var(--accent-ink); }
+
+/* Superseded table-based age pyramid (replaced by the flex pyramid in 23b) */
+/* Age pyramid as a real table: the numbers are the content, the bars are
+   an overlay on top of them. */
+.hr-pyramid { width: 100%; border-collapse: collapse; }
+.hr-pyramid thead th { padding-block-end: var(--s-3); font-size: 0.75rem; font-weight: 700; color: var(--text-3); }
+.hr-pyramid thead th:first-child { text-align: end; }
+.hr-pyramid thead th:last-child { text-align: start; }
+.hr-pyramid tbody tr + tr td, .hr-pyramid tbody tr + tr th { border-block-start: 1px solid var(--line-soft); }
+/* Nine bands have to clear the fold together, so the row rhythm is taken
+   from the height that is actually available rather than a fixed step. */
+.hr-pyramid td, .hr-pyramid tbody th {
+    padding-block: clamp(0.1875rem, 0.9vh, 0.75rem);
+    vertical-align: middle;
+}
+
+/* Each bar is pinned to the edge of its track that faces the age band,
+   so both sides grow outward from one shared axis. The two sides used to
+   carry the same justify-content, which anchored them the same way and
+   left the pyramid unmirrored. Logical insets get it right in both
+   writing directions without a rule per direction. */
+.hr-pyramid-bar {
+    position: absolute;
+    inset-block: 0;
+    min-width: 3px;
+    border-radius: var(--r-sm);
+    transition: width var(--t-move) var(--ease);
+}
+
+.hr-pyramid-a .hr-pyramid-bar { inset-inline-end: 0; }
+.hr-pyramid-b .hr-pyramid-bar { inset-inline-start: 0; }
+
+.hr-pyramid-bar.is-a { background: var(--b-800); }
+.hr-pyramid-bar.is-b { background: var(--b-400); }
+[data-theme="dark"] .hr-pyramid-bar.is-a { background: var(--b-200); }
+[data-theme="dark"] .hr-pyramid-bar.is-b { background: var(--b-500); }
+
+/* The statutory retirement band is the one editorially distinct row in an
+   HR age distribution. It is marked with a tint and a phrase, never the
+   tint alone. */
+.hr-pyramid tbody tr.is-retirement > * { background: var(--warn-tint); }

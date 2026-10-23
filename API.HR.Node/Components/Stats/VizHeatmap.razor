@@ -1,0 +1,71 @@
+@*
+    Grade × stage density. Rows are grades from the top of the scale down,
+    columns the eleven stages; depth of fill follows the brand ramp, and
+    each cell prints its count so the reading never depends on the colour.
+    A cell opens the list of employees at that grade and stage.
+*@
+<div class="hr-viz-heat">
+    @if (Rows.Count == 0)
+    {
+        <p class="hr-viz-empty">@(Lang.IsKurdish ? "هیچ پلە و قۆناغێک لە چوارچێوەی ئێستادا تۆمار نەکراوە." : "لا توجد درجات ومراحل مسجلة ضمن النطاق الحالي.")</p>
+    }
+    else
+    {
+        <div class="hr-tablewrap">
+            <table class="hr-viz-heat-table">
+                <caption class="hr-sr">@(Label ?? (Lang.IsKurdish ? "دابەشبوونی فەرمانبەران بەسەر پلە و قۆناغەکاندا" : "توزيع الموظفين على الدرجات والمراحل"))</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">@(Lang.IsKurdish ? "پلە" : "الدرجة")</th>
+                        @for (var s = 1; s <= 11; s++)
+                        {
+                            <th scope="col" class="hr-num"><span class="hr-sr">@(Lang.IsKurdish ? "قۆناغی " : "المرحلة ")</span>@s</th>
+                        }
+                        <th scope="col">@(Lang.IsKurdish ? "کۆ" : "المجموع")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Rows)
+                    {
+                        <tr @key="row.Grade">
+                            <th scope="row">@GradeLabel(row.Grade, Lang.IsKurdish)</th>
+                            @foreach (var cell in row.Cells)
+                            {
+                                <td>
+                                    @if (cell.Count > 0)
+                                    {
+                                        <button type="button" class="hr-viz-heat-cell is-d@(Depth(cell.Count))" @onclick="() => OnCell.InvokeAsync((row.Grade, cell.Stage))"
+                                                aria-label="@(Lang.IsKurdish ? $"{GradeLabel(row.Grade, true)}، قۆناغی {cell.Stage}: {cell.Count:N0} فەرمانبەر" : $"{GradeLabel(row.Grade)}، المرحلة {cell.Stage}: {cell.Count:N0} موظف")">
+                                            <span class="hr-num">@cell.Count.ToString("N0")</span>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-viz-heat-cell is-d0"><span class="hr-sr">@(Lang.IsKurdish ? "کەس نییە" : "لا أحد")</span></span>
+                                    }
+                                </td>
+                            }
+                            <td class="hr-viz-heat-total hr-num">@row.Total.ToString("N0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<HeatmapRowStat> Rows { get; set; } = [];
+    [Parameter] public int Max { get; set; }
+    [Parameter] public EventCallback<(string Grade, int Stage)> OnCell { get; set; }
+    [Parameter] public string? Label { get; set; }
+
+    public static string GradeLabel(string code, bool kurdish = false) => int.TryParse(code, out _) ? (kurdish ? $"پلەی {code}" : $"الدرجة {code}") : code;
+
+    private int Depth(int count)
+    {
+        if (count <= 0 || Max <= 0) return 0;
+        var r = (double)count / Max;
+        return r <= .1 ? 1 : r <= .25 ? 2 : r <= .5 ? 3 : r <= .75 ? 4 : 5;
+    }
+}

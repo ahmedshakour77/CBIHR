@@ -1,0 +1,95 @@
+﻿@page "/Account/RegisterConfirmation"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>تأكيد التسجيل | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="envelope" Size="lg" /></span>
+                <h1 class="hr-h1">تأكيد التسجيل</h1>
+
+                <div style="width:100%;text-align:start">
+                    <StatusMessage Message="@statusMessage" />
+                </div>
+
+                @if (emailConfirmationLink is not null)
+                {
+                    @* No real mail sender is configured, so the link that would
+                       normally be emailed is surfaced here instead — flagged as
+                       a development aid rather than presented as normal flow. *@
+                    <div class="hr-alert hr-alert-warn" style="text-align:start">
+                        <Icon Name="exclamation-triangle" Size="sm" />
+                        <div class="hr-alert-grow">
+                            <p class="hr-alert-title">لم تُضبط خدمة إرسال البريد</p>
+                            <p style="margin-block-start:.25rem">
+                                يُعرض رابط التأكيد هنا مؤقتاً بدل إرساله بالبريد.
+                            </p>
+                            <a class="hr-link hr-wrap-any" href="@emailConfirmationLink" style="display:inline-block;margin-block-start:.5rem">
+                                تأكيد الحساب الآن
+                            </a>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="hr-sub hr-measure-sm" role="alert">
+                        أُرسل رابط التأكيد إلى بريدك الإلكتروني. تفقّد صندوق الوارد،
+                        ومجلد البريد غير المرغوب فيه إن لم تجده.
+                    </p>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? emailConfirmationLink;
+    private string? statusMessage;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? Email { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Email is null)
+        {
+            RedirectManager.RedirectTo("");
+            return;
+        }
+
+        var user = await UserManager.FindByEmailAsync(Email);
+        if (user is null)
+        {
+            HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
+            statusMessage = "Error: تعذّر العثور على حساب مرتبط بهذا البريد.";
+        }
+        else if (EmailSender is IdentityNoOpEmailSender)
+        {
+            // Once you add a real email sender, you should remove this code that lets you confirm the account
+            var userId = await UserManager.GetUserIdAsync(user);
+            var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+            code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+            emailConfirmationLink = NavigationManager.GetUriWithQueryParameters(
+                NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+                new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+        }
+    }
+}

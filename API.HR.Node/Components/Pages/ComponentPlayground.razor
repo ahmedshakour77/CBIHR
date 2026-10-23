@@ -1,0 +1,422 @@
+@page "/design-system"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,HRManager")]
+@inject IToastService Toast
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+<PageTitle>نظام التصميم ومختبر المكونات | HR Design System</PageTitle>
+
+<div class="hr-stack">
+
+    @* ---------- Page Header ---------- *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">معايير التصميم الموحدة · HR Design System V2</span>
+            <h1 class="hr-title">مختبر ومكتبة المكونات المعمارية</h1>
+            <p class="hr-meta">
+                المصدر الوحيد للحقيقة (Single Source of Truth) لكافة مكونات وأنماط واجهات منظومة الموارد البشرية.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button"
+                    class="hr-btn hr-btn-secondary hr-btn-sm"
+                    @onclick="OpenDrawer">
+                <Icon Name="bars-3" Size="xs" />
+                <span>تجربة اللوحة الجانبية (Drawer)</span>
+            </button>
+            <button type="button"
+                    class="hr-btn hr-btn-primary hr-btn-sm"
+                    @onclick="ShowDemoToast">
+                <Icon Name="bell" Size="xs" />
+                <span>تجربة إشعار Toast</span>
+            </button>
+        </div>
+    </header>
+
+    @* ---------- System Navigation Tabs ---------- *@
+    <DsTabs Items="@sectionTabs"
+            ActiveKey="@activeSection"
+            ActiveKeyChanged="@(k => activeSection = k)" />
+
+    @if (activeSection == "components")
+    {
+        @* ---------- 1. Buttons ---------- *@
+        <section class="hr-card" style="padding: var(--s-5);">
+            <div style="margin-block-end: var(--s-4);">
+                <h2 style="font-size: var(--fs-title); font-weight: 700; color: var(--text);">1. الأزرار المعيارية (DsButton & DsIconButton)</h2>
+                <p style="font-size: var(--fs-label); color: var(--text-3);">تدعم التدرجات القياسية، أحجام مختلفة، وحالات التحميل والتعطيل التلقائية.</p>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; margin-block-end: var(--s-4);">
+                <DsButton Variant="DsButton.ButtonVariant.Primary" OnClick="@(() => Toast.Success("تم الضغط على الزر الرئيسي!"))">
+                    Primary Button
+                </DsButton>
+                <DsButton Variant="DsButton.ButtonVariant.Secondary" OnClick="@(() => Toast.Info("تم الضغط على الزر الثانوي"))">
+                    Secondary Button
+                </DsButton>
+                <DsButton Variant="DsButton.ButtonVariant.Ghost">
+                    Ghost Button
+                </DsButton>
+                <DsButton Variant="DsButton.ButtonVariant.Quiet">
+                    Quiet Button
+                </DsButton>
+                <DsButton Variant="DsButton.ButtonVariant.Danger" OnClick="@(() => Toast.Danger("إجراء خطر!"))">
+                    Danger Button
+                </DsButton>
+                <DsButton Variant="DsButton.ButtonVariant.Primary" Loading="true">
+                    جارٍ الحفظ…
+                </DsButton>
+                <DsButton Variant="DsButton.ButtonVariant.Secondary" Disabled="true">
+                    معطّل (Disabled)
+                </DsButton>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; padding-block-start: var(--s-3); border-block-start: 1px dashed var(--line);">
+                <span style="font-size: var(--fs-caption); font-weight: 700; color: var(--text-2);">أزرار الأيقونات:</span>
+                <DsIconButton IconName="printer" AriaLabel="طباعة" Variant="DsIconButton.IconButtonVariant.Primary" OnClick="@(() => Toast.Info("طباعة مستند"))" />
+                <DsIconButton IconName="pencil-square" AriaLabel="تعديل" Variant="DsIconButton.IconButtonVariant.Secondary" />
+                <DsIconButton IconName="trash" AriaLabel="حذف" Variant="DsIconButton.IconButtonVariant.Danger" OnClick="@(() => Toast.Warning("تأكيد الحذف"))" />
+                <DsIconButton IconName="ellipsis-horizontal" AriaLabel="خيارات إضافية" Variant="DsIconButton.IconButtonVariant.Quiet" />
+                <DsIconButton IconName="arrow-path" AriaLabel="تحميل" Loading="true" />
+            </div>
+        </section>
+
+        @* ---------- 2. Status Badges ---------- *@
+        <section class="hr-card" style="padding: var(--s-5);">
+            <div style="margin-block-end: var(--s-4);">
+                <h2 style="font-size: var(--fs-title); font-weight: 700; color: var(--text);">2. شارات الحالات الدلالية (DsStatusBadge)</h2>
+                <p style="font-size: var(--fs-label); color: var(--text-3);">تعتمد على النص والرمز بجانب اللون لضمان سهولة الوصول (Accessibility WCAG 2.2).</p>
+            </div>
+
+            <div style="display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center;">
+                <DsStatusBadge Text="نشط / مكتمل" Variant="DsStatusBadge.BadgeVariant.Success" />
+                <DsStatusBadge Text="معلق / قيد المراجعة" Variant="DsStatusBadge.BadgeVariant.Warning" />
+                <DsStatusBadge Text="مرفوض / منتهي" Variant="DsStatusBadge.BadgeVariant.Danger" />
+                <DsStatusBadge Text="معلومات إضافية" Variant="DsStatusBadge.BadgeVariant.Info" />
+                <DsStatusBadge Text="حالة افتراضية" Variant="DsStatusBadge.BadgeVariant.Neutral" />
+                <DsStatusBadge Text="نقطة دلالية" Variant="DsStatusBadge.BadgeVariant.Success" ShowDot="true" />
+            </div>
+        </section>
+
+        @* ---------- 3. In-page Alerts ---------- *@
+        <section class="hr-card" style="padding: var(--s-5);">
+            <div style="margin-block-end: var(--s-4);">
+                <h2 style="font-size: var(--fs-title); font-weight: 700; color: var(--text);">3. التنبيهات الموضعية (DsAlert)</h2>
+                <p style="font-size: var(--fs-label); color: var(--text-3);">تستخدم لإيصال رسائل وتوجيهات واضحة داخل الصفحة مع خيار الإغلاق.</p>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: var(--s-3);">
+                <DsAlert Variant="DsAlert.AlertVariant.Info" Title="معلومة تنظيمية" Message="تم تحديث شروط ومسارات الترقية السنوية لعام 2026." Dismissible="true" />
+                <DsAlert Variant="DsAlert.AlertVariant.Success" Title="تم بنجاح" Message="تم توثيق كافة صور الملاكات المستهدفة بنسبة 100%." Dismissible="true" />
+                <DsAlert Variant="DsAlert.AlertVariant.Warning" Title="تنبيه" Message="يوجد 4 طلبات إجازة بانتظار موافقة المدير المباشر قبل نهاية الدوام." Dismissible="true" />
+                <DsAlert Variant="DsAlert.AlertVariant.Danger" Title="تحذير أمني" Message="تم رصد محاولة دخول من جهاز غير مقترن تم إيقافها تلقائياً." Dismissible="true" />
+            </div>
+        </section>
+
+        @* ---------- 4. Loading Skeletons ---------- *@
+        <section class="hr-card" style="padding: var(--s-5);">
+            <div style="margin-block-end: var(--s-4);">
+                <h2 style="font-size: var(--fs-title); font-weight: 700; color: var(--text);">4. هياكل التحميل (DsSkeleton)</h2>
+                <p style="font-size: var(--fs-label); color: var(--text-3);">تحجز مساحة المحتوى أثناء جلب البيانات من الخادم لمنع قفزات التخطيط (Layout Shift).</p>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--s-4);">
+                <div style="padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md);">
+                    <span style="font-size: var(--fs-caption); font-weight: 700; color: var(--text-3); display: block; margin-block-end: var(--s-3);">هيكل بطاقة موظف</span>
+                    <div style="display: flex; gap: var(--s-3); align-items: center;">
+                        <DsSkeleton Type="DsSkeleton.SkeletonType.Avatar" Width="3.5rem" Height="3.5rem" />
+                        <div style="flex: 1; display: flex; flex-direction: column; gap: var(--s-2);">
+                            <DsSkeleton Type="DsSkeleton.SkeletonType.Text" Width="60%" Height="1rem" />
+                            <DsSkeleton Type="DsSkeleton.SkeletonType.Text" Width="40%" Height="0.75rem" />
+                        </div>
+                    </div>
+                </div>
+
+                <div style="padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md);">
+                    <span style="font-size: var(--fs-caption); font-weight: 700; color: var(--text-3); display: block; margin-block-end: var(--s-3);">هيكل أسطر جدول</span>
+                    <DsSkeleton Type="DsSkeleton.SkeletonType.Row" Count="3" Height="2.5rem" />
+                </div>
+            </div>
+        </section>
+
+        @* ---------- 5. Empty States ---------- *@
+        <section class="hr-card" style="padding: var(--s-5);">
+            <div style="margin-block-end: var(--s-4);">
+                <h2 style="font-size: var(--fs-title); font-weight: 700; color: var(--text);">5. شاشة خلو البيانات (DsEmptyState)</h2>
+                <p style="font-size: var(--fs-label); color: var(--text-3);">توضح سبب الغياب وتقدم حلاً إجرائياً تالياً للبدء.</p>
+            </div>
+
+            <DsEmptyState Title="لا توجد طلبات معلقة"
+                         Description="تمت معالجة كافة طلبات الإجازات والموافقات الإدارية الموكلة إليك بنجاح."
+                         IconName="check-badge"
+                         ActionLabel="عرض الأرشيف"
+                         OnAction="@(() => Toast.Info("الانتقال إلى الأرشيف"))"
+                         SecondaryActionLabel="تحديث القائمة"
+                         OnSecondaryAction="@(() => Toast.Success("تم التحديث"))" />
+        </section>
+    }
+    else if (activeSection == "datagrid")
+    {
+        @* ---------- DataGrid Showcase ---------- *@
+        <section class="hr-stack">
+            <div class="hr-card" style="padding: var(--s-4);">
+                <p style="font-size: var(--fs-control); color: var(--text-2); margin: 0;">
+                    مكوّن <strong>DsDataGrid</strong> المؤسسي الموحد يدعم البحث التلقائي، ضبط الكثافة (Compact/Comfortable)، الإجراءات الجماعية (Bulk Actions)، وتحول تلقائي إلى بطاقات على شاشات الموبايل.
+                </p>
+            </div>
+
+            <DsDataGrid TItem="DemoEmployee"
+                        Title="سجل الملاكات التجريبي"
+                        TotalCount="@demoEmployees.Count"
+                        Items="@FilteredDemoEmployees"
+                        KeySelector="x => x.Id"
+                        Searchable="true"
+                        SearchPlaceholder="ابحث بالاسم أو الرقم الوظيفي…"
+                        OnSearch="HandleGridSearch"
+                        AllowDensityToggle="true"
+                        Density="@gridDensity"
+                        DensityChanged="@(d => gridDensity = d)"
+                        SelectedItems="@selectedEmployees"
+                        SelectedItemsChanged="@(s => selectedEmployees = s)">
+
+                <ToolbarActions>
+                    <DsButton Variant="DsButton.ButtonVariant.Primary" Size="DsButton.ButtonSize.Sm" OnClick="@(() => Toast.Success("فتح نموذج موظف جديد"))">
+                        <Icon Name="plus" Size="xs" />
+                        <span>إضافة موظف</span>
+                    </DsButton>
+                </ToolbarActions>
+
+                <BulkActions>
+                    <DsButton Variant="DsButton.ButtonVariant.Secondary" Size="DsButton.ButtonSize.Sm" OnClick="ExportSelected">
+                        تصدير المحدد
+                    </DsButton>
+                    <DsButton Variant="DsButton.ButtonVariant.Danger" Size="DsButton.ButtonSize.Sm" OnClick="SuspendSelected">
+                        تعليق الحساب
+                    </DsButton>
+                </BulkActions>
+
+                <HeaderContent>
+                    <tr>
+                        <th scope="col" style="width: 3rem;">
+                            <input aria-label="تحديد جميع الموظفين" type="checkbox"
+                                   checked="@(selectedEmployees.Count == demoEmployees.Count)"
+                                   @onchange="ToggleSelectAll" />
+                        </th>
+                        <th scope="col">الموظف</th>
+                        <th scope="col">الرقم الوظيفي</th>
+                        <th scope="col">القسم / التشكيل</th>
+                        <th scope="col">العنوان الوظيفي</th>
+                        <th scope="col">الحالة</th>
+                        <th scope="col" style="text-align: end;">الإجراءات</th>
+                    </tr>
+                </HeaderContent>
+
+                <RowTemplate Context="emp">
+                    <td>
+                        <input aria-label="@($"تحديد {emp.Name}")" type="checkbox"
+                               checked="@selectedEmployees.Contains(emp)"
+                               @onchange="() => ToggleSelectEmployee(emp)" />
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: var(--s-3);">
+                            <span class="hr-avatar hr-avatar-sm" style="background: var(--accent); color: var(--text-on-accent);">
+                                @emp.Name.Substring(0, 1)
+                            </span>
+                            <div>
+                                <strong style="display: block; font-size: var(--fs-label);">@emp.Name</strong>
+                                <span style="font-size: var(--fs-caption); color: var(--text-3);">@emp.Email</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="hr-num">@emp.Id</td>
+                    <td>@emp.Department</td>
+                    <td>@emp.JobTitle</td>
+                    <td>
+                        <DsStatusBadge Text="@emp.Status"
+                                      Variant="@(emp.Status == "مستمر" ? DsStatusBadge.BadgeVariant.Success : DsStatusBadge.BadgeVariant.Warning)" />
+                    </td>
+                    <td style="text-align: end;">
+                        <DsIconButton IconName="eye" AriaLabel="عرض الملف" Variant="DsIconButton.IconButtonVariant.Quiet" Size="DsButton.ButtonSize.Sm" OnClick="@(() => Toast.Info($"عرض ملف {emp.Name}"))" />
+                        <DsIconButton IconName="pencil-square" AriaLabel="تعديل" Variant="DsIconButton.IconButtonVariant.Quiet" Size="DsButton.ButtonSize.Sm" />
+                    </td>
+                </RowTemplate>
+
+                <CardTemplate Context="emp">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-block-end: var(--s-2);flex-wrap:wrap;gap:var(--s-2);">
+                        <div style="display: flex; align-items: center; gap: var(--s-2);">
+                            <input aria-label="@($"تحديد {emp.Name}")" type="checkbox"
+                                   checked="@selectedEmployees.Contains(emp)"
+                                   @onchange="() => ToggleSelectEmployee(emp)" />
+                            <strong>@emp.Name</strong>
+                        </div>
+                        <DsStatusBadge Text="@emp.Status"
+                                      Variant="@(emp.Status == "مستمر" ? DsStatusBadge.BadgeVariant.Success : DsStatusBadge.BadgeVariant.Warning)" />
+                    </div>
+                    <div style="font-size: var(--fs-caption); color: var(--text-3); display: flex; flex-direction: column; gap: 4px;">
+                        <span>الرقم: <strong class="hr-num">@emp.Id</strong> · @emp.JobTitle</span>
+                        <span>@emp.Department</span>
+                    </div>
+                </CardTemplate>
+
+            </DsDataGrid>
+        </section>
+    }
+    else if (activeSection == "tokens")
+    {
+        @* ---------- Tokens & Colors ---------- *@
+        <section class="hr-card" style="padding: var(--s-5);">
+            <h2 style="font-size: var(--fs-title); font-weight: 700; color: var(--text); margin-block-end: var(--s-4);">رموز الألوان وتدرجات الهوية (Brand Ramp)</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(130px, 100%), 1fr)); gap: var(--s-3);">
+                @foreach (var token in brandTokens)
+                {
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="height: 3.5rem; border-radius: var(--r-sm); background: var(@token.Var); border: 1px solid var(--line);"></div>
+                        <span style="font-size: var(--fs-caption); font-weight: 700;">@token.Name</span>
+                        <code style="font-size: var(--fs-caption); color: var(--text-3);">@token.Hex</code>
+                    </div>
+                }
+            </div>
+        </section>
+    }
+
+</div>
+
+@* ---------- Demo Drawer Component ---------- *@
+<DsDrawer IsOpen="@isDrawerOpen"
+          Title="لوحة تفاصيل الموظف السريعة"
+          Subtitle="معاينة السجل الوظيفي المباشر"
+          OnClose="CloseDrawer"
+          Width="DsDrawer.DrawerWidth.Md">
+    <ChildContent>
+        <div class="hr-stack">
+            <DsAlert Variant="DsAlert.AlertVariant.Info" Message="هذه اللوحة تعمل كـ Drawer على الشاشات الكبيرة وكـ Bottom Sheet على الموبايل." />
+
+            <div style="display: flex; gap: var(--s-4); align-items: center; padding: var(--s-4); background: var(--surface-sunken); border-radius: var(--r-md);">
+                <span class="hr-avatar" style="width: 4rem; height: 4rem; background: var(--accent); color: var(--text-on-accent); font-size: var(--fs-h1);">
+                    أ
+                </span>
+                <div>
+                    <h3 style="margin: 0; font-size: var(--fs-title); font-weight: 700;">أحمد شكور محمود</h3>
+                    <p style="margin: 2px 0 0; font-size: var(--fs-label); color: var(--text-3);">رئيس مهندسين أقدم · قسم تكنولوجيا المعلومات</p>
+                    <div style="margin-block-start: var(--s-2);">
+                        <DsStatusBadge Text="موثّق رسمياً" Variant="DsStatusBadge.BadgeVariant.Success" />
+                    </div>
+                </div>
+            </div>
+
+            <dl class="hr-deflist">
+                <div class="hr-deflist-row">
+                    <dt>الرقم الوظيفي</dt>
+                    <dd class="hr-num">10442</dd>
+                </div>
+                <div class="hr-deflist-row">
+                    <dt>تاريخ المباشرة</dt>
+                    <dd class="hr-num">2014-03-15</dd>
+                </div>
+                <div class="hr-deflist-row">
+                    <dt>البريد الإلكتروني</dt>
+                    <dd class="hr-num">ahmed.shakour@aml.lan</dd>
+                </div>
+            </dl>
+        </div>
+    </ChildContent>
+
+    <Footer>
+        <DsButton Variant="DsButton.ButtonVariant.Secondary" OnClick="CloseDrawer">إغلاق</DsButton>
+        <DsButton Variant="DsButton.ButtonVariant.Primary" OnClick="SaveDrawerChanges">
+            حفظ التغييرات
+        </DsButton>
+    </Footer>
+</DsDrawer>
+
+@code {
+    private string activeSection = "components";
+    private bool isDrawerOpen;
+    private GridDensity gridDensity = GridDensity.Comfortable;
+    private string gridSearch = "";
+
+    private void OpenDrawer() => isDrawerOpen = true;
+    private void CloseDrawer() => isDrawerOpen = false;
+    private void SaveDrawerChanges()
+    {
+        isDrawerOpen = false;
+        Toast.Success("تم حفظ التعديل بنجاح");
+    }
+
+    private void ExportSelected() => Toast.Info($"تصدير {selectedEmployees.Count} سجل");
+    private void SuspendSelected() => Toast.Warning($"تعليق حسابات {selectedEmployees.Count} موظف");
+
+    private IReadOnlyList<DsTabs.TabItem> sectionTabs = new List<DsTabs.TabItem>
+    {
+        new("components", "المكونات المعيارية (Components)", "squares-2x2"),
+        new("datagrid", "الجدول المؤسسي (DsDataGrid)", "table-cells"),
+        new("tokens", "رموز الهوية والألوان (Tokens)", "paint-brush")
+    };
+
+    public sealed record DemoEmployee(int Id, string Name, string Email, string Department, string JobTitle, string Status);
+
+    private List<DemoEmployee> demoEmployees = new()
+    {
+        new(101, "أحمد شكور محمود", "ahmed.shakour@aml.lan", "تكنولوجيا المعلومات", "رئيس مهندسين أقدم", "مستمر"),
+        new(102, "سارة علي حسن", "sara.ali@aml.lan", "الموارد البشرية", "مدير قسم التدريب", "مستمر"),
+        new(103, "عمر خالد فتاح", "omar.khaled@aml.lan", "الشؤون الإدارية", "مسؤول الملاكات", "مجاز"),
+        new(104, "زينب حسين كاظم", "zainab.hussain@aml.lan", "الدائرة المالية", "مدقق حسابات رئيسي", "مستمر"),
+        new(105, "مصطفى طه ياسين", "mustafa.taha@aml.lan", "الشؤون القانونية", "مستشار قانوني", "مستمر")
+    };
+
+    private HashSet<DemoEmployee> selectedEmployees = new();
+
+    private IReadOnlyList<DemoEmployee> FilteredDemoEmployees =>
+        (string.IsNullOrWhiteSpace(gridSearch)
+            ? demoEmployees
+            : demoEmployees.Where(e => e.Name.Contains(gridSearch) || e.Id.ToString().Contains(gridSearch) || e.Department.Contains(gridSearch))).ToList();
+
+    private void HandleGridSearch(string term)
+    {
+        gridSearch = term;
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        if ((bool)(e.Value ?? false))
+        {
+            selectedEmployees = new HashSet<DemoEmployee>(demoEmployees);
+        }
+        else
+        {
+            selectedEmployees.Clear();
+        }
+    }
+
+    private void ToggleSelectEmployee(DemoEmployee emp)
+    {
+        if (selectedEmployees.Contains(emp))
+        {
+            selectedEmployees.Remove(emp);
+        }
+        else
+        {
+            selectedEmployees.Add(emp);
+        }
+    }
+
+    private void ShowDemoToast()
+    {
+        Toast.Success("تم تنفيذ الإجراء بنجاح!", "تنبيه نظام", 5000, "تراجع", () => Toast.Info("تم التراجع عن الإجراء"));
+    }
+
+    private sealed record ColorToken(string Name, string Var, string Hex);
+
+    private List<ColorToken> brandTokens = new()
+    {
+        new("b-50 (Surface Tint)", "--b-50", "#F6F2FA"),
+        new("b-150 (Line Soft)", "--b-150", "#E3D8EC"),
+        new("b-200 (Soft Anchor)", "--b-200", "#D4BEE4"),
+        new("b-400 (Mid Anchor)", "--b-400", "#9B7EBD"),
+        new("b-600 (Text Muted)", "--b-600", "#654A88"),
+        new("b-800 (Ink Anchor)", "--b-800", "#3B1E54"),
+        new("b-900 (Deep Text)", "--b-900", "#2A143E"),
+        new("b-ground (Page Ground)", "--b-ground", "#EEEEEE")
+    };
+}

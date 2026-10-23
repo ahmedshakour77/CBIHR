@@ -1,0 +1,226 @@
+@page "/sessions"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+@inject ApplicationDbContext DbContext
+@inject ILogger<Sessions> Logger
+
+<PageTitle>الجلسات السارية | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Active sessions.
+
+    A security surface, so the reading has to be unambiguous: one row per
+    session, exact timestamps in tabular figures, and the one destructive
+    action set apart by role and placement rather than by colour alone.
+    Ending a session goes through the system's own confirmation, which can
+    name the account being cut off — window.confirm could not.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">الحسابات والأمان</span>
+            <h1 class="hr-h1">الجلسات السارية</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                الجلسات النشطة على أجهزة الموظفين. إنهاء الجلسة يوقف صلاحية الوصول من ذلك الجهاز فوراً.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <span class="hr-badge hr-badge-accent">
+                <Icon Name="signal" Size="xs" />
+                <span><span class="hr-num">@activeSessions.Count</span> جلسة نشطة</span>
+            </span>
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadSessionsAsync" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>جارٍ التحديث…</span>
+                }
+                else
+                {
+                    <Icon Name="arrow-path" Size="sm" />
+                    <span>تحديث</span>
+                }
+            </button>
+        </div>
+    </header>
+
+    @* Status changes are announced without moving focus away from the
+       control the user just used. *@
+    <div class="hr-sr" role="status" aria-live="polite">@statusMessage</div>
+
+    @if (loadFailed)
+    {
+        <div class="hr-alert hr-alert-danger" role="alert">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <div>
+                <p class="hr-alert-title">تعذّر تحميل الجلسات</p>
+                <p style="margin-block-start:.25rem">حدث خطأ أثناء قراءة بيانات الجلسات من قاعدة البيانات.</p>
+            </div>
+        </div>
+    }
+
+    <section class="hr-card" aria-labelledby="sessions-heading">
+        <div class="hr-card-head">
+            <div>
+                <h2 id="sessions-heading" class="hr-h2">قائمة الجلسات</h2>
+                <p class="hr-meta" style="margin-block-start:.25rem">مرتّبة حسب آخر دخول</p>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="hr-card-body">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="hr-skeleton" style="height:3rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                }
+                <p class="hr-sr">جارٍ تحميل الجلسات…</p>
+            </div>
+        }
+        else if (activeSessions.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="signal" Size="lg" /></span>
+                <p class="hr-h3">لا توجد جلسات نشطة</p>
+                <p class="hr-sub hr-measure-sm">لم يسجّل أي جهاز دخولاً نشطاً في الوقت الحالي.</p>
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table">
+                    <caption class="hr-sr">الجلسات النشطة، وعناصر التحكم بإنهائها</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">الموظف</th>
+                            <th scope="col">الجهاز والنظام</th>
+                            <th scope="col">عنوان IP</th>
+                            <th scope="col">آخر دخول</th>
+                            <th scope="col">الحالة</th>
+                            <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in activeSessions)
+                        {
+                            <tr @key="s.Id">
+                                <td>
+                                    <span class="hr-cell-strong hr-num">@s.EmployeeID</span>
+                                    <span class="hr-cell-sub hr-wrap-any">@s.UserId</span>
+                                </td>
+                                <td>
+                                    <span class="hr-cell-strong">@Display(s.DeviceModel, "جهاز غير معرّف")</span>
+                                    <span class="hr-cell-sub">@Display(s.Platform, "منصة غير معروفة")</span>
+                                </td>
+                                <td class="hr-num">@Display(s.LastIpAddress, "—")</td>
+                                <td class="hr-num">@s.LastLoginAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                <td>
+                                    <span class="hr-badge hr-badge-ok">
+                                        <Icon Name="check-circle" Size="xs" />
+                                        <span>سارية</span>
+                                    </span>
+                                </td>
+                                <td>
+                                    <button type="button"
+                                            class="hr-btn hr-btn-danger-quiet hr-btn-sm"
+                                            @onclick="() => AskTerminate(s)">
+                                        <Icon Name="no-symbol" Size="xs" />
+                                        <span>إنهاء الجلسة</span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>
+
+<ConfirmDialog IsOpen="@(pendingSession is not null)"
+               Title="إنهاء الجلسة"
+               Subject="@PendingLabel"
+               Message="سيفقد هذا الجهاز صلاحية الوصول فوراً، وسيحتاج المستخدم إلى تسجيل الدخول من جديد."
+               ConfirmText="إنهاء الجلسة"
+               Destructive="true"
+               IsBusy="@isTerminating"
+               OnConfirm="ConfirmTerminateAsync"
+               OnCancel="CancelTerminate" />
+
+@code {
+    private List<UserDevice> activeSessions = new();
+    private bool isLoading = true;
+    private bool loadFailed;
+    private bool isTerminating;
+    private string? statusMessage;
+
+    private UserDevice? pendingSession;
+
+    private string PendingLabel =>
+        pendingSession is null ? string.Empty : $"الموظف {pendingSession.EmployeeID} · {Display(pendingSession.DeviceModel, "جهاز غير معرّف")}";
+
+    private static string Display(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    protected override async Task OnInitializedAsync() => await LoadSessionsAsync();
+
+    private async Task LoadSessionsAsync()
+    {
+        isLoading = true;
+        loadFailed = false;
+
+        try
+        {
+            activeSessions = await DbContext.UserDevices
+                .Where(d => d.IsActive)
+                .OrderByDescending(d => d.LastLoginAt)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            loadFailed = true;
+            Logger.LogError(ex, "Error loading sessions");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void AskTerminate(UserDevice session) => pendingSession = session;
+
+    private void CancelTerminate() => pendingSession = null;
+
+    private async Task ConfirmTerminateAsync()
+    {
+        if (pendingSession is null)
+        {
+            return;
+        }
+
+        isTerminating = true;
+        var label = pendingSession.EmployeeID;
+
+        try
+        {
+            pendingSession.IsActive = false;
+            await DbContext.SaveChangesAsync();
+            statusMessage = $"تم إنهاء جلسة الموظف {label}.";
+            pendingSession = null;
+            await LoadSessionsAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = "تعذّر إنهاء الجلسة. حاول مرة أخرى.";
+            Logger.LogError(ex, "Error terminating session for {EmployeeId}", label);
+        }
+        finally
+        {
+            isTerminating = false;
+        }
+    }
+}

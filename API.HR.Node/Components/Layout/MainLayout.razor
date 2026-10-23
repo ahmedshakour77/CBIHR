@@ -1,0 +1,229 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject API.HR.Node.Services.DesignSystem.IUserPreferenceService PrefService
+@inject API.HR.Node.Services.Network.IAmlConnectivityService AmlNet
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IHttpContextAccessor HttpContextAccessor
+@implements IDisposable
+
+@*
+    The application shell.
+    Supports 3 navbar display modes:
+    1. Side rail (default): user info and logout live in the sidebar footer.
+    2. Top navigation bar: user info and logout live in the top bar.
+    3. Floating dock: user info and logout live in the floating dock.
+*@
+
+<div class="hr-app">
+
+    <a class="hr-skip" href="#hr-content">@Lang.T("a11y.skip", "تخطَّ إلى المحتوى الرئيسي")</a>
+
+    <header class="hr-header">
+        @if (NavMode != "floating")
+        {
+            <MobileNav />
+        }
+
+        <a class="hr-brand" href="">
+            <div class="hr-brand-logos">
+                <span class="hr-brand-mark hr-brand-mark-logo" aria-hidden="true" title="@Lang.T("org.cbi", "البنك المركزي العراقي")">
+                    <img src="img/logo.png" alt="شعار البنك المركزي" class="hr-brand-logo" width="204" height="204" />
+                </span>
+                @if (AmlNet.IsAmlConnected)
+                {
+                    <span class="hr-brand-mark hr-brand-mark-logo hr-aml-logo-mark" aria-hidden="true" title="@Lang.T("org.aml", "مكتب مكافحة غسل الأموال وتمويل الإرهاب (متصل عبر aml.lan)")">
+                        <img src="img/aml-logo.png" alt="شعار مكتب مكافحة غسل الأموال" class="hr-brand-logo" width="204" height="204" />
+                    </span>
+                }
+            </div>
+            <span class="hr-brand-text">
+                <span class="hr-brand-name">@Lang.T("app.title", "منظومة الموارد البشرية")</span>
+                @if (AmlNet.IsAmlConnected)
+                {
+                    <span class="hr-brand-sub hr-brand-aml-sub">
+                        <span class="hr-aml-dot" title="متصل بشبكة aml.lan"></span>
+                        <span>@Lang.T("org.aml.short", "مكتب مكافحة غسل الأموال")</span>
+                    </span>
+                }
+            </span>
+        </a>
+
+        <div class="hr-header-spacer"></div>
+
+        <AuthorizeView Roles="Admin">
+            <Authorized>
+                <API.HR.Node.Components.DesignSystem.CommandPalette />
+            </Authorized>
+        </AuthorizeView>
+
+        <UserPreferencesModal ShowTriggerButton="true" />
+
+        <AuthorizeView>
+            <Authorized>
+                @if (context.User.IsInRole("Admin"))
+                {
+                    <NotificationBell />
+                }
+            </Authorized>
+            <NotAuthorized>
+                <a class="hr-btn hr-btn-primary hr-btn-sm" href="Account/Login">
+                    <Icon Name="lock-closed" Size="xs" />
+                    <span>@Lang.T("auth.login", "تسجيل الدخول")</span>
+                </a>
+            </NotAuthorized>
+        </AuthorizeView>
+    </header>
+
+    @* 1. Top navigation bar: rendered in "top" mode only. *@
+    @* Only the active mode's navigation is rendered. The other surfaces used
+       to render too and sit hidden by CSS, each loading the catalog and, for
+       the dock, running as a live component on every page. *@
+    @if (NavMode == "top")
+    {
+        <div class="hr-top-nav-bar">
+            <TopNavMenu />
+        </div>
+    }
+
+    @* 2. Side rail: rendered in "side" mode only. *@
+    @if (NavMode == "side")
+    {
+        @* Not an <aside>: the navigation inside is the landmark, and labelling the
+           wrapper too gave screen readers two "main navigation" regions. *@
+        <div class="hr-rail">
+            <div class="hr-rail-body">
+                <NavMenu />
+            </div>
+            <div class="hr-rail-foot">
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="hr-rail-user-card">
+                            <UserAvatar EmployeeId="@context.User.FindFirst("employee_id")?.Value"
+                                        UserName="@context.User.Identity?.Name"
+                                        Size="sm" />
+                            <div class="hr-rail-user-info">
+                                <span class="hr-rail-user-name hr-truncate" title="@context.User.Identity?.Name">
+                                    @(context.User.Identity?.Name ?? Lang.T("auth.user", "المستخدم"))
+                                </span>
+                                <span class="hr-rail-user-role">
+                                    @(context.User.IsInRole("Admin") ? Lang.T("auth.admin", "مسؤول النظام") : Lang.T("auth.employee", "الموظف"))
+                                </span>
+                            </div>
+                            <form action="Account/Logout" method="post" class="hr-rail-logout-form">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="ReturnUrl" value="@CurrentPath" />
+                                <button type="submit"
+                                        class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                                        aria-label="@Lang.T("auth.logout", "تسجيل الخروج")"
+                                        title="@Lang.T("auth.logout", "تسجيل الخروج")">
+                                    <Icon Name="arrow-right-on-rectangle" Size="sm" />
+                                </button>
+                            </form>
+                        </div>
+                    </Authorized>
+                    <NotAuthorized>
+                        <a class="hr-btn hr-btn-primary hr-btn-sm hr-btn-block" href="Account/Login" style="margin-block-end: var(--s-2)">
+                            <Icon Name="lock-closed" Size="xs" />
+                            <span>@Lang.T("auth.login", "تسجيل الدخول")</span>
+                        </a>
+                    </NotAuthorized>
+                </AuthorizeView>
+                <p class="hr-meta">@Lang.T("app.title", "منظومة الموارد البشرية") · <span class="hr-num">@Lang.T("app.version", "v1.0")</span></p>
+            </div>
+        </div>
+    }
+
+    <main class="hr-main" id="hr-content">
+        <div class="hr-page">
+            @Body
+        </div>
+    </main>
+
+    @* 3. Floating dock: rendered in "floating" mode only. *@
+    @if (NavMode == "floating")
+    {
+        <FloatingDock />
+    }
+
+    @* One logout form that exists in every mode, for actions outside the
+       visible controls (the command palette). The dock and the drawer only
+       render theirs while open. *@
+    <AuthorizeView>
+        <Authorized>
+            <form id="hr-logout-form" action="Account/Logout" method="post" hidden>
+                <AntiforgeryToken />
+                <input type="hidden" name="ReturnUrl" value="@CurrentPath" />
+            </form>
+        </Authorized>
+    </AuthorizeView>
+</div>
+
+<AuthorizeView>
+    <Authorized>
+        <EmployeeFeedbackFab />
+    </Authorized>
+</AuthorizeView>
+
+<DsToast />
+
+<div id="blazor-error-ui" class="hr-errorbar" role="alert">
+    <Icon Name="exclamation-triangle" Size="sm" />
+    <span>@Lang.T("error.unexpected", "حدث خطأ غير متوقع في النظام.")</span>
+    <a href="." class="hr-errorbar-action">@Lang.T("error.reload", "إعادة التحميل")</a>
+    <button type="button" class="dismiss hr-errorbar-dismiss" aria-label="@Lang.T("error.dismiss", "إخفاء التنبيه")">
+        <Icon Name="x-mark" Size="sm" />
+    </button>
+</div>
+
+@code {
+    private string CurrentPath => Nav.ToBaseRelativePath(Nav.Uri);
+
+    // Read from the same cookie and allow-list as App.razor, which writes
+    // data-nav-mode on <html>, so the surface rendered here always matches
+    // the one CSS shows. hr-prefs.js keeps the cookie and the page in step.
+    private string NavMode
+    {
+        get
+        {
+            var value = HttpContextAccessor.HttpContext?.Request.Cookies["hr-nav-mode"];
+            return value is "top" or "floating" ? value : "side";
+        }
+    }
+    private string CurrentNavbarMode => PrefService.Current.NavbarMode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        PrefService.OnPreferenceChanged += OnPrefsChanged;
+        Lang.OnLanguageChanged += OnPrefsChanged;
+        AmlNet.OnConnectivityChanged += OnConnectivityChanged;
+
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var name = auth.User.Identity?.Name;
+            if (auth.User.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(name))
+            {
+                await PrefService.LoadForUserAsync(name);
+            }
+        }
+        catch { }
+    }
+
+    private void OnPrefsChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnConnectivityChanged(bool isConnected)
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        PrefService.OnPreferenceChanged -= OnPrefsChanged;
+        Lang.OnLanguageChanged -= OnPrefsChanged;
+        AmlNet.OnConnectivityChanged -= OnConnectivityChanged;
+    }
+}

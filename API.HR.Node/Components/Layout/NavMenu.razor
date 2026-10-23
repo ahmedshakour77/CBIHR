@@ -1,0 +1,120 @@
+@*
+    The navigation list, shared by the fixed rail and the mobile drawer.
+    Supports dynamic language switching between Arabic and Kurdish and role-based filtering.
+*@
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject API.HR.Node.Services.Features.ISystemFeatureService FeatureService
+@implements IDisposable
+
+<AuthorizeView>
+    <Authorized>
+        @{
+            var user = context.User;
+            var isStaff = user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
+            var groupsToRender = Groups ?? (isStaff ? NavCatalog.All : NavCatalog.EmployeeCatalog);
+            var groupIndex = 0;
+        }
+
+        @* One navigation landmark; the groups inside it are labelled groups,
+           not a landmark each, so a screen reader's landmark list stays short. *@
+        <nav aria-label="@Lang.T("nav.main", "التنقل الرئيسي")">
+            @foreach (var group in groupsToRender)
+            {
+                if (group.IsAllowedFor(user))
+                {
+                    var labelId = $"{idPrefix}-g{groupIndex++}";
+                    <div class="hr-rail-group" role="group" aria-labelledby="@labelId">
+                        <p class="hr-rail-group-label" id="@labelId">@group.GetTitle(Lang.IsKurdish)</p>
+                        @foreach (var item in group.Items)
+                        {
+                            if (item.IsAllowedFor(user))
+                            {
+                                if (item.Href == "my-feedback" && !featureSettings.EnableMyFeedback)
+                                {
+                                    continue;
+                                }
+                                <NavLink class="hr-nav-item"
+                                         href="@item.Href"
+                                         Match="@(item.Exact ? NavLinkMatch.All : NavLinkMatch.Prefix)"
+                                         title="@item.GetHint(Lang.IsKurdish)"
+                                         @onclick="OnNavigate">
+                                    <Icon Name="@item.Icon" Size="sm" />
+                                    <span class="hr-truncate">@item.GetLabel(Lang.IsKurdish)</span>
+                                </NavLink>
+                            }
+                        }
+                    </div>
+                }
+            }
+
+            @if (!isStaff)
+            {
+                <div class="hr-rail-group" role="group" aria-labelledby="@($"{idPrefix}-prefs")">
+                    <p class="hr-rail-group-label" id="@($"{idPrefix}-prefs")">@Lang.T("nav.group.prefs", "التفضيلات")</p>
+                    <button type="button"
+                            class="hr-nav-item"
+                            onclick="window.hrOpenPreferences && window.hrOpenPreferences();">
+                        <Icon Name="adjustments-horizontal" Size="sm" />
+                        <span class="hr-truncate">@Lang.T("nav.prefs", "إعدادات العرض والمظهر")</span>
+                    </button>
+                </div>
+            }
+
+            @if (ShowTools && user.IsInRole("Admin"))
+            {
+                <div class="hr-rail-group" role="group" aria-labelledby="@($"{idPrefix}-tools")">
+                    <p class="hr-rail-group-label" id="@($"{idPrefix}-tools")">@Lang.T("nav.group.tools", "أدوات")</p>
+                    <NavLink class="hr-nav-item" href="admin/features" @onclick="OnNavigate" title="@Lang.T("nav.features.hint", "لوحة التحكم بالميزات والإعدادات")">
+                        <Icon Name="cog-6-tooth" Size="sm" />
+                        <span class="hr-truncate">@Lang.T("nav.features", "لوحة التحكم وإدارة الميزات")</span>
+                    </NavLink>
+                    <a class="hr-nav-item" href="swagger" target="_blank" rel="noopener">
+                        <Icon Name="code-bracket" Size="sm" />
+                        <span class="hr-truncate">@Lang.T("nav.swagger", "توثيق الواجهات البرمجية")</span>
+                        <Icon Name="arrow-top-right-on-square" Size="xs" Class="hr-nav-external" />
+                        <span class="hr-sr">@Lang.T("common.new_tab", "(يفتح في تبويب جديد)")</span>
+                    </a>
+                </div>
+            }
+        </nav>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private API.HR.Node.Data.SystemFeatureSettings featureSettings = new();
+
+    // The rail and the drawer can both be in the DOM; their label ids must not collide.
+    private readonly string idPrefix = $"nav-{Guid.NewGuid():N}"[..12];
+    /// <summary>Raised after a destination is picked, so the drawer can close.</summary>
+    [Parameter] public EventCallback OnNavigate { get; set; }
+
+    /// <summary>Optional navigation groups. Defaults to role-appropriate catalog.</summary>
+    [Parameter] public IReadOnlyList<NavGroup>? Groups { get; set; }
+
+    /// <summary>Whether to show the tools section (Swagger, etc.) for administrators.</summary>
+    [Parameter] public bool ShowTools { get; set; } = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        FeatureService.OnSettingsChanged += HandleSettingsChanged;
+        Lang.OnLanguageChanged += HandleLanguageChanged;
+    }
+
+    private async void HandleSettingsChanged()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLanguageChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        FeatureService.OnSettingsChanged -= HandleSettingsChanged;
+        Lang.OnLanguageChanged -= HandleLanguageChanged;
+    }
+}

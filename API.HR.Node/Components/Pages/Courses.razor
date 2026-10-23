@@ -1,0 +1,857 @@
+@page "/courses"
+@rendermode InteractiveServer
+@using API.HR.Node.Data
+@using API.HR.Node.Contracts
+@using API.HR.Node.Services.Localization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject IToastService Toast
+@inject IJSRuntime JS
+@inject ILanguageService Lang
+
+<PageTitle>إدارة وسجلات الدورات التدريبية | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+
+    @* ---------- 1. Page Header & Actions ---------- *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">التطوير الإداري والتدريب</span>
+            <h1 class="hr-h1" style="margin-block-start:.5rem">إدارة وسجلات الدورات التدريبية</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.25rem">
+                متابعة وتوثيق مشاركات الموظفين في الدورات وورش العمل التدريبية، التواريخ، والجهات المنظمة، مع إمكانية الفرز والبحث والاستيراد الجماعي.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateCourseModal">
+                <Icon Name="plus" Size="xs" />
+                <span>تسجيل دورة جديدة</span>
+            </button>
+
+            <a href="data-import" class="hr-btn hr-btn-secondary">
+                <Icon Name="arrow-up-tray" Size="xs" />
+                <span>استيراد ملف Excel</span>
+            </a>
+
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-icon" @onclick="PrintPage" title="طباعة الصفحة" aria-label="طباعة الصفحة">
+                <Icon Name="printer" Size="xs" />
+            </button>
+        </div>
+    </header>
+
+    @* ---------- 2. Top Executive KPI Cards ---------- *@
+    <section class="hr-grid-kpi hr-no-print" aria-label="مؤشرات الدورات التدريبية">
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">إجمالي السجلات التدريبية</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="academic-cap" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <strong>@totalCoursesCount.ToString("N0")</strong>
+                <span class="hr-kpi-sub">سجل تدريبي موثق</span>
+            </div>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">الموظفون المستفيدون</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="users" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <strong>@uniqueTrainedEmployeesCount.ToString("N0")</strong>
+                <span class="hr-kpi-sub">موظف شارك في دورات</span>
+            </div>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">العناوين التدريبية المنفذة</span>
+                <span class="hr-iconplate hr-iconplate-ok" aria-hidden="true"><Icon Name="bookmark" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <strong>@uniqueCourseTitlesCount.ToString("N0")</strong>
+                <span class="hr-kpi-sub">عنوان دورة معتمد</span>
+            </div>
+        </article>
+
+        <article class="hr-kpi">
+            <div class="hr-kpi-head">
+                <span class="hr-kpi-label">دورات العام الحالي (@DateTime.Today.Year)</span>
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="calendar" Size="sm" /></span>
+            </div>
+            <div class="hr-kpi-value">
+                <strong>@thisYearCoursesCount.ToString("N0")</strong>
+                <span class="hr-kpi-sub">دورة خلال السنة الحالية</span>
+            </div>
+        </article>
+    </section>
+
+    @* ---------- 3. Filters & Search Toolbar ---------- *@
+    <section class="hr-card hr-no-print" aria-label="أدوات التصفية والبحث">
+        <div class="hr-card-body">
+            <div class="hr-filterbar">
+              <div class="hr-filterbar-row">
+                <div class="hr-field hr-filter-grow">
+                    <label class="hr-field-label" for="search-input">البحث بالموظف أو اسم الدورة</label>
+                    <div class="hr-search">
+                        <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <input id="search-input"
+                               type="search"
+                               class="hr-input"
+                               placeholder="ابحث باسم الموظف، الرقم الوظيفي، أو اسم الدورة التدريبية…"
+                               value="@searchTerm"
+                               @oninput="OnSearchInput" />
+                    </div>
+                </div>
+
+                <div class="hr-field" style="min-width: 13rem;">
+                    <label class="hr-field-label" for="course-title-filter">اسم الدورة</label>
+                    <select id="course-title-filter" class="hr-select" value="@selectedCourseName" @onchange="OnCourseNameFilterChanged">
+                        <option value="">جميع الدورات (@allCourseNames.Count)</option>
+                        @foreach (var name in allCourseNames)
+                        {
+                            <option value="@name">@name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="hr-field" style="min-width: 12rem;">
+                    <label class="hr-field-label" for="formation-filter">التشكيل الإداري</label>
+                    <select id="formation-filter" class="hr-select" value="@selectedFormation" @onchange="OnFormationFilterChanged">
+                        <option value="">جميع التشكيلات</option>
+                        @foreach (var form in allFormations)
+                        {
+                            <option value="@form">@form</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="hr-field" style="min-width: 9.5rem;">
+                    <label class="hr-field-label" for="from-date">من تاريخ</label>
+                    <input id="from-date" type="date" class="hr-input" value="@fromDateStr" @onchange="OnFromDateChanged" />
+                </div>
+
+                <div class="hr-field" style="min-width: 9.5rem;">
+                    <label class="hr-field-label" for="to-date">إلى تاريخ</label>
+                    <input id="to-date" type="date" class="hr-input" value="@toDateStr" @onchange="OnToDateChanged" />
+                </div>
+
+                @if (HasActiveFilters)
+                {
+                    <div class="hr-filter-reset">
+                        <button type="button" class="hr-btn hr-btn-secondary" @onclick="ResetFilters" title="إعادة ضبط الفلاتر">
+                            <Icon Name="x-mark" Size="xs" />
+                            <span>إلغاء التصفية</span>
+                        </button>
+                    </div>
+                }
+              </div>
+            </div>
+        </div>
+    </section>
+
+    @* ---------- 4. Courses Data Table ---------- *@
+    <section class="hr-card" aria-label="جدول سجلات الدورات التدريبية">
+        @if (isLoading)
+        {
+            <div class="hr-card-body" style="padding: 3rem 1rem; text-align: center;">
+                <span class="hr-spinner" style="width:2.5rem;height:2.5rem;margin:0 auto" aria-hidden="true"></span>
+                <p class="hr-meta" style="margin-top: 1rem;">جارٍ تحميل سجلات الدورات التدريبية…</p>
+            </div>
+        }
+        else if (courses.Count == 0)
+        {
+            <div class="hr-card-body">
+                <div class="hr-empty">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="academic-cap" Size="lg" /></span>
+                    <p class="hr-h3">لم يتم العثور على أي دورات تدريبية</p>
+                    <p class="hr-sub hr-measure-sm">
+                        @(HasActiveFilters ? "لا توجد نتائج تطابق معايير البحث والتصفية المحددة." : "لم يتم تسجيل أي دورة تدريبية في النظام بعد. يمكنك إضافة دورة يدوياً أو استيرادها عبر ملف Excel.")
+                    </p>
+                    @if (HasActiveFilters)
+                    {
+                        <button type="button" class="hr-btn hr-btn-secondary" style="margin-top: 1rem;" @onclick="ResetFilters">
+                            إلغاء الفلاتر الحالية
+                        </button>
+                    }
+                    else
+                    {
+                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem; justify-content: center;">
+                            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateCourseModal">
+                                تسجيل دورة جديدة
+                            </button>
+                            <a href="data-import" class="hr-btn hr-btn-secondary">
+                                استيراد من ملف Excel
+                            </a>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table hr-table-wide">
+                    <thead>
+                        <tr>
+                            <th scope="col" style="width: 3.5rem;">#</th>
+                            <th scope="col" style="width: 7.5rem;">الرقم الوظيفي</th>
+                            <th scope="col">اسم الموظف</th>
+                            <th scope="col">التشكيل</th>
+                            <th scope="col">اسم الدورة التدريبية</th>
+                            <th scope="col" style="width: 7.5rem;">تاريخ البدء</th>
+                            <th scope="col" style="width: 7.5rem;">تاريخ النهاية</th>
+                            <th scope="col" style="width: 5.5rem;">المدة (أيام)</th>
+                            <th scope="col" style="width: 6.5rem;">الحالة</th>
+                            <th scope="col" style="width: 6.5rem;" class="hr-no-print">الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < courses.Count; i++)
+                        {
+                            var course = courses[i];
+                            var rowNum = (currentPage - 1) * pageSize + i + 1;
+                            <tr @key="course.Id">
+                                <td class="hr-meta hr-num">@rowNum</td>
+                                <td>
+                                    <span class="hr-cell-strong hr-num">@course.Employee.EmployeeID</span>
+                                </td>
+                                <td>
+                                    <a href="/employee/@course.EmployeeId" class="hr-link">
+                                        @course.Employee.Name
+                                    </a>
+                                </td>
+                                <td class="hr-meta">@(course.Employee.Formation?.Name ?? "—")</td>
+                                <td>
+                                    <span style="font-weight: 700; color: var(--cbi-copper);">@course.CourseName</span>
+                                    @if (!string.IsNullOrWhiteSpace(course.Notes))
+                                    {
+                                        <div class="hr-meta" style="font-size: var(--fs-label); margin-top: 0.2rem;">@course.Notes</div>
+                                    }
+                                </td>
+                                <td class="hr-num">@(course.StartDate?.ToString("yyyy-MM-dd") ?? "—")</td>
+                                <td class="hr-num">@(course.EndDate?.ToString("yyyy-MM-dd") ?? "—")</td>
+                                <td class="hr-num">
+                                    @if (course.DaysCount.HasValue && course.DaysCount.Value > 0)
+                                    {
+                                        <span>@course.DaysCount.Value</span>
+                                    }
+                                    else if (course.StartDate.HasValue && course.EndDate.HasValue)
+                                    {
+                                        <span>@((course.EndDate.Value.DayNumber - course.StartDate.Value.DayNumber) + 1)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="hr-badge @StatusBadgeClass(course.Status)">@(course.Status ?? "معتمدة")</span>
+                                </td>
+                                <td class="hr-no-print">
+                                    <div class="hr-rowactions">
+                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm"
+                                                @onclick="() => OpenEditCourseModal(course)"
+                                                aria-label="@($"تعديل دورة {course.CourseName} للموظف {course.Employee.Name}")"
+                                                title="تعديل الدورة">
+                                            <Icon Name="pencil-square" Size="xs" />
+                                        </button>
+                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm"
+                                                @onclick="() => PromptDelete(course)"
+                                                aria-label="@($"حذف دورة {course.CourseName} للموظف {course.Employee.Name}")"
+                                                title="حذف الدورة">
+                                            <Icon Name="trash" Size="xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @* Pager *@
+            <div class="hr-card-foot hr-no-print" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div class="hr-meta">
+                    عرض السجلات من <strong>@RangeStart</strong> إلى <strong>@RangeEnd</strong> من إجمالي <strong>@totalFilteredCount</strong>
+                </div>
+
+                <div style="display: flex; gap: 0.35rem; align-items: center;">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => ChangePage(1)" disabled="@(currentPage == 1)">
+                        <Icon Name="chevron-double-right" Size="xs" />
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => ChangePage(currentPage - 1)" disabled="@(currentPage == 1)">
+                        <Icon Name="chevron-right" Size="xs" />
+                    </button>
+                    <span class="hr-meta" style="padding: 0 0.5rem;">
+                        صفحة <strong>@currentPage</strong> من <strong>@totalPages</strong>
+                    </span>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => ChangePage(currentPage + 1)" disabled="@(currentPage >= totalPages)">
+                        <Icon Name="chevron-left" Size="xs" />
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => ChangePage(totalPages)" disabled="@(currentPage >= totalPages)">
+                        <Icon Name="chevron-double-left" Size="xs" />
+                    </button>
+                </div>
+            </div>
+        }
+    </section>
+
+</div>
+
+@* =========================================================================
+   5. Create / Edit Course Modal
+   ========================================================================= *@
+<Modal IsOpen="@isFormModalOpen"
+       Title="@(editingCourseId.HasValue ? "تعديل بيانات الدورة التدريبية" : "تسجيل دورة تدريبية جديدة")"
+       Subtitle="توثيق مشاركة الموظف في الدورة مع خيار إدخال اسم الدورة أو اختياره من القائمة السابقة"
+       Icon="academic-cap"
+       Size="lg"
+       OnClose="CloseFormModal">
+    <Body>
+        <div class="hr-form-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr)); gap: 1rem;">
+            @* Employee Field *@
+            <div class="hr-field" style="grid-column: 1 / -1;">
+                <label class="hr-field-label" for="form-emp-id">
+                    الرقم الوظيفي أو اسم الموظف <span class="hr-req" aria-hidden="true">*</span>
+                </label>
+                @if (editingCourseId.HasValue)
+                {
+                    <input type="text" class="hr-input" aria-label="الموظف" value="@($"{formEmployeeNumber} — {formEmployeeName}")" disabled />
+                }
+                else
+                {
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input id="form-emp-id"
+                               type="text"
+                               class="hr-input"
+                               placeholder="أدخل الرقم الوظيفي بدقة (مثال: 1001)…"
+                               @bind="formEmployeeNumber"
+                               @bind:event="oninput"
+                               @onchange="LookupEmployeeByNumber" />
+                        <button type="button" class="hr-btn hr-btn-secondary" @onclick="LookupEmployeeByNumber">
+                            تحقق
+                        </button>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(formEmployeeName))
+                    {
+                        <div class="hr-alert hr-alert-ok" style="margin-top: 0.5rem; padding: 0.4rem 0.75rem; font-size: var(--fs-label);">
+                            الموظف: <strong>@formEmployeeName</strong> @(!string.IsNullOrWhiteSpace(formEmployeeFormation) ? $"({formEmployeeFormation})" : "")
+                        </div>
+                    }
+                    else if (employeeLookupFailed)
+                    {
+                        <div class="hr-alert hr-alert-danger" style="margin-top: 0.5rem; padding: 0.4rem 0.75rem; font-size: var(--fs-label);">
+                            لم يتم العثور على موظف بهذا الرقم الوظيفي.
+                        </div>
+                    }
+                }
+            </div>
+
+            @* Course Name (Datalist + Free Text as requested!) *@
+            <div class="hr-field" style="grid-column: 1 / -1;">
+                <label class="hr-field-label" for="form-course-name">
+                    اسم الدورة التدريبية <span class="hr-req" aria-hidden="true">*</span>
+                </label>
+                <input id="form-course-name"
+                       list="course-suggestions"
+                       type="text"
+                       class="hr-input"
+                       placeholder="اختر من الدورات السابقة أو اكتب اسماً جديداً بحرية…"
+                       @bind="formCourseName" />
+                <datalist id="course-suggestions">
+                    @foreach (var name in allCourseNames)
+                    {
+                        <option value="@name" />
+                    }
+                </datalist>
+                <div class="hr-meta" style="font-size: var(--fs-caption); margin-top: 0.25rem;">
+                    يمكنك اختيار دورة معتمدة من القائمة أو كتابة عنوان الدورة الجديد كنص حر.
+                </div>
+            </div>
+
+            @* Start Date *@
+            <div class="hr-field">
+                <label class="hr-field-label" for="form-start-date">تاريخ بدء الدورة</label>
+                <input id="form-start-date" type="date" class="hr-input" @bind="formStartDate" />
+            </div>
+
+            @* End Date *@
+            <div class="hr-field">
+                <label class="hr-field-label" for="form-end-date">تاريخ نهاية الدورة</label>
+                <input id="form-end-date" type="date" class="hr-input" @bind="formEndDate" />
+            </div>
+
+            @* Days Count *@
+            <div class="hr-field">
+                <label class="hr-field-label" for="form-days-count">عدد الأيام</label>
+                <input id="form-days-count" type="number" class="hr-input" placeholder="يحتسب تلقائياً أو أدخل يدوياً" @bind="formDaysCount" />
+            </div>
+
+            @* Status *@
+            <div class="hr-field">
+                <label class="hr-field-label" for="form-status">حالة الدورة</label>
+                <select id="form-status" class="hr-select" @bind="formStatus">
+                    <option value="معتمدة">معتمدة</option>
+                    <option value="مجتازة">مجتازة بنجاح</option>
+                    <option value="مستمرة">مستمرة حالياً</option>
+                    <option value="ملغاة">ملغاة</option>
+                </select>
+            </div>
+
+            @* Notes *@
+            <div class="hr-field" style="grid-column: 1 / -1;">
+                <label class="hr-field-label" for="form-notes">ملاحظات إضافية أو الجهة المنظمة</label>
+                <textarea id="form-notes" class="hr-input" rows="3" placeholder="أدخل أي ملاحظات عن الدورة أو الجهة المنظمة أو التقدير…" @bind="formNotes"></textarea>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseFormModal">
+                إلغاء
+            </button>
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveCourseAsync" disabled="@isSubmitting">
+                @if (isSubmitting)
+                {
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>جارٍ الحفظ…</span>
+                }
+                else
+                {
+                    <Icon Name="check" Size="xs" />
+                    <span>@(editingCourseId.HasValue ? "تحديث الدورة" : "حفظ الدورة")</span>
+                }
+            </button>
+        </div>
+    </Footer>
+</Modal>
+
+@* =========================================================================
+   6. Confirm Delete Dialog
+   ========================================================================= *@
+<ConfirmDialog IsOpen="@isDeleteDialogOpen"
+               Title="تأكيد حذف سجل الدورة التدريبية"
+               Message="@($"هل أنت متأكد من رغبتك في حذف سجل الدورة '{courseToDelete?.CourseName}' للموظف '{courseToDelete?.Employee.Name}'؟ لا يمكن التراجع عن هذا الإجراء.")"
+               ConfirmText="نعم، احذف السجل"
+               CancelText="إلغاء"
+               Destructive="true"
+               OnConfirm="ConfirmDeleteAsync"
+               OnCancel="() => isDeleteDialogOpen = false" />
+
+@code {
+    private List<EmployeeCourse> courses = new();
+    private List<string> allCourseNames = new();
+    private List<string> allFormations = new();
+
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+
+    // KPI Counters
+    private int totalCoursesCount = 0;
+    private int uniqueTrainedEmployeesCount = 0;
+    private int uniqueCourseTitlesCount = 0;
+    private int thisYearCoursesCount = 0;
+
+    // Filters & Pagination
+    private string searchTerm = string.Empty;
+    private string selectedCourseName = string.Empty;
+    private string selectedFormation = string.Empty;
+    private string fromDateStr = string.Empty;
+    private string toDateStr = string.Empty;
+
+    private int currentPage = 1;
+    private int pageSize = 25;
+    private int totalFilteredCount = 0;
+    private int totalPages => Math.Max(1, (int)Math.Ceiling(totalFilteredCount / (double)pageSize));
+
+    private int RangeStart => totalFilteredCount == 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    private int RangeEnd => Math.Min(currentPage * pageSize, totalFilteredCount);
+
+    // The badge carries the status word as well as the colour, so the meaning
+    // never rides on colour alone. The four values match the form's options.
+    private static string StatusBadgeClass(string? status) => status switch
+    {
+        "مجتازة" => "hr-badge-ok",      // passed
+        "مستمرة" => "hr-badge-accent",  // in progress
+        "ملغاة" => "hr-badge-danger",   // cancelled
+        _ => "",                        // معتمدة (approved) and anything unknown: neutral
+    };
+    private bool HasActiveFilters => !string.IsNullOrWhiteSpace(searchTerm) ||
+                                     !string.IsNullOrWhiteSpace(selectedCourseName) ||
+                                     !string.IsNullOrWhiteSpace(selectedFormation) ||
+                                     !string.IsNullOrWhiteSpace(fromDateStr) ||
+                                     !string.IsNullOrWhiteSpace(toDateStr);
+
+    // Form Modal State
+    private bool isFormModalOpen = false;
+    private int? editingCourseId = null;
+    private string formEmployeeNumber = string.Empty;
+    private string formEmployeeName = string.Empty;
+    private string formEmployeeFormation = string.Empty;
+    private int? formEmployeeId = null;
+    private bool employeeLookupFailed = false;
+
+    private string formCourseName = string.Empty;
+    private DateOnly? formStartDate;
+    private DateOnly? formEndDate;
+    private int? formDaysCount;
+    private string formStatus = "معتمدة";
+    private string? formNotes;
+
+    // Delete Modal State
+    private bool isDeleteDialogOpen = false;
+    private EmployeeCourse? courseToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookupsAsync();
+        await LoadCoursesAsync();
+    }
+
+    private async Task LoadLookupsAsync()
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            allCourseNames = await db.EmployeeCourses
+                .AsNoTracking()
+                .Select(c => c.CourseName.Trim())
+                .Distinct()
+                .OrderBy(n => n)
+                .ToListAsync();
+
+            allFormations = await db.Formations
+                .AsNoTracking()
+                .Select(f => f.Name)
+                .OrderBy(f => f)
+                .ToListAsync();
+
+            totalCoursesCount = await db.EmployeeCourses.CountAsync();
+            uniqueTrainedEmployeesCount = await db.EmployeeCourses.Select(c => c.EmployeeId).Distinct().CountAsync();
+            uniqueCourseTitlesCount = allCourseNames.Count;
+
+            var currentYear = DateTime.Today.Year;
+            thisYearCoursesCount = await db.EmployeeCourses
+                .CountAsync(c => (c.StartDate != null && c.StartDate.Value.Year == currentYear) ||
+                                 (c.EndDate != null && c.EndDate.Value.Year == currentYear));
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر تحميل إحصائيات الدورات: {ex.Message}");
+        }
+    }
+
+    private async Task LoadCoursesAsync()
+    {
+        isLoading = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var query = db.EmployeeCourses
+                .AsNoTracking()
+                .Include(c => c.Employee).ThenInclude(e => e.Formation)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(c => c.Employee.Name.Contains(term) ||
+                                         c.Employee.EmployeeID.Contains(term) ||
+                                         c.CourseName.Contains(term));
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedCourseName))
+            {
+                query = query.Where(c => c.CourseName == selectedCourseName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedFormation))
+            {
+                query = query.Where(c => c.Employee.Formation != null && c.Employee.Formation.Name == selectedFormation);
+            }
+
+            if (DateOnly.TryParse(fromDateStr, out var fromDate))
+            {
+                query = query.Where(c => c.StartDate >= fromDate);
+            }
+
+            if (DateOnly.TryParse(toDateStr, out var toDate))
+            {
+                query = query.Where(c => c.EndDate <= toDate);
+            }
+
+            totalFilteredCount = await query.CountAsync();
+
+            courses = await query
+                .OrderByDescending(c => c.StartDate ?? DateOnly.MinValue)
+                .ThenByDescending(c => c.Id)
+                .Skip((currentPage - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر استرجاع الدورات التدريبية: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? string.Empty;
+        currentPage = 1;
+        await LoadCoursesAsync();
+    }
+
+    private async Task OnCourseNameFilterChanged(ChangeEventArgs e)
+    {
+        selectedCourseName = e.Value?.ToString() ?? string.Empty;
+        currentPage = 1;
+        await LoadCoursesAsync();
+    }
+
+    private async Task OnFormationFilterChanged(ChangeEventArgs e)
+    {
+        selectedFormation = e.Value?.ToString() ?? string.Empty;
+        currentPage = 1;
+        await LoadCoursesAsync();
+    }
+
+    private async Task OnFromDateChanged(ChangeEventArgs e)
+    {
+        fromDateStr = e.Value?.ToString() ?? string.Empty;
+        currentPage = 1;
+        await LoadCoursesAsync();
+    }
+
+    private async Task OnToDateChanged(ChangeEventArgs e)
+    {
+        toDateStr = e.Value?.ToString() ?? string.Empty;
+        currentPage = 1;
+        await LoadCoursesAsync();
+    }
+
+    private async Task ResetFilters()
+    {
+        searchTerm = string.Empty;
+        selectedCourseName = string.Empty;
+        selectedFormation = string.Empty;
+        fromDateStr = string.Empty;
+        toDateStr = string.Empty;
+        currentPage = 1;
+        await LoadCoursesAsync();
+    }
+
+    private async Task ChangePage(int page)
+    {
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+        currentPage = page;
+        await LoadCoursesAsync();
+    }
+
+    private void OpenCreateCourseModal()
+    {
+        editingCourseId = null;
+        formEmployeeNumber = string.Empty;
+        formEmployeeName = string.Empty;
+        formEmployeeFormation = string.Empty;
+        formEmployeeId = null;
+        employeeLookupFailed = false;
+
+        formCourseName = string.Empty;
+        formStartDate = null;
+        formEndDate = null;
+        formDaysCount = null;
+        formStatus = "معتمدة";
+        formNotes = null;
+
+        isFormModalOpen = true;
+    }
+
+    private void OpenEditCourseModal(EmployeeCourse course)
+    {
+        editingCourseId = course.Id;
+        formEmployeeNumber = course.Employee.EmployeeID;
+        formEmployeeName = course.Employee.Name;
+        formEmployeeFormation = course.Employee.Formation?.Name ?? string.Empty;
+        formEmployeeId = course.EmployeeId;
+        employeeLookupFailed = false;
+
+        formCourseName = course.CourseName;
+        formStartDate = course.StartDate;
+        formEndDate = course.EndDate;
+        formDaysCount = course.DaysCount;
+        formStatus = course.Status ?? "معتمدة";
+        formNotes = course.Notes;
+
+        isFormModalOpen = true;
+    }
+
+    private void CloseFormModal()
+    {
+        isFormModalOpen = false;
+    }
+
+    private async Task LookupEmployeeByNumber()
+    {
+        employeeLookupFailed = false;
+        formEmployeeName = string.Empty;
+        formEmployeeFormation = string.Empty;
+        formEmployeeId = null;
+
+        if (string.IsNullOrWhiteSpace(formEmployeeNumber)) return;
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var emp = await db.Employees
+            .Include(e => e.Formation)
+            .FirstOrDefaultAsync(e => e.EmployeeID == formEmployeeNumber.Trim());
+
+        if (emp != null)
+        {
+            formEmployeeId = emp.Id;
+            formEmployeeName = emp.Name;
+            formEmployeeFormation = emp.Formation?.Name ?? string.Empty;
+        }
+        else
+        {
+            employeeLookupFailed = true;
+        }
+    }
+
+    private async Task SaveCourseAsync()
+    {
+        if (string.IsNullOrWhiteSpace(formCourseName))
+        {
+            Toast.Warning("يرجى إدخال اسم الدورة التدريبية.");
+            return;
+        }
+
+        if (!editingCourseId.HasValue && !formEmployeeId.HasValue)
+        {
+            await LookupEmployeeByNumber();
+            if (!formEmployeeId.HasValue)
+            {
+                Toast.Warning("يرجى التحقق من الرقم الوظيفي للموظف.");
+                return;
+            }
+        }
+
+        if (formStartDate.HasValue && formEndDate.HasValue && formEndDate.Value < formStartDate.Value)
+        {
+            Toast.Warning("تاريخ نهاية الدورة لا يمكن أن يكون قبل تاريخ بدئها.");
+            return;
+        }
+
+        isSubmitting = true;
+        try
+        {
+            using var saveScope = ScopeFactory.CreateScope();
+            var db = saveScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            int? days = formDaysCount;
+            if ((!days.HasValue || days.Value <= 0) && formStartDate.HasValue && formEndDate.HasValue)
+            {
+                days = (formEndDate.Value.DayNumber - formStartDate.Value.DayNumber) + 1;
+            }
+
+            if (editingCourseId.HasValue)
+            {
+                var existing = await db.EmployeeCourses.FirstOrDefaultAsync(c => c.Id == editingCourseId.Value);
+                if (existing is null)
+                {
+                    Toast.Danger("سجل الدورة غير موجود.");
+                    return;
+                }
+
+                existing.CourseName = formCourseName.Trim();
+                existing.StartDate = formStartDate;
+                existing.EndDate = formEndDate;
+                existing.DaysCount = days;
+                existing.Status = formStatus;
+                existing.Notes = formNotes?.Trim();
+
+                await db.SaveChangesAsync();
+                Toast.Success("تم تحديث بيانات الدورة التدريبية بنجاح.");
+            }
+            else
+            {
+                var course = new EmployeeCourse
+                {
+                    EmployeeId = formEmployeeId!.Value,
+                    CourseName = formCourseName.Trim(),
+                    StartDate = formStartDate,
+                    EndDate = formEndDate,
+                    DaysCount = days,
+                    Status = formStatus,
+                    Notes = formNotes?.Trim(),
+                    CreatedAtUtc = DateTimeOffset.UtcNow
+                };
+
+                db.EmployeeCourses.Add(course);
+                await db.SaveChangesAsync();
+                Toast.Success("تم تسجيل الدورة التدريبية بنجاح.");
+            }
+
+            isFormModalOpen = false;
+            await LoadLookupsAsync();
+            await LoadCoursesAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"حدث خطأ أثناء حفظ الدورة: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void PromptDelete(EmployeeCourse course)
+    {
+        courseToDelete = course;
+        isDeleteDialogOpen = true;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (courseToDelete is null) return;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var item = await db.EmployeeCourses.FirstOrDefaultAsync(c => c.Id == courseToDelete.Id);
+            if (item != null)
+            {
+                db.EmployeeCourses.Remove(item);
+                await db.SaveChangesAsync();
+                Toast.Success("تم حذف سجل الدورة التدريبية بنجاح.");
+            }
+
+            isDeleteDialogOpen = false;
+            await LoadLookupsAsync();
+            await LoadCoursesAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Danger($"تعذر حذف سجل الدورة: {ex.Message}");
+        }
+    }
+
+    private async Task PrintPage()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+}

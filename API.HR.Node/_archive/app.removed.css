@@ -1,0 +1,756 @@
+/* Rules pruned from API.HR.Node/wwwroot/app.css because nothing in the repo
+   referenced their class names. Kept because this project has no
+   version control. Pruned 2026-09-20. */
+
+
+
+.hr-portal-hero-accent {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--b-700, #3b1e54), var(--b-400, #9b7ebd));
+}
+
+
+.hr-portal-hero-content {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+
+.hr-portal-hero-main {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+
+.hr-portal-avatar {
+    width: 5.5rem;
+    height: 5.5rem;
+    border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 3px var(--surface, #ffffff), 0 0 0 5px var(--b-200, #d4bee4);
+    overflow: hidden;
+    background: var(--b-800, #3b1e54);
+    display: grid;
+    place-items: center;
+    color: #ffffff;
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+
+.hr-portal-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+
+.hr-portal-hero-info {
+    min-width: 0;
+}
+
+
+.hr-portal-hero-name {
+    font-size: 1.625rem;
+    font-weight: 800;
+    color: var(--text, #0f172a);
+    margin: 0 0 0.35rem 0;
+    letter-spacing: -0.01em;
+}
+
+
+.hr-portal-hero-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+
+.hr-portal-hero-sub {
+    font-size: 0.875rem;
+    color: var(--text-2, #475569);
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+
+.hr-portal-hero-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+
+/* KPI Cards */
+.hr-portal-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-top: 1.25rem;
+}
+
+
+.hr-portal-kpi-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: var(--r-lg, 0.75rem);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.03));
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 0.75rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+
+.hr-portal-kpi-card:hover {
+    box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0,0,0,0.08));
+}
+
+
+.hr-portal-kpi-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+
+.hr-portal-kpi-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-3, #64748b);
+}
+
+
+.hr-portal-kpi-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: var(--r-md, 0.5rem);
+    display: grid;
+    place-items: center;
+}
+
+
+.hr-portal-kpi-icon-blue { background: rgba(59, 130, 246, 0.1); color: #2563eb; }
+
+.hr-portal-kpi-icon-amber { background: rgba(245, 158, 11, 0.1); color: #d97706; }
+
+.hr-portal-kpi-icon-green { background: rgba(16, 185, 129, 0.1); color: #059669; }
+
+.hr-portal-kpi-icon-purple { background: rgba(139, 92, 246, 0.1); color: #7c3aed; }
+
+
+.hr-portal-kpi-val {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--text, #0f172a);
+    line-height: 1.2;
+}
+
+
+.hr-portal-kpi-foot {
+    font-size: 0.75rem;
+    color: var(--text-3, #64748b);
+    margin: 0;
+    border-top: 1px solid var(--line-soft, #f1f5f9);
+    padding-top: 0.5rem;
+}
+
+
+/* Tabs Bar */
+.hr-portal-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--surface, #ffffff);
+    padding: 0.35rem;
+    border-radius: var(--r-lg, 0.75rem);
+    border: 1px solid var(--line, #e2e8f0);
+    margin-top: 1.5rem;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+
+.hr-portal-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: var(--r-md, 0.5rem);
+    border: none;
+    background: transparent;
+    color: var(--text-2, #475569);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+
+.hr-portal-tab:hover {
+    background: var(--surface-sunken, #f1f5f9);
+    color: var(--text, #0f172a);
+}
+
+
+/* Info Grid & Tiles */
+.hr-portal-section-card {
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--line, #e2e8f0);
+    border-radius: var(--r-xl, 1rem);
+    padding: 1.5rem;
+    margin-top: 1rem;
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.03));
+}
+
+
+.hr-portal-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--line-soft, #f1f5f9);
+}
+
+
+.hr-portal-section-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--text, #0f172a);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+
+.hr-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+
+.hr-info-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-3, #64748b);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+
+.hr-info-value {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text, #0f172a);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+
+/* Contacts Cards in Portal */
+.hr-contact-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+
+.hr-contact-item-main {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+
+.hr-contact-item-val {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text, #0f172a);
+}
+
+
+.hr-contact-item-sub {
+    font-size: 0.75rem;
+    color: var(--text-3, #64748b);
+}
+
+
+@media print {
+    .hr-portal-tabs { display: none !important; }
+    .hr-portal-section-card { break-inside: avoid; margin-top: 1rem; }
+    .hr-print-full { display: block !important; }
+}
+
+
+/* ==========================================================================
+   OFFICIAL INSTITUTIONAL DOSSIER PDF TEMPLATE & QR MODAL
+   ========================================================================== */
+
+.hr-pdf-export-container {
+    position: fixed;
+    top: 0;
+    left: -9999px;
+    width: 210mm;
+    background: #ffffff;
+    color: #0f172a;
+    z-index: -9999;
+    opacity: 1;
+    visibility: visible;
+}
+
+
+.hr-pdf-sheet {
+    width: 194mm;
+    margin: 0 auto;
+    padding: 10mm 10mm 12mm 10mm;
+    background: #ffffff;
+    color: #1e293b;
+    font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+    font-size: 9.5pt;
+    line-height: 1.5;
+    box-sizing: border-box;
+}
+
+
+.hr-pdf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+}
+
+
+.hr-pdf-header-right {
+    flex: 1;
+    text-align: right;
+    font-size: 8.5pt;
+    line-height: 1.4;
+    color: #334155;
+}
+
+
+.hr-pdf-header-right .hr-pdf-gov {
+    font-weight: 800;
+    font-size: 10pt;
+    color: #0f172a;
+    margin: 0;
+}
+
+
+.hr-pdf-header-right .hr-pdf-inst {
+    font-weight: 700;
+    font-size: 9.5pt;
+    color: #3B1E54;
+    margin: 0;
+}
+
+
+.hr-pdf-header-right .hr-pdf-dept,
+.hr-pdf-header-right .hr-pdf-division {
+    margin: 0;
+    font-size: 8pt;
+}
+
+
+.hr-pdf-header-center {
+    flex: 1.2;
+    text-align: center;
+}
+
+
+.hr-pdf-logo {
+    width: 68px;
+    height: 68px;
+    object-fit: contain;
+    margin: 0 auto 4px auto;
+    display: block;
+}
+
+
+.hr-pdf-title {
+    font-size: 13pt;
+    font-weight: 800;
+    color: #3B1E54;
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+
+.hr-pdf-subtitle {
+    font-size: 8pt;
+    font-weight: 600;
+    color: #64748b;
+    margin: 2px 0 0 0;
+}
+
+
+.hr-pdf-header-left {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+
+.hr-pdf-qr-box {
+    text-align: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px;
+    background: #ffffff;
+}
+
+
+.hr-pdf-qr-img {
+    width: 64px;
+    height: 64px;
+    display: block;
+    margin: 0 auto;
+}
+
+
+.hr-pdf-qr-caption {
+    display: block;
+    font-size: 6.5pt;
+    font-weight: 700;
+    color: #475569;
+    margin-top: 2px;
+}
+
+
+.hr-pdf-meta {
+    font-size: 7.5pt;
+    color: #475569;
+    line-height: 1.45;
+    text-align: right;
+}
+
+
+.hr-pdf-ribbon {
+    height: 4px;
+    background: linear-gradient(to right, #3B1E54, #C0714C, #3B1E54);
+    border-radius: 2px;
+    margin: 8px 0 12px 0;
+}
+
+
+.hr-pdf-hero {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+}
+
+
+.hr-pdf-avatar {
+    width: 68px;
+    height: 68px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #e2e8f0;
+    border: 2px solid #3B1E54;
+    flex: none;
+    display: grid;
+    place-items: center;
+}
+
+
+.hr-pdf-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+
+.hr-pdf-avatar-initials {
+    font-size: 16pt;
+    font-weight: 800;
+    color: #3B1E54;
+}
+
+
+.hr-pdf-hero-details {
+    flex: 1;
+}
+
+
+.hr-pdf-emp-name {
+    font-size: 13pt;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 4px;
+}
+
+
+.hr-pdf-hero-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px 10px;
+    font-size: 8pt;
+    color: #334155;
+}
+
+
+.hr-pdf-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+
+.hr-pdf-kpi {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 6px 8px;
+    text-align: center;
+}
+
+
+.hr-pdf-kpi-lbl {
+    display: block;
+    font-size: 7.5pt;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 2px;
+}
+
+
+.hr-pdf-kpi-val {
+    display: block;
+    font-size: 9pt;
+    font-weight: 800;
+    color: #3B1E54;
+}
+
+
+.hr-pdf-section {
+    margin-bottom: 12px;
+}
+
+
+.hr-pdf-sec-title {
+    font-size: 9.5pt;
+    font-weight: 800;
+    color: #3B1E54;
+    border-bottom: 1.5px solid #cbd5e1;
+    padding-bottom: 4px;
+    margin: 0 0 6px 0;
+}
+
+
+.hr-pdf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+}
+
+
+.hr-pdf-table th,
+.hr-pdf-table td {
+    padding: 4.5px 8px;
+    border: 1px solid #e2e8f0;
+    text-align: right;
+    vertical-align: middle;
+}
+
+
+.hr-pdf-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 700;
+}
+
+
+.hr-pdf-table td {
+    color: #0f172a;
+}
+
+
+.hr-pdf-footer-block {
+    margin-top: 14px;
+    border-top: 1.5px solid #cbd5e1;
+    padding-top: 10px;
+}
+
+
+.hr-pdf-legal-note {
+    font-size: 7.5pt;
+    color: #64748b;
+    line-height: 1.45;
+    margin-bottom: 12px;
+}
+
+
+.hr-pdf-signatures {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) 100px;
+    gap: 12px;
+    align-items: center;
+}
+
+
+.hr-pdf-sign-col {
+    text-align: center;
+    font-size: 8pt;
+    line-height: 1.4;
+}
+
+
+.hr-pdf-seal-col {
+    text-align: center;
+}
+
+
+.hr-pdf-seal-box {
+    width: 82px;
+    height: 82px;
+    border: 2px dashed #C0714C;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #C0714C;
+    font-size: 7pt;
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 0 auto;
+}
+
+
+/* Modal for Mobile QR Access */
+.hr-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(4px);
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    animation: hrFadeIn 0.2s ease-out;
+}
+
+
+.hr-modal-content {
+    background: var(--surface, #ffffff);
+    color: var(--text, #0f172a);
+    border: 1px solid var(--line-soft, #e2e8f0);
+    border-radius: var(--r-xl, 1rem);
+    max-width: 460px;
+    width: 100%;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    animation: hrZoomIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+
+.hr-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--line-soft, #e2e8f0);
+}
+
+
+.hr-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    background: var(--surface-sunken, #f8fafc);
+    border-top: 1px solid var(--line-soft, #e2e8f0);
+}/* Rules pruned from API.HR.Node/wwwroot/app.css because nothing in the repo
+   referenced their class names. Kept because this project has no
+   version control. Pruned 2026-09-20. */
+
+
+
+.hr-portal-kpi-val .unit {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-3, #64748b);
+    margin-inline-start: 0.2rem;
+    margin-inline-end: 0.4rem;
+}
+
+
+.hr-portal-tab.is-active {
+    background: var(--b-800, #3b1e54);
+    color: #ffffff;
+    font-weight: 700;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+
+.hr-portal-tab.is-active .hr-badge {
+    background: rgba(255,255,255,0.25);
+    color: #ffffff;
+}
+
+
+.hr-pdf-hero-grid .lbl {
+    color: #64748b;
+    margin-inline-end: 3px;
+}
+
+
+.hr-pdf-hero-grid .badge-ok {
+    color: #059669;
+}
+
+
+.hr-pdf-sign-col .sign-title {
+    display: block;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+
+.hr-pdf-sign-col .sign-name {
+    display: block;
+    font-size: 7.5pt;
+    color: #64748b;
+    margin-bottom: 18px;
+}
+
+
+.hr-pdf-sign-col .sign-line {
+    font-size: 7.5pt;
+    color: #94a3b8;
+}

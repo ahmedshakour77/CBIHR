@@ -1,0 +1,219 @@
+﻿@page "/Account/Manage/EnableAuthenticator"
+
+@using System.ComponentModel.DataAnnotations
+@using System.Globalization
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+@inject UrlEncoder UrlEncoder
+@inject ILogger<EnableAuthenticator> Logger
+
+<PageTitle>إعداد تطبيق المصادقة | منظومة الموارد البشرية</PageTitle>
+
+@*
+    A three-step setup, numbered and separated, because doing them out of
+    order is the usual way this fails.
+
+    QR generation is not wired up in this build, so step two leads with the
+    key as text rather than pointing at an empty box and calling it a QR
+    code. The key is selectable and spaced for reading aloud.
+*@
+
+@if (recoveryCodes is not null)
+{
+    <ShowRecoveryCodes RecoveryCodes="recoveryCodes.ToArray()" StatusMessage="@message" />
+}
+else
+{
+    <div class="hr-stack-sm">
+        <StatusMessage Message="@message" />
+
+        <section class="hr-card">
+            <div class="hr-card-head">
+                <div class="hr-idcell">
+                    <span class="hr-iconplate" aria-hidden="true"><Icon Name="shield-check" Size="sm" /></span>
+                    <div class="hr-idcell-text">
+                        <h2 class="hr-h2">إعداد تطبيق المصادقة</h2>
+                        <p class="hr-meta" style="margin-block-start:.25rem">ثلاث خطوات لتفعيل التحقق بخطوتين</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hr-card-body">
+                <ol class="hr-setup">
+                    <li class="hr-setup-step">
+                        <span class="hr-setup-num hr-num" aria-hidden="true">1</span>
+                        <div class="hr-setup-body">
+                            <h3 class="hr-h3">ثبّت تطبيق مصادقة</h3>
+                            <p class="hr-sub" style="margin-block-start:.25rem">
+                                مثل Microsoft Authenticator أو Google Authenticator، على هاتفك.
+                            </p>
+                        </div>
+                    </li>
+
+                    <li class="hr-setup-step">
+                        <span class="hr-setup-num hr-num" aria-hidden="true">2</span>
+                        <div class="hr-setup-body">
+                            <h3 class="hr-h3">أضف هذا المفتاح إلى التطبيق</h3>
+                            <p class="hr-sub" style="margin-block-start:.25rem">
+                                أدخل المفتاح يدوياً في التطبيق. المسافات وحالة الأحرف لا تؤثر.
+                            </p>
+                            <p class="hr-code hr-num" style="margin-block-start:.75rem;text-align:start">@sharedKey</p>
+                            <p class="hr-help">
+                                لم تُفعَّل مولّدات رمز الاستجابة السريعة في هذا النظام، لذلك يُعتمد الإدخال اليدوي للمفتاح.
+                            </p>
+                        </div>
+                    </li>
+
+                    <li class="hr-setup-step">
+                        <span class="hr-setup-num hr-num" aria-hidden="true">3</span>
+                        <div class="hr-setup-body">
+                            <h3 class="hr-h3">أدخل الرمز الذي يعرضه التطبيق</h3>
+
+                            <EditForm Model="Input" FormName="send-code" OnValidSubmit="OnValidSubmitAsync" method="post">
+                                <DataAnnotationsValidator />
+                                <ValidationSummary class="hr-error-summary" role="alert" />
+
+                                <div class="hr-field" style="max-width:20rem">
+                                    <label class="hr-field-label" for="Input.Code">
+                                        رمز التحقق <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                                    </label>
+                                    <InputText @bind-Value="Input.Code" id="Input.Code" class="hr-input hr-num hr-otp" dir="ltr"
+                                               inputmode="numeric" autocomplete="one-time-code" aria-required="true" />
+                                    <ValidationMessage For="() => Input.Code" class="hr-error" />
+                                </div>
+
+                                <button type="submit" class="hr-btn hr-btn-primary" style="margin-block-start:.75rem">
+                                    <Icon Name="check" Size="xs" />
+                                    <span>تحقّق وتفعيل</span>
+                                </button>
+                            </EditForm>
+                        </div>
+                    </li>
+                </ol>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private const string AuthenticatorUriFormat = "otpauth://totp/{0}:{1}?secret={2}&issuer={0}&digits=6";
+
+    private string? message;
+    private ApplicationUser? user;
+    private string? sharedKey;
+    private string? authenticatorUri;
+    private IEnumerable<string>? recoveryCodes;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        await LoadSharedKeyAndQrCodeUriAsync(user);
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        // Strip spaces and hyphens
+        var verificationCode = Input.Code.Replace(" ", string.Empty).Replace("-", string.Empty);
+
+        var is2faTokenValid = await UserManager.VerifyTwoFactorTokenAsync(
+            user, UserManager.Options.Tokens.AuthenticatorTokenProvider, verificationCode);
+
+        if (!is2faTokenValid)
+        {
+            message = "Error: رمز التحقق غير صحيح. تأكد من الرمز المعروض حالياً في التطبيق.";
+            return;
+        }
+
+        await UserManager.SetTwoFactorEnabledAsync(user, true);
+        var userId = await UserManager.GetUserIdAsync(user);
+        Logger.LogInformation("User with ID '{UserId}' has enabled 2FA with an authenticator app.", userId);
+
+        message = "تم التحقق من تطبيق المصادقة وتفعيل التحقق بخطوتين.";
+
+        if (await UserManager.CountRecoveryCodesAsync(user) == 0)
+        {
+            recoveryCodes = await UserManager.GenerateNewTwoFactorRecoveryCodesAsync(user, 10);
+        }
+        else
+        {
+            RedirectManager.RedirectToWithStatus("Account/Manage/TwoFactorAuthentication", message, HttpContext);
+        }
+    }
+
+    private async ValueTask LoadSharedKeyAndQrCodeUriAsync(ApplicationUser user)
+    {
+        // Load the authenticator key & QR code URI to display on the form
+        var unformattedKey = await UserManager.GetAuthenticatorKeyAsync(user);
+        if (string.IsNullOrEmpty(unformattedKey))
+        {
+            await UserManager.ResetAuthenticatorKeyAsync(user);
+            unformattedKey = await UserManager.GetAuthenticatorKeyAsync(user);
+        }
+
+        sharedKey = FormatKey(unformattedKey!);
+
+        var email = await UserManager.GetEmailAsync(user);
+        authenticatorUri = GenerateQrCodeUri(email!, unformattedKey!);
+    }
+
+    private string FormatKey(string unformattedKey)
+    {
+        var result = new StringBuilder();
+        int currentPosition = 0;
+        while (currentPosition + 4 < unformattedKey.Length)
+        {
+            result.Append(unformattedKey.AsSpan(currentPosition, 4)).Append(' ');
+            currentPosition += 4;
+        }
+        if (currentPosition < unformattedKey.Length)
+        {
+            result.Append(unformattedKey.AsSpan(currentPosition));
+        }
+
+        return result.ToString().ToLowerInvariant();
+    }
+
+    private string GenerateQrCodeUri(string email, string unformattedKey)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            AuthenticatorUriFormat,
+            UrlEncoder.Encode("Microsoft.AspNetCore.Identity.UI"),
+            UrlEncoder.Encode(email),
+            unformattedKey);
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "أدخل رمز التحقق.")]
+        [StringLength(7, ErrorMessage = "يتكوّن الرمز من {2} إلى {1} خانات.", MinimumLength = 6)]
+        [DataType(DataType.Text)]
+        [Display(Name = "رمز التحقق")]
+        public string Code { get; set; } = "";
+    }
+}

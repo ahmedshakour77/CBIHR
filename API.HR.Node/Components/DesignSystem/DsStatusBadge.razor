@@ -1,0 +1,75 @@
+@namespace API.HR.Node.Components.DesignSystem
+
+<span class="@ComputedClass" @attributes="AdditionalAttributes">
+    @if (!string.IsNullOrEmpty(EffectiveIcon))
+    {
+        <Icon Name="@EffectiveIcon" Size="xs" />
+    }
+    @if (ShowDot)
+    {
+        <span class="hr-badge-dot" aria-hidden="true"></span>
+    }
+    <span>@Text</span>
+    @if (ChildContent != null)
+    {
+        @ChildContent
+    }
+</span>
+
+@code {
+    public enum BadgeVariant
+    {
+        Neutral,
+        Success,
+        Warning,
+        Danger,
+        Info
+    }
+
+    [Parameter, EditorRequired] public string Text { get; set; } = string.Empty;
+    [Parameter] public BadgeVariant Variant { get; set; } = BadgeVariant.Neutral;
+    [Parameter] public string? IconName { get; set; }
+    [Parameter] public bool ShowDot { get; set; }
+    [Parameter] public bool AutoIcon { get; set; } = true;
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string? EffectiveIcon
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(IconName)) return IconName;
+            if (!AutoIcon || ShowDot) return null;
+
+            return Variant switch
+            {
+                BadgeVariant.Success => "check-circle",
+                BadgeVariant.Warning => "exclamation-triangle",
+                BadgeVariant.Danger => "x-circle",
+                BadgeVariant.Info => "information-circle",
+                _ => null
+            };
+        }
+    }
+
+    private string ComputedClass
+    {
+        get
+        {
+            var variantClass = Variant switch
+            {
+                BadgeVariant.Success => "hr-badge-ok",
+                BadgeVariant.Warning => "hr-badge-warn",
+                BadgeVariant.Danger => "hr-badge-danger",
+                BadgeVariant.Info => "hr-badge-accent",
+                _ => ""
+            };
+
+            var classes = new List<string> { "hr-badge" };
+            if (!string.IsNullOrEmpty(variantClass)) classes.Add(variantClass);
+            if (!string.IsNullOrEmpty(Class)) classes.Add(Class);
+            return string.Join(" ", classes);
+        }
+    }
+}

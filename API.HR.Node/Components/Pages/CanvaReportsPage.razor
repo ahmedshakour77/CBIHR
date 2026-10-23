@@ -1,0 +1,844 @@
+@page "/canva-reports"
+@using API.HR.Node.Services.Canva
+@using API.HR.Node.Services.Localization
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,HRManager")]
+@inject ICanvaService CanvaService
+@inject ILanguageService Lang
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@rendermode InteractiveServer
+
+<PageTitle>تقارير وإحصائيات Canva الذكية | CBI HR</PageTitle>
+
+<div class="hr-page" dir="rtl">
+    
+    @* ==================== 1. PAGE HEADER ==================== *@
+    <header>
+        <div class="hr-pagehead">
+            <div class="hr-pagehead-titles hr-card-head__lead" style="align-items: center">
+                <div class="hr-iconplate hr-iconplate-lg hr-tone-1" aria-hidden="true">
+                    <Icon Name="sparkles" Size="md" />
+                </div>
+                <div>
+                    <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                        <h1 class="hr-h1" style="margin:0;">منظومة تقارير وإحصائيات Canva الذكية</h1>
+                        @if (isConnected)
+                        {
+                            <span class="hr-badge hr-badge-ok" style="gap:4px;">
+                                <span class="hr-dot hr-dot-ok" aria-hidden="true"></span>
+                                <span>متصل بـ Canva Connect API</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="hr-badge hr-badge-warn" style="gap:4px;">
+                                <span class="hr-dot hr-dot-warn" aria-hidden="true"></span>
+                                <span>غير متصل بحساب Canva</span>
+                            </span>
+                        }
+                    </div>
+                    <p class="hr-meta" style="margin:0;margin-block-start:var(--s-1);">
+                        ربط وتصدير المؤشرات الإحصائية الحية لقاعدة بيانات الموظفين إلى قوالب كانفا الرسمية لتوليد تقارير وإنفوجرافيك تنفيذي فخم
+                    </p>
+                </div>
+            </div>
+
+            <div class="hr-pagehead-actions">
+                @if (isConnected)
+                {
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="RefreshDataAsync" disabled="@isLoading">
+                        <Icon Name="arrow-path" Size="xs" />
+                        <span>تحديث البيانات</span>
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" @onclick="DisconnectAsync" disabled="@isLoading">
+                        <Icon Name="arrow-right-on-rectangle" Size="xs" />
+                        <span>إلغاء الربط</span>
+                    </button>
+                }
+                else
+                {
+                    <a href="/api/canva/connect?returnUrl=/canva-reports" class="hr-btn hr-btn-primary hr-btn-sm">
+                        <Icon Name="link" Size="xs" />
+                        <span>ربط حساب Canva الآن</span>
+                    </a>
+                }
+            </div>
+        </div>
+    </header>
+
+    @* ==================== 2. NOTIFICATIONS & FEEDBACK ==================== *@
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="hr-alert hr-alert-ok" role="alert" style="margin-block-end:var(--s-4);">
+            <Icon Name="check-circle" Size="sm" />
+            <div class="hr-alert-grow">
+                <strong>@statusMessage</strong>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => statusMessage = null">
+                <Icon Name="x-mark" Size="xs" />
+            </button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="hr-alert hr-alert-danger" role="alert" style="margin-block-end:var(--s-4);">
+            <Icon Name="exclamation-circle" Size="sm" />
+            <div class="hr-alert-grow">
+                <strong>تنبيه:</strong> <span>@errorMessage</span>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => errorMessage = null">
+                <Icon Name="x-mark" Size="xs" />
+            </button>
+        </div>
+    }
+
+    @* ==================== 3. MAIN WORKFLOW TABS / SECTIONS ==================== *@
+    @if (!isConnected)
+    {
+        @* CONNECT PROMPT CARD *@
+        <div class="hr-card" style="padding:var(--s-6);text-align:center;background:linear-gradient(180deg, var(--surface) 0%, var(--surface-sunken) 100%);border:2px dashed var(--line);">
+            <div style="width:4rem;height:4rem;border-radius:var(--r-full);background:var(--series-1);color:var(--series-on);display:grid;place-items:center;margin-inline:auto;margin-block-end:var(--s-3);box-shadow:var(--shadow-md);">
+                <Icon Name="sparkles" Size="md" />
+            </div>
+            <h2 class="hr-h2" style="margin-block-end:var(--s-2);">ابدأ بدمج تقارير البنك المركزي مع Canva</h2>
+            <p class="hr-meta" style="max-width:38rem;margin-inline:auto;margin-block-end:var(--s-4);line-height:1.7;">
+                يتيح لك هذا الربط إرسال الأرقام والإحصائيات الحية للكادر الوظيفي (إجمالي الموظفين، نسب الذكور والإناث، الهرم العمري، سنوات الخدمة، والتشكيلات الكبرى) وضخها آلياً في قوالب العروض والإنفوجرافيك الرسمية بحسابك في Canva.
+            </p>
+
+            <div style="background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s-3);max-width:38rem;margin-inline:auto;margin-block-end:var(--s-4);text-align:right;">
+                <label for="f-canva-reports-page-1" class="hr-label" style="font-weight:700;">رابط إعادة التوجيه (Redirect URI) المرسل إلى Canva:</label>
+                <div style="display:flex;gap:var(--s-2);align-items:center;margin-block:var(--s-1);">
+                    <input id="f-canva-reports-page-1" type="text" class="hr-input hr-num" @bind="customRedirectUri" style="font-family:monospace;direction:ltr;text-align:left;font-size:var(--fs-control);" />
+                </div>
+                <div style="display:flex;gap:var(--s-2);align-items:center;justify-content:flex-start;flex-wrap:wrap;margin-block-start:var(--s-2);">
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick='() => customRedirectUri = "https://localhost:7266/api/canva/callback"'>
+                        استخدم: localhost:7266
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick='() => customRedirectUri = "https://127.0.0.1:7266/api/canva/callback"'>
+                        استخدم: 127.0.0.1:7266
+                    </button>
+                </div>
+                <span class="hr-meta" style="display:block;margin-block-start:var(--s-1);color:var(--text-3);font-size:var(--fs-caption);">
+                    يجب أن يتطابق هذا الرابط حرفياً مع ما هو مكتوب في موقع Canva Developers في قائمة Redirect URIs.
+                </span>
+            </div>
+
+            <a href="@($"/api/canva/connect?returnUrl=/canva-reports&redirectUri={Uri.EscapeDataString(customRedirectUri)}")" class="hr-btn hr-btn-primary">
+                <Icon Name="arrow-top-right-on-square" Size="sm" />
+                <span>تسجيل الدخول وربط حساب Canva</span>
+            </a>
+
+            <div style="margin-block-start:var(--s-4);display:flex;align-items:center;justify-content:center;gap:var(--s-4);flex-wrap:wrap;color:var(--text-3);font-size:var(--fs-caption);">
+                <span>✓ يدعم Canva Connect API</span>
+                <span>✓ تحديث البيانات بدون إعادة تصميم</span>
+                <span>✓ تصدير PDF فوري عالي الدقة</span>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* WORKSPACE: 3 COLUMNS / CARDS *@
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(320px, 100%), 1fr));gap:var(--s-4);margin-block-end:var(--s-4);">
+            
+            @* CARD 1: TEMPLATE SELECTION *@
+            <div class="hr-card" style="display:flex;flex-direction:column;">
+                <div class="hr-card-head" style="border-block-end:1px solid var(--line-soft);">
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        <span class="hr-iconplate" style="background:var(--series-1);color:var(--series-on);">
+                            <Icon Name="squares-2x2" Size="xs" />
+                        </span>
+                        <div>
+                            <h2 class="hr-h3" style="margin:0;">1. اختيار قالب Canva</h2>
+                            <p class="hr-meta" style="margin:0;">حدد قالب العلامة التجارية المراد ملؤه بالبيانات</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-card-body" style="flex:1;display:flex;flex-direction:column;gap:var(--s-3);">
+                    @if (brandTemplates.Where(t => !hiddenTemplateIds.Contains(t.Id)).Any())
+                    {
+                        <div style="display:flex;flex-direction:column;gap:var(--s-2);max-height:280px;overflow-y:auto;padding-inline-end:var(--s-1);">
+                            @foreach (var tmpl in brandTemplates.Where(t => !hiddenTemplateIds.Contains(t.Id)))
+                            {
+                                var isSelected = selectedTemplateId == tmpl.Id;
+                                <div class="hr-card hr-pickrow @(isSelected ? "is-selected" : null)">
+                                    <div style="display:flex;align-items:center;gap:var(--s-3);">
+                                        <button type="button" class="hr-pickrow__main"
+                                                aria-pressed="@(isSelected ? "true" : "false")"
+                                                @onclick="() => SelectTemplateAsync(tmpl.Id, tmpl.Title)">
+                                        @if (!string.IsNullOrEmpty(tmpl.Thumbnail?.Url))
+                                        {
+                                            <img src="@tmpl.Thumbnail.Url" alt="@tmpl.Title" style="width:52px;height:52px;object-fit:cover;border-radius:var(--r-sm);border:1px solid var(--line);" />
+                                        }
+                                        else
+                                        {
+                                            <div style="width:52px;height:52px;border-radius:var(--r-sm);background:var(--surface-sunken);display:grid;place-items:center;color:var(--text-3);">
+                                                <Icon Name="photo" Size="sm" />
+                                            </div>
+                                        }
+                                        <div style="flex:1;min-width:0;">
+                                            <strong style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--fs-label);color:var(--text);">@tmpl.Title</strong>
+                                            <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">@tmpl.Id</span>
+                                        </div>
+                                        </button>
+                                        <div style="display:flex;align-items:center;gap:4px;">
+                                            @if (isSelected)
+                                            {
+                                                <span class="hr-badge hr-badge-accent">محدد</span>
+                                            }
+                                            <button type="button" 
+                                                    class="hr-btn hr-btn-quiet hr-btn-xs" 
+                                                    style="color:var(--text-3);padding:4px;" 
+                                                    title="إخفاء هذا القالب من القائمة" 
+                                                    @onclick:stopPropagation="true" 
+                                                    @onclick="() => HideTemplate(tmpl.Id)">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        @if (hiddenTemplateIds.Count > 0)
+                        {
+                            <div style="display:flex;justify-content:flex-end;margin-block-start:4px;">
+                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="font-size:var(--fs-caption);" @onclick="RestoreHiddenTemplates">
+                                    <Icon Name="eye" Size="xs" />
+                                    <span>إظهار القوالب المستبعدة (@hiddenTemplateIds.Count)</span>
+                                </button>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div style="padding:var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);text-align:center;">
+                            <p class="hr-meta" style="margin:0;font-size:var(--fs-body);">
+                                لم يتم العثور على Brand Templates منشورة بحسابك تلقائياً، يمكنك إدخال معرّف القالب مباشرة أدناه:
+                            </p>
+                            @if (hiddenTemplateIds.Count > 0)
+                            {
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" style="margin-block-start:var(--s-2);" @onclick="RestoreHiddenTemplates">
+                                    إعادة إظهار كافة القوالب المستبعدة (@hiddenTemplateIds.Count)
+                                </button>
+                            }
+                        </div>
+                    }
+
+                    <div class="hr-field">
+                        <label class="hr-label" for="manual-tmpl-id">أو أدخل معرّف القالب يدوياً (Brand Template ID):</label>
+                        <div style="display:flex;gap:var(--s-1);">
+                            <input id="manual-tmpl-id" type="text" class="hr-input hr-num" style="flex:1;" placeholder="مثال: DAxxxxxxxxx" @bind="selectedTemplateId" @bind:after="OnManualTemplateIdChangedAsync" />
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" title="فحص حقول القالب" @onclick="() => CheckTemplateDatasetAsync(selectedTemplateId)">
+                                <Icon Name="arrow-path" Size="xs" />
+                            </button>
+                        </div>
+                        <span class="hr-meta">يمكنك نسخ المعرّف من رابط التصميم في كانفا بعد نشره كقالب.</span>
+                    </div>
+
+                    @* TEMPLATE DATASET STATUS BADGE *@
+                    @if (!string.IsNullOrWhiteSpace(selectedTemplateId))
+                    {
+                        @if (isCheckingDataset)
+                        {
+                            <div style="padding:var(--s-2) var(--s-3);background:var(--surface-sunken);border-radius:var(--r-sm);font-size:var(--fs-caption);color:var(--text-2);display:flex;align-items:center;gap:var(--s-2);">
+                                <div class="hr-spinner hr-spinner-xs"></div>
+                                <span>جارٍ فحص حقول البيانات في القالب عبر Canva Connect API...</span>
+                            </div>
+                        }
+                        else if (currentTemplateFields != null && currentTemplateFields.Count > 0)
+                        {
+                            <div style="padding:var(--s-2) var(--s-3);background:var(--ok-tint);border:1px solid var(--ok-line);border-radius:var(--r-sm);font-size:var(--fs-caption);">
+                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                                    <strong style="color:var(--ok);display:flex;align-items:center;gap:4px;">
+                                        <Icon Name="check-circle" Size="xs" />
+                                        <span>جاهز للحقن (@currentTemplateFields.Count حقل بيانات معرّف)</span>
+                                    </strong>
+                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="padding:2px 6px;color:var(--ok);" @onclick="() => CheckTemplateDatasetAsync(selectedTemplateId)">
+                                        <Icon Name="arrow-path" Size="xs" />
+                                        <span>إعادة فحص</span>
+                                    </button>
+                                </div>
+                                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-block-start:6px;">
+                                    @foreach (var key in currentTemplateFields.Keys)
+                                    {
+                                        <code style="background:var(--surface);border:1px solid var(--ok-line);padding:1px 6px;border-radius:var(--r-xs);font-size:var(--fs-caption);color:var(--ok);">@key</code>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        else if (currentTemplateFields != null && currentTemplateFields.Count == 0)
+                        {
+                            <div style="padding:var(--s-3);background:var(--warn-tint);border:1px solid var(--warn-line);border-radius:var(--r-sm);font-size:var(--fs-caption);line-height:1.6;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:4px;flex-wrap:wrap;gap:var(--s-2);">
+                                    <strong style="color:var(--warn);display:flex;align-items:center;gap:4px;">
+                                        <Icon Name="exclamation-triangle" Size="xs" />
+                                        <span>تنبيه: القالب لا يحتوي على Data Fields في Canva بعد</span>
+                                    </strong>
+                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="padding:2px 6px;color:var(--warn);" @onclick="() => CheckTemplateDatasetAsync(selectedTemplateId)">
+                                        <Icon Name="arrow-path" Size="xs" />
+                                        <span>إعادة فحص</span>
+                                    </button>
+                                </div>
+                                <p style="margin:0;color:var(--text-2);">
+                                    في Canva، محرك الأتمتة يتطلب تحديد العناصر واختيار <strong>Data field</strong> وتسميتها بأحد أسماء المؤشرات (مثل <code>total_employees</code>) ثم نشر القالب مجدداً. راجع <strong>دليل المصمم</strong> بالأسفل للتفاصيل.
+                                </p>
+                            </div>
+                        }
+                    }
+
+                    <div class="hr-field">
+                        <label class="hr-label" for="report-title-input">عنوان التقرير الناتج:</label>
+                        <input id="report-title-input" type="text" class="hr-input" @bind="reportCustomTitle" placeholder="تقرير إحصائيات الموارد البشرية - تشرين الأول 2026" />
+                    </div>
+                </div>
+            </div>
+
+            @* CARD 2: LIVE STATS PAYLOAD PREVIEW *@
+            <div class="hr-card" style="display:flex;flex-direction:column;">
+                <div class="hr-card-head" style="border-block-end:1px solid var(--line-soft);">
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        <span class="hr-iconplate" style="background:var(--series-2);color:var(--series-on);">
+                            <Icon Name="chart-bar" Size="xs" />
+                        </span>
+                        <div>
+                            <h2 class="hr-h3" style="margin:0;">2. البيانات الإحصائية الحية الممررة</h2>
+                            <p class="hr-meta" style="margin:0;">المؤشرات التي سيتم حقنها في القالب فورياً</p>
+                        </div>
+                    </div>
+                    <span class="hr-badge hr-badge-accent">@statsPayload?.TotalEmployees.ToString("N0") كادر</span>
+                </div>
+
+                <div class="hr-card-body" style="flex:1;overflow-y:auto;max-height:420px;display:flex;flex-direction:column;gap:var(--s-2);">
+                    @if (statsPayload != null)
+                    {
+                        var dict = statsPayload.ToDatasetDictionary();
+                        <table class="hr-table" style="font-size:var(--fs-caption);width:100%;">
+                            <thead>
+                                <tr>
+                                    <th scope="col" style="width:40%;">اسم الحقل في كانفا</th>
+                                    <th scope="col">القيمة الحالية للنظام</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var (k, v) in dict)
+                                {
+                                    <tr>
+                                        <td>
+                                            <code style="background:var(--surface-sunken);padding:2px 6px;border-radius:var(--r-xs);font-size:var(--fs-caption);color:var(--series-1);">@k</code>
+                                        </td>
+                                        <td>
+                                            <strong style="color:var(--text);font-size:var(--fs-caption);">@v</strong>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    else
+                    {
+                        <div class="hr-skeleton" style="height:200px;"></div>
+                    }
+                </div>
+            </div>
+
+            @* CARD 3: EXECUTE & GENERATE *@
+            <div class="hr-card" style="display:flex;flex-direction:column;">
+                <div class="hr-card-head" style="border-block-end:1px solid var(--line-soft);">
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        <span class="hr-iconplate" style="background:var(--accent);color:var(--on-accent);">
+                            <Icon Name="sparkles" Size="xs" />
+                        </span>
+                        <div>
+                            <h2 class="hr-h3" style="margin:0;">3. توليد وتصدير التصميم</h2>
+                            <p class="hr-meta" style="margin:0;">إنشاء التصميم الجديد في حسابك وتصديره</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-card-body" style="flex:1;display:flex;flex-direction:column;justify-content:space-between;gap:var(--s-4);">
+                    <div>
+                        <p class="hr-meta" style="line-height:1.6;">
+                            عند النقر، سترسل الخدمة طلباً إلى <strong>Canva Autofill Engine</strong> لإنشاء نسخة جديدة من القالب مع استبدال كافة الحقول النصية بأرقام البنك المركزي اللحظية.
+                        </p>
+
+                        @if (isGenerating)
+                        {
+                            <div style="padding:var(--s-4);background:var(--surface-sunken);border-radius:var(--r-md);text-align:center;">
+                                <div class="hr-spinner" style="margin-inline:auto;margin-block-end:var(--s-2);"></div>
+                                <strong style="color:var(--text);display:block;">جارٍ معالجة وتوليد التصميم في خوادم Canva...</strong>
+                                <span class="hr-meta">يرجى الانتظار بضع ثوانٍ</span>
+                            </div>
+                        }
+
+                        @if (generatedDesign != null)
+                        {
+                            <div class="hr-card" style="padding:var(--s-4);background:var(--surface-sunken);border:1px solid var(--accent-tint-2);border-radius:var(--r-md);margin-block-start:var(--s-2);">
+                                <div style="display:flex;align-items:center;gap:var(--s-3);margin-block-end:var(--s-3);">
+                                    <span class="hr-iconplate hr-iconplate-solid" style="background:var(--ok);color:var(--series-on);">
+                                        <Icon Name="check" Size="sm" />
+                                    </span>
+                                    <div>
+                                        <strong style="display:block;font-size:var(--fs-body);color:var(--text);">تم توليد التقرير بنجاح!</strong>
+                                        <span class="hr-meta">معرف التصميم: @generatedDesign.Id</span>
+                                    </div>
+                                </div>
+
+                                <div style="display:flex;flex-direction:column;gap:var(--s-2);">
+                                    @if (!string.IsNullOrEmpty(generatedDesign.Url))
+                                    {
+                                        <a href="@generatedDesign.Url" target="_blank" rel="noopener noreferrer" class="hr-btn hr-btn-primary">
+                                            <Icon Name="arrow-top-right-on-square" Size="sm" />
+                                            <span>فتح التصميم والتعديل عليه في Canva</span>
+                                        </a>
+                                    }
+
+                                    <button type="button" class="hr-btn hr-btn-secondary" style="justify-content:center;" @onclick="ExportToPdfAsync" disabled="@isExporting">
+                                        @if (isExporting)
+                                        {
+                                            <span>جارٍ إعداد ملف PDF...</span>
+                                        }
+                                        else
+                                        {
+                                            <Icon Name="arrow-down-tray" Size="sm" />
+                                            <span>تحميل التقرير PDF عالي الدقة</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                        }
+
+                        @if (exportDownloadUrls.Count > 0)
+                        {
+                            <div style="margin-block-start:var(--s-3);padding:var(--s-3);background:var(--ok-tint);border:1px solid var(--ok-line);border-radius:var(--r-md);">
+                                <strong style="display:block;color:var(--ok);margin-block-end:var(--s-1);">روابط تحميل ملف PDF الجاهز:</strong>
+                                @foreach (var url in exportDownloadUrls)
+                                {
+                                    <a href="@url" target="_blank" class="hr-btn hr-btn-secondary hr-btn-sm" style="margin-block-start:4px;display:inline-flex;">
+                                        <Icon Name="arrow-down-tray" Size="xs" />
+                                        <span>تحميل الملف الآن</span>
+                                    </a>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div>
+                        <button type="button" 
+                                class="hr-btn hr-btn-primary hr-btn-lg" 
+                                style="width:100%;justify-content:center;background:var(--series-1);border:none;color:var(--series-on);box-shadow:var(--shadow-md);"
+                                @onclick="GenerateDesignAsync" 
+                                disabled="@(isGenerating || string.IsNullOrWhiteSpace(selectedTemplateId))">
+                            <Icon Name="sparkles" Size="sm" />
+                            <span>توليد التقرير في Canva الآن </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        @* ==================== 4. CANVA AI MAGIC BUILDER ==================== *@
+        <div class="hr-card" style="margin-block-start:var(--s-4);background:color-mix(in srgb, var(--series-1) 4%, transparent);border:1px solid color-mix(in srgb, var(--series-1) 20%, transparent);">
+            <div class="hr-card-head" style="border-block-end:1px solid var(--line-soft);">
+                <div style="display:flex;align-items:center;gap:var(--s-2);">
+                    <span class="hr-iconplate" style="background:var(--series-1);color:var(--series-on);">
+                        <Icon Name="sparkles" Size="xs" />
+                    </span>
+                    <div>
+                        <h2 class="hr-h3" style="margin:0;">مولّد تصاميم Canva بالذكاء الاصطناعي (Magic Design Assistant)</h2>
+                        <p class="hr-meta" style="margin:0;">انسخ الأمر المخصص ووجّه ذكاء Canva الاصطناعي لإنشاء القالب المطلوب وربطه بالبيانات الحية</p>
+                    </div>
+                </div>
+                <div style="display:flex;gap:var(--s-1);">
+                    <a href="https://www.canva.com/create/reports/" target="_blank" class="hr-btn hr-btn-secondary hr-btn-sm" style="display:inline-flex;align-items:center;gap:4px;">
+                        <span>فتح محرّر Canva ↗</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="hr-card-body" style="padding:var(--s-4);display:flex;flex-direction:column;gap:var(--s-3);">
+                <div>
+                    <label for="f-canva-reports-page-2" class="hr-label" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--s-2);">
+                        <span>نص الأمر التوجيهي (AI Prompt) الجاهز للنسخ:</span>
+                        @if (isPromptCopied)
+                        {
+                            <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);">تم النسخ إلى الحافظة بنجاح! </span>
+                        }
+                    </label>
+                    <div style="position:relative;">
+                        <textarea id="f-canva-reports-page-2" class="hr-input" 
+                                  style="width:100%;height:95px;font-size:var(--fs-caption);line-height:1.6;font-family:inherit;background:var(--surface);resize:vertical;" 
+                                  readonly>@canvaAiPromptText</textarea>
+                    </div>
+                </div>
+
+                <div style="display:flex;flex-wrap:wrap;gap:var(--s-2);align-items:center;justify-content:space-between;">
+                    <div style="display:flex;gap:var(--s-2);">
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="CopyAiPromptAsync">
+                            <Icon Name="clipboard-document" Size="xs" />
+                            <span>نسخ نص الأمر (Prompt) 📋</span>
+                        </button>
+                        <a href="https://www.canva.com" target="_blank" class="hr-btn hr-btn-secondary hr-btn-sm">
+                            <Icon Name="arrow-top-right-on-square" Size="xs" />
+                            <span>الذهاب إلى Canva ↗</span>
+                        </a>
+                    </div>
+                    <span class="hr-meta" style="font-size:var(--fs-caption);">* يحتوي الأمر على المتغيرات المطلوبة وتنسيقات البنك المركزي الرسمية.</span>
+                </div>
+
+                @* STEP-BY-STEP WORKFLOW *@
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(220px, 100%), 1fr));gap:var(--s-3);margin-block-start:var(--s-2);padding:var(--s-3);background:var(--surface);border-radius:var(--r-md);border:1px solid var(--line-soft);">
+                    <div style="display:flex;gap:var(--s-2);">
+                        <span style="width:24px;height:24px;border-radius:50%;background:var(--series-1);color:var(--series-on);display:grid;place-items:center;font-size:var(--fs-caption);font-weight:bold;flex-shrink:0;">1</span>
+                        <div>
+                            <strong style="display:block;font-size:var(--fs-caption);color:var(--text);">الصق الأمر في Canva</strong>
+                            <span class="hr-meta" style="font-size:var(--fs-caption);">في مربع البحث بكانفا أو Magic Design، الصق النص أعلاه واضغط Enter.</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:var(--s-2);">
+                        <span style="width:24px;height:24px;border-radius:50%;background:var(--series-2);color:var(--series-on);display:grid;place-items:center;font-size:var(--fs-caption);font-weight:bold;flex-shrink:0;">2</span>
+                        <div>
+                            <strong style="display:block;font-size:var(--fs-caption);color:var(--text);">عيّن الحقول (Data Fields)</strong>
+                            <span class="hr-meta" style="font-size:var(--fs-caption);">اضغط على الأرقام في التصميم واختر Data field وسمّها مثل: <code>total_employees</code>.</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:var(--s-2);">
+                        <span style="width:24px;height:24px;border-radius:50%;background:var(--series-3);color:var(--series-on);display:grid;place-items:center;font-size:var(--fs-caption);font-weight:bold;flex-shrink:0;">3</span>
+                        <div>
+                            <strong style="display:block;font-size:var(--fs-caption);color:var(--text);">انشر كـ Brand Template</strong>
+                            <span class="hr-meta" style="font-size:var(--fs-caption);">من زر مشاركة (Share) اختر Brand Template واضغط نشر.</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:var(--s-2);">
+                        <span style="width:24px;height:24px;border-radius:50%;background:var(--series-1);color:var(--series-on);display:grid;place-items:center;font-size:var(--fs-caption);font-weight:bold;flex-shrink:0;">4</span>
+                        <div>
+                            <strong style="display:block;font-size:var(--fs-caption);color:var(--text);">ولّد التقرير الحي</strong>
+                            <span class="hr-meta" style="font-size:var(--fs-caption);">اضغط "تحديث البيانات" هنا وستجد القالب جاهزاً للحقن اللحظي!</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ==================== 5. DEVELOPER & DESIGNER GUIDE FOR CANVA ==================== *@
+        <div class="hr-card" style="margin-block-start:var(--s-4);">
+            <div class="hr-card-head">
+                <h2 class="hr-h3" style="margin:0;flex:1;">
+                    <button type="button" class="hr-linklike hr-disclosure"
+                            aria-expanded="@(isGuideOpen ? "true" : "false")"
+                            aria-controls="canva-guide"
+                            @onclick="() => isGuideOpen = !isGuideOpen">
+                        <Icon Name="book-open" Size="sm" />
+                        <span>دليل المصمم: كيفية إعداد حقول النصوص في قالب Canva (Dataset Tags)</span>
+                        <Icon Name="@(isGuideOpen ? "chevron-up" : "chevron-down")" Size="xs" Class="hr-disclosure__chev" />
+                    </button>
+                </h2>
+            </div>
+
+            @if (isGuideOpen)
+            {
+                <div id="canva-guide" class="hr-card-body" style="padding:var(--s-4);line-height:1.7;">
+                    <div style="background:var(--accent-tint);border:1px solid var(--accent-tint-2);padding:var(--s-3);border-radius:var(--r-md);margin-block-end:var(--s-3);">
+                        <strong style="color:var(--accent);display:block;margin-block-end:4px;"> كيف تجعل عناصر التصميم في Canva قابلة للتعبئة التلقائية (Data Fields)؟</strong>
+                        <ol style="margin:0;padding-inline-start:1.2rem;font-size:var(--fs-caption);line-height:1.6;color:var(--text);">
+                            <li>افتح التصميم في محرّر <strong>Canva</strong>.</li>
+                            <li>من القائمة الجانبية اليسرى اضغط على <strong>Apps (التطبيقات)</strong> وابحث عن <strong>Data autofill</strong>، أو اضغط على أي مربع نصي/رقم ثم من الشريط العائم اختر <strong>Data field</strong> (أو <strong>Connect Data</strong>).</li>
+                            <li>اكتب اسم الحقل المخصص من القائمة أدناه (مثل: <code style="color:var(--series-1);">total_employees</code> أو <code style="color:var(--series-1);">report_title</code>).</li>
+                            <li>بعد ربط الحقول، اضغط <strong>Share (مشاركة)</strong> ⬅️ <strong>Brand Template (قالب علامة تجارية)</strong> ⬅️ <strong>Publish / Update (نشر أو تحديث)</strong>.</li>
+                        </ol>
+                    </div>
+
+                    <p class="hr-meta" style="margin-block-end:var(--s-3);">
+                        قائمة أسماء الحقول الرسمية (Data Fields) التي يمررها النظام لحظياً من قاعدة البيانات:
+                    </p>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(280px, 100%), 1fr));gap:var(--s-3);">
+                        <div style="background:var(--surface-sunken);padding:var(--s-3);border-radius:var(--r-sm);">
+                            <strong style="color:var(--text);display:block;margin-block-end:var(--s-1);">مؤشرات الكادر الأساسية:</strong>
+                            <ul style="padding-inline-start:1.25rem;margin:0;font-size:var(--fs-caption);color:var(--text-2);">
+                                <li><code>report_period</code> : فترة التقرير (مثل: تشرين الأول 2026)</li>
+                                <li><code>total_employees</code> : إجمالي الكادر الوظيفي (2,330)</li>
+                                <li><code>male_count</code> و <code>male_pct</code> : عدد ونسبة الذكور</li>
+                                <li><code>female_count</code> و <code>female_pct</code> : عدد ونسبة الإناث</li>
+                            </ul>
+                        </div>
+
+                        <div style="background:var(--surface-sunken);padding:var(--s-3);border-radius:var(--r-sm);">
+                            <strong style="color:var(--text);display:block;margin-block-end:var(--s-1);">الديموغرافيا وسنوات الخدمة:</strong>
+                            <ul style="padding-inline-start:1.25rem;margin:0;font-size:var(--fs-caption);color:var(--text-2);">
+                                <li><code>average_age</code> : متوسط العمر (مثال: 41.3)</li>
+                                <li><code>average_service</code> : متوسط سنوات الخدمة (14.2)</li>
+                                <li><code>postgraduate_count</code> : حملة الشهادات العليا</li>
+                                <li><code>near_retirement_count</code> : المشرفون على التقاعد</li>
+                            </ul>
+                        </div>
+
+                        <div style="background:var(--surface-sunken);padding:var(--s-3);border-radius:var(--r-sm);">
+                            <strong style="color:var(--text);display:block;margin-block-end:var(--s-1);">التشكيلات والعناوين الكبرى:</strong>
+                            <ul style="padding-inline-start:1.25rem;margin:0;font-size:var(--fs-caption);color:var(--text-2);">
+                                <li><code>top_formation_1_name</code> : اسم التشكيل الأول</li>
+                                <li><code>top_formation_1_count</code> : عدد موظفي التشكيل الأول</li>
+                                <li><code>top_job_1_name</code> : اسم العنوان الوظيفي الأكثر شيوعاً</li>
+                                <li><code>peak_grade_stage</code> : بؤرة التركز للدرجة والمرحلة</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public bool? Connected { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? Error { get; set; }
+
+    private bool isConnected;
+    private bool isLoading = true;
+    private bool isGenerating;
+    private bool isExporting;
+    private bool isGuideOpen = true;
+
+    private string? statusMessage;
+    private string? errorMessage;
+
+    private List<CanvaBrandTemplateItem> brandTemplates = [];
+    private string selectedTemplateId = string.Empty;
+    private string reportCustomTitle = $"تقرير إحصائيات الموارد البشرية - {DateTime.Now:MMMM yyyy}";
+
+    private string customRedirectUri = "https://localhost:7266/api/canva/callback";
+    private HrCanvaReportPayload? statsPayload;
+    private CanvaDesign? generatedDesign;
+    private List<string> exportDownloadUrls = [];
+    private Dictionary<string, CanvaDatasetFieldInfo>? currentTemplateFields;
+    private bool isCheckingDataset;
+    private HashSet<string> hiddenTemplateIds = [];
+    private bool isPromptCopied;
+    private string canvaAiPromptText = "صمم تقرير إحصائي تنفيذي رسمي وشامل للموارد البشرية باللغة العربية، يحتوي على لوحة مؤشرات (Dashboard) أنيقة بأسلوب احترافي حديث، وبطاقات إحصائية واضحة للأرقام التالية: إجمالي الكادر الوظيفي (total_employees)، فترة التقرير (report_period)، نسبة الذكور والإناث (male_pct, female_pct)، متوسط العمر والخدمة (average_age, average_service)، وتشكيلات الدوائر الرئيسية (top_formation_1_name). بألوان رسمية متناسقة كحلي وذهبي مع مساحات بيضاء مريحة للقراءة ورسوم توضيحية خفيفة.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var uri = new Uri(Navigation.Uri);
+            customRedirectUri = $"{uri.Scheme}://{uri.Authority}/api/canva/callback";
+        }
+        catch {}
+
+        if (Connected == true)
+        {
+            statusMessage = "تم ربط وتفويض حساب Canva بنجاح! يمكنك الآن اختيار القالب وتوليد التقرير.";
+        }
+
+        if (!string.IsNullOrEmpty(Error))
+        {
+            errorMessage = $"فشل الربط مع Canva: {Error}";
+        }
+
+        await LoadStatusAndDataAsync();
+    }
+
+    private async Task LoadStatusAndDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            isConnected = await CanvaService.IsConnectedAsync();
+            statsPayload = await CanvaService.BuildCurrentHrStatisticsAsync();
+
+            if (isConnected)
+            {
+                brandTemplates = await CanvaService.GetBrandTemplatesAsync();
+                if (brandTemplates.Count > 0 && string.IsNullOrEmpty(selectedTemplateId))
+                {
+                    selectedTemplateId = brandTemplates[0].Id;
+                }
+
+                if (!string.IsNullOrEmpty(selectedTemplateId))
+                {
+                    await CheckTemplateDatasetAsync(selectedTemplateId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+        await LoadStatusAndDataAsync();
+        statusMessage = "تم تحديث البيانات الإحصائية والقوالب بنجاح.";
+    }
+
+    private async Task DisconnectAsync()
+    {
+        await CanvaService.DisconnectAsync();
+        isConnected = false;
+        brandTemplates.Clear();
+        selectedTemplateId = string.Empty;
+        currentTemplateFields = null;
+        generatedDesign = null;
+        statusMessage = "تم إلغاء الاتصال بحساب Canva.";
+    }
+
+    private void HideTemplate(string templateId)
+    {
+        hiddenTemplateIds.Add(templateId);
+        if (selectedTemplateId == templateId)
+        {
+            var next = brandTemplates.FirstOrDefault(t => !hiddenTemplateIds.Contains(t.Id));
+            if (next != null)
+            {
+                _ = SelectTemplateAsync(next.Id, next.Title);
+            }
+            else
+            {
+                selectedTemplateId = string.Empty;
+                currentTemplateFields = null;
+            }
+        }
+    }
+
+    private void RestoreHiddenTemplates()
+    {
+        hiddenTemplateIds.Clear();
+        if (string.IsNullOrEmpty(selectedTemplateId) && brandTemplates.Count > 0)
+        {
+            _ = SelectTemplateAsync(brandTemplates[0].Id, brandTemplates[0].Title);
+        }
+    }
+
+    private async Task CopyAiPromptAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", canvaAiPromptText);
+            isPromptCopied = true;
+            StateHasChanged();
+            await Task.Delay(3000);
+            isPromptCopied = false;
+            StateHasChanged();
+        }
+        catch {}
+    }
+
+    private async Task OnManualTemplateIdChangedAsync()
+    {
+        await CheckTemplateDatasetAsync(selectedTemplateId);
+    }
+
+    private async Task SelectTemplateAsync(string templateId, string templateTitle)
+    {
+        selectedTemplateId = templateId;
+        reportCustomTitle = $"{templateTitle} - {DateTime.Now:yyyy/MM/dd}";
+        await CheckTemplateDatasetAsync(templateId);
+    }
+
+    private async Task CheckTemplateDatasetAsync(string templateId)
+    {
+        if (string.IsNullOrWhiteSpace(templateId))
+        {
+            currentTemplateFields = null;
+            return;
+        }
+
+        isCheckingDataset = true;
+        currentTemplateFields = null;
+        try
+        {
+            var res = await CanvaService.GetBrandTemplateDatasetAsync(templateId);
+            currentTemplateFields = res?.Dataset ?? [];
+        }
+        catch
+        {
+            currentTemplateFields = [];
+        }
+        finally
+        {
+            isCheckingDataset = false;
+        }
+    }
+
+    private async Task GenerateDesignAsync()
+    {
+        if (string.IsNullOrWhiteSpace(selectedTemplateId))
+        {
+            errorMessage = "يرجى تحديد أو إدخال معرّف قالب كانفا أولاً.";
+            return;
+        }
+
+        isGenerating = true;
+        errorMessage = null;
+        generatedDesign = null;
+        exportDownloadUrls.Clear();
+
+        try
+        {
+            var stats = statsPayload ?? await CanvaService.BuildCurrentHrStatisticsAsync();
+            var textData = stats.ToDatasetDictionary();
+
+            var job = await CanvaService.CreateAutofillDesignAsync(selectedTemplateId, reportCustomTitle, textData);
+
+            if (job != null && job.Status.Equals("success", StringComparison.OrdinalIgnoreCase))
+            {
+                generatedDesign = job.Result?.Design;
+                statusMessage = "تم توليد التصميم بنجاح! يمكنك الآن فتحه في Canva أو تصديره إلى PDF.";
+            }
+            else
+            {
+                errorMessage = job?.Error?.Message ?? "تعذر إكمال توليد التصميم في كانفا، يرجى التأكد من صلاحية معرّف القالب.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    private async Task ExportToPdfAsync()
+    {
+        if (generatedDesign == null || string.IsNullOrWhiteSpace(generatedDesign.Id)) return;
+
+        isExporting = true;
+        errorMessage = null;
+        try
+        {
+            var exportJob = await CanvaService.ExportDesignAsync(generatedDesign.Id, "pdf");
+            if (exportJob != null && exportJob.Urls != null && exportJob.Urls.Count > 0)
+            {
+                exportDownloadUrls = exportJob.Urls;
+                statusMessage = "تم تجهيز ملف PDF عالي الدقة بنجاح للتحميل!";
+            }
+            else
+            {
+                errorMessage = exportJob?.Error?.Message ?? "تعذر تصدير ملف PDF حالياً.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+}

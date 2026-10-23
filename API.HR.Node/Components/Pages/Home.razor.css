@@ -1,0 +1,273 @@
+/* Home: a brief, then an atlas. One ink panel leads; every chapter below is a
+   hairline-ruled sheet of panels rather than a wall of separate cards. */
+
+.home { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-6); min-inline-size: 0; }
+
+/* Head */
+.home-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s-3) var(--s-6); }
+.home-head-titles { display: grid; gap: var(--s-1); min-inline-size: 0; }
+.home-head-titles .hr-h1 { margin: 0; }
+.home-head-meta { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0; color: var(--text-2); font-size: var(--fs-label); }
+.home-head-lock { display: inline-flex; align-items: center; gap: var(--s-2); margin: 0; color: var(--accent-ink); font-size: var(--fs-label); }
+.home-head-actions { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.home-print-scope { display: none; }
+.home-head-actions ::deep .home-spin { animation: home-spin 900ms linear infinite; }
+@keyframes home-spin { to { transform: rotate(360deg); } }
+
+/* General filter */
+.home-filter {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-3); padding: var(--s-3);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-xs);
+}
+.home-filter-row, .home-filter-more { display: grid; gap: var(--s-2); grid-template-columns: repeat(auto-fill, minmax(min(100%, 12.5rem), 1fr)); align-items: center; }
+.home-filter-more { padding-block-start: var(--s-3); border-block-start: 1px dashed var(--line); }
+.home-filter-more[hidden] { display: none; }
+.home-filter ::deep .hr-ms-trigger { min-block-size: 44px; }
+.home-filter-more-toggle {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); min-block-size: 44px; padding-inline: var(--s-3);
+    font: inherit; font-size: var(--fs-control); font-weight: 600; color: var(--accent-ink);
+    background: var(--accent-tint); border: 1px solid var(--accent-tint-2); border-radius: var(--r); cursor: pointer;
+    transition: background-color var(--t-state) var(--ease);
+}
+.home-filter-more-toggle:hover { background: var(--accent-tint-2); }
+.home-filter-more-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.home-filter-list { min-block-size: 44px; justify-content: center; }
+
+.home-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.home-chips ul { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.home-chip {
+    display: inline-flex; align-items: center; gap: var(--s-2); min-block-size: 2rem; white-space: nowrap; padding: 0 var(--s-2) 0 var(--s-3);
+    font: inherit; font-size: var(--fs-label); color: var(--accent-ink);
+    background: var(--surface); border: 1px solid var(--line-control); border-radius: var(--r-full); cursor: pointer;
+    transition: background-color var(--t-state) var(--ease), border-color var(--t-state) var(--ease);
+}
+.home-chip:hover { background: var(--danger-tint); border-color: var(--danger-line); color: var(--danger); }
+.home-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.home-chip-dim { color: var(--text-muted); }
+.home-chip-value { font-weight: 700; max-inline-size: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-chips-clear { flex: none; min-block-size: 2rem; font-size: var(--fs-label); background: none; border-inline: 0; border-block-start: 0; padding: 0; cursor: pointer; font-family: inherit; }
+
+/* The bar sticks from tablet width up, so it holds one fixed shape there: the control row and
+   one line of chips. "All fields" opens as a layer over the page instead of growing the bar,
+   and the chips scroll sideways instead of wrapping. */
+@media (min-width: 768px) {
+    .home-filter { position: sticky; inset-block-start: calc(var(--header-h) + var(--s-2)); z-index: var(--z-sticky); }
+    [data-nav-mode="top"] .home-filter { inset-block-start: calc(var(--header-h) + 44px + var(--s-2)); }
+
+    .home-filter-more {
+        position: absolute; inset-inline: 0; inset-block-start: calc(100% + var(--s-2));
+        padding: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-md);
+        background: var(--surface); box-shadow: var(--shadow-lg);
+    }
+
+    .home-chips { flex-wrap: nowrap; }
+    .home-chips ul {
+        flex: 1 1 auto; flex-wrap: nowrap; min-inline-size: 0; overflow-x: auto; overscroll-behavior-x: contain;
+        padding-block: 3px; scrollbar-width: thin;
+    }
+}
+
+@media (pointer: coarse) {
+    .home-chip, .home-chips-clear, .home-panel-link, .home-chapter-link, .home-facts dd .hr-link, .home-forecast-table .hr-link {
+        min-block-size: 44px; display: inline-flex; align-items: center;
+    }
+}
+@supports (backdrop-filter: blur(1px)) {
+    .home-filter { backdrop-filter: blur(12px) saturate(1.2); }
+}
+
+/* The brief */
+.home-brief { display: grid; gap: var(--s-4); grid-template-columns: minmax(0, 1fr); }
+.home-brief-lead {
+    display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--s-3); padding: var(--s-6);
+    background: var(--accent); color: var(--text-on-accent); border-radius: var(--r-lg); box-shadow: var(--shadow-md);
+}
+.home-brief-count { display: flex; align-items: baseline; gap: var(--s-3); margin: 0; line-height: 1; }
+.home-brief-count .hr-num { font-size: clamp(2.75rem, 5vw, 4rem); font-weight: 700; letter-spacing: -0.03em; }
+.home-brief-count > span:last-child { font-size: var(--fs-h2); font-weight: 600; }
+.home-brief-scope { margin: 0; font-size: var(--fs-label); opacity: .8; }
+.home-brief-text { margin: 0; max-inline-size: 52ch; font-size: var(--fs-lead); line-height: 1.75; }
+
+.home-signals { display: grid; margin: var(--s-2) 0 0; padding: 0; list-style: none; border-block-start: 1px solid color-mix(in srgb, var(--text-on-accent) 22%, transparent); }
+.home-signals > li { border-block-end: 1px solid color-mix(in srgb, var(--text-on-accent) 22%, transparent); }
+.home-signal {
+    display: grid; grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); grid-template-areas: "v l" "v n"; align-items: center; column-gap: var(--s-4);
+    inline-size: 100%; padding: var(--s-3) var(--s-2); margin: 0; font: inherit; color: inherit; text-align: start;
+    background: none; border: 0; border-radius: var(--r-sm); cursor: pointer;
+    transition: background-color var(--t-state) var(--ease);
+}
+.home-signal:hover:not(:disabled) { background: color-mix(in srgb, var(--text-on-accent) 10%, transparent); }
+.home-signal:focus-visible { outline: 2px solid var(--text-on-accent); outline-offset: 1px; }
+.home-signal:disabled { cursor: default; }
+.home-signal-value { grid-area: v; font-size: var(--fs-num-lg); font-weight: 700; text-align: end; }
+.home-signal-label { grid-area: l; font-weight: 600; }
+.home-signal-note { grid-area: n; font-size: var(--fs-caption); opacity: .78; }
+
+.home-brief-panel {
+    container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--s-2); padding: var(--s-5);
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); min-inline-size: 0;
+}
+
+.home-away { display: grid; margin: var(--s-1) 0 0; padding: 0; list-style: none; }
+.home-away > li {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name back" "meta back"; column-gap: var(--s-3);
+    padding-block: var(--s-2); border-block-end: 1px solid var(--line-soft);
+}
+.home-away > li:last-child { border-block-end: 0; }
+.home-away-name { grid-area: name; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-away-meta { grid-area: meta; font-size: var(--fs-caption); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-away-back { grid-area: back; align-self: center; font-size: var(--fs-caption); color: var(--text-2); white-space: nowrap; }
+
+.home-brief.is-loading .home-brief-lead { background: var(--surface); border: 1px solid var(--line); box-shadow: none; }
+
+@media (min-width: 900px) {
+    .home-brief { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+    .home-brief-lead { grid-row: span 2; }
+}
+@media (min-width: 1360px) {
+    .home-brief { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.1fr) minmax(0, .9fr); }
+    .home-brief-lead { grid-row: auto; }
+}
+
+/* Chapter index */
+.home-chapters { border-block: 1px solid var(--line); }
+.home-chapters ul { display: flex; gap: var(--s-1); margin: 0; padding: var(--s-2) 0; list-style: none; overflow-x: auto; scrollbar-width: thin; }
+.home-chapter-link {
+    display: inline-flex; align-items: center; min-block-size: 44px; padding-inline: var(--s-3); border-radius: var(--r);
+    color: var(--text-2); font-size: var(--fs-control); font-weight: 600; text-decoration: none; white-space: nowrap;
+    transition: background-color var(--t-state) var(--ease), color var(--t-state) var(--ease);
+}
+.home-chapter-link:hover { background: var(--accent-tint); color: var(--accent-ink); }
+.home-chapter-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* Atlas chapters */
+.home-chapter { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); }
+.home-chapter-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) var(--s-4); padding-block-start: var(--s-4); }
+/* The heading is what a chapter link scrolls to and focuses, so it carries the offset that
+   clears the app header and the sticky filter; hrDashboard.jump refines it to the bar's real height. */
+.home-chapter-head h2 { margin: 0; scroll-margin-block-start: calc(var(--header-h) + var(--s-6)); }
+@media (min-width: 768px) { .home-chapter-head h2 { scroll-margin-block-start: calc(var(--header-h) + 10rem); } }
+.home-chapter-head h2:focus { outline: none; }
+.home-chapter-head h2:focus-visible { outline: 2px solid var(--focus); outline-offset: var(--s-2); border-radius: var(--r-xs); }
+.home-chapter-head p { margin: 0; color: var(--text-2); font-size: var(--fs-label); }
+
+/* A sheet: panels separated by 1px rules drawn by the grid gap over --line. */
+.home-sheet {
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px;
+    background: var(--line); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden;
+}
+.home-panel { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--s-2); padding: var(--s-5); background: var(--surface); min-inline-size: 0; }
+.home-panel-title, .home-brief-panel .home-panel-title { margin: 0; font-size: var(--fs-title); font-weight: 700; color: var(--text); }
+.home-panel-sub { margin: var(--s-3) 0 0; font-size: var(--fs-label); font-weight: 700; color: var(--text-2); }
+.home-panel-note { margin: 0 0 var(--s-2); color: var(--text-2); font-size: var(--fs-label); line-height: 1.6; }
+.home-panel-link { justify-self: start; min-block-size: 2rem; margin-block-start: var(--s-2); font-size: var(--fs-label); background: none; border-inline: 0; border-block-start: 0; padding: 0; cursor: pointer; font-family: inherit; }
+
+@media (min-width: 768px) {
+    .home-sheet { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .home-panel { grid-column: span 3; }
+    .home-panel.is-span-12, .home-panel.is-span-8, .home-panel.is-span-7 { grid-column: 1 / -1; }
+}
+@media (min-width: 1200px) {
+    .home-sheet { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .home-panel.is-span-3 { grid-column: span 3; }
+    .home-panel.is-span-4 { grid-column: span 4; }
+    .home-panel.is-span-5 { grid-column: span 5; }
+    .home-panel.is-span-6 { grid-column: span 6; }
+    .home-panel.is-span-7 { grid-column: span 7; }
+    .home-panel.is-span-8 { grid-column: span 8; }
+    .home-panel.is-span-12 { grid-column: 1 / -1; }
+    .home-panel.is-tall { grid-row: span 2; }
+}
+
+/* Facts: a ruled definition list */
+.home-facts { display: grid; margin: 0; }
+.home-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-3); padding-block: var(--s-2); border-block-end: 1px solid var(--line-soft); }
+.home-facts dt { color: var(--text-2); font-size: var(--fs-label); }
+.home-facts dd { margin: 0; font-weight: 700; text-align: end; }
+.home-facts dd .hr-link { min-block-size: 1.75rem; min-inline-size: 1.75rem; font: inherit; font-weight: 700; background: none; border-inline: 0; border-block-start: 0; padding: 0; cursor: pointer; }
+.home-facts dd .hr-link:disabled { color: var(--text); border-color: transparent; cursor: default; }
+
+/* Ready lists */
+.home-lists { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.home-list {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s-3);
+    inline-size: 100%; min-block-size: 48px; padding: var(--s-2) var(--s-3); font: inherit; font-size: var(--fs-label); color: var(--text); text-align: start;
+    background: var(--surface-sunken); border: 1px solid transparent; border-radius: var(--r); cursor: pointer;
+    transition: background-color var(--t-state) var(--ease), border-color var(--t-state) var(--ease);
+}
+.home-list:hover:not(:disabled) { background: var(--accent-tint); border-color: var(--accent-tint-2); color: var(--accent-ink); }
+.home-list:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.home-list:disabled { cursor: default; color: var(--text-muted); }
+.home-list-count { font-weight: 700; }
+
+/* Forecast table */
+.home-forecast-table th[scope="row"] { font-weight: 700; }
+.home-forecast-table .hr-link { min-block-size: 1.75rem; min-inline-size: 1.75rem; font: inherit; background: none; border-inline: 0; border-block-start: 0; padding: 0; cursor: pointer; }
+.home-forecast-formation { display: inline-block; max-inline-size: 11rem; vertical-align: bottom; }
+
+/* Empty and error */
+.home-empty { gap: var(--s-3); padding: var(--s-10) var(--s-6); }
+.home-error { display: flex; gap: var(--s-3); align-items: flex-start; }
+.home-error p { margin: 0 0 var(--s-2); }
+
+/* Drill-down list */
+.home-report-context { margin: 0; color: var(--text-2); font-size: var(--fs-caption); overflow-wrap: anywhere; }
+.home-report-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-3);
+    background: var(--surface-sunken); border: 1px solid var(--line); border-radius: var(--r);
+}
+.home-report-bar .hr-search { flex: 1 1 14rem; }
+.home-report-table { max-block-size: 52dvh; overflow-y: auto; }
+.home-report-cell { display: inline-block; max-inline-size: 13rem; vertical-align: bottom; }
+.home-report-empty { padding: var(--s-8); }
+.home-report-results-heading { scroll-margin-block-start: 6rem; }
+.home-report-pager { display: flex; justify-content: space-between; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.home-report-pager p { margin: 0; }
+.home-page-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+.home-report ::deep .hr-btn { min-block-size: 44px; }
+
+@media (max-width: 639px) {
+    .home-head-actions { inline-size: 100%; }
+    .home-head-actions > .hr-btn { flex: 1 1 0; justify-content: center; }
+    .home-brief-lead { padding: var(--s-5); }
+    .home-signal { grid-template-columns: minmax(4.25rem, auto) minmax(0, 1fr); column-gap: var(--s-3); }
+    .home-panel, .home-brief-panel { padding: var(--s-4); }
+    .home-page-actions { justify-content: space-between; inline-size: 100%; }
+    .home-report ::deep .hr-table { min-inline-size: 46rem; }
+}
+
+@media print {
+    .home-filter, .home-head-actions, .home-chapters { display: none !important; }
+    .home-print-scope { display: block; margin: 0; font-size: var(--fs-label); }
+    .home-brief-lead { background: none !important; color: black !important; border: 1px solid currentColor; box-shadow: none; }
+    .home-sheet { background: currentColor; }
+    .home-panel, .home-brief-panel, .home-chapter { break-inside: avoid; }
+}
+
+/* Motion. One moment: the page re-counting after a filter changes.
+   - Figures that changed settle into place: each is keyed by its value, so a new value is a new
+     element and plays home-tick once; an unchanged figure stays still.
+   - A chip added by a chart click pops into the bar, so the click visibly lands somewhere.
+   - "All fields" drops in as a layer. Closing is instant: exits are faster than entrances.
+   Bars and meters glide to their new lengths in hr-components.css (clip-path, no reflow).
+   Reduced motion, by the OS or the in-app preference, keeps each of these as a plain fade. */
+@keyframes home-tick { from { opacity: .3; transform: translateY(.2em); } }
+@keyframes home-chip-in { from { opacity: 0; transform: scale(.9); } }
+@keyframes home-layer-in { from { opacity: 0; transform: translateY(-6px); } }
+
+.home-tick { display: inline-block; animation: home-tick var(--t-move) var(--ease-out); }
+.home-brief-count .home-tick { animation-duration: 320ms; }
+.home-chips li { animation: home-chip-in 180ms var(--ease-out); }
+@media (min-width: 768px) {
+    .home-filter-more:not([hidden]) { animation: home-layer-in 200ms var(--ease-out); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root .home-tick, :root .home-chips li, :root .home-filter-more:not([hidden]) {
+        animation: hr-fade-in var(--t-state) var(--ease-out) both !important;
+    }
+}
+:root[data-reduced-motion="true"] :is(.home-tick, .home-chips li, .home-filter-more:not([hidden])) {
+    animation: hr-fade-in var(--t-state) var(--ease-out) both !important;
+}

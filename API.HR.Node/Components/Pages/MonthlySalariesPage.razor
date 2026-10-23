@@ -1,0 +1,1211 @@
+@page "/salaries"
+@page "/admin/salaries"
+@page "/payroll"
+@rendermode InteractiveServer
+
+@using System.Security.Claims
+@using API.HR.Node.Contracts
+@using API.HR.Node.Data
+@using API.HR.Node.Data.Allowances
+@using API.HR.Node.Services.Allowances
+@using API.HR.Node.Services.Salary
+@using Microsoft.AspNetCore.Authorization
+
+@attribute [Authorize(Roles = "Admin,HRManager")]
+@inject IFormationPayrollService PayrollService
+@inject IEmployeeAllowanceService AllowanceService
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+
+<PageTitle>احتساب الرواتب الشهرية حسب التشكيل | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack monthly-salaries-container">
+
+    @* ==================== 1. PAGE HEADER & EXECUTIVE ACTIONS ==================== *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                <span class="hr-eyebrow">
+                    @(Lang.IsKurdish ? "سیستەمی مووچەی مانگانە و دەرماڵەکان بەپێی پێکهاتە" : "إدارة واحتساب الرواتب والمخصصات الشهرية")
+                </span>
+                <span class="hr-badge hr-badge-accent" title="صلاحية إدارية خاصة بحسابات الرواتب">
+                    <Icon Name="shield-check" Size="xs" />
+                    <span>صلاحية إدارة الرواتب</span>
+                </span>
+            </div>
+
+            <h1 class="hr-h1 hr-balance" style="display:flex;align-items:center;gap:var(--s-2);margin-block-start:.25rem;">
+                <Icon Name="banknotes" Size="md" />
+                <span>احتساب الرواتب الشهرية حسب التشكيل</span>
+                @if (report != null && !string.IsNullOrWhiteSpace(report.SelectedFormationName))
+                {
+                    <span class="hr-badge" style="font-size:var(--fs-caption);font-weight:600;">
+                        @report.SelectedFormationName
+                    </span>
+                }
+            </h1>
+        </div>
+
+        <div class="hr-pagehead-actions" style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-2);width:100%;">
+            @* Formation Filter *@
+            <div style="min-width:16rem;flex:1 1 16rem;">
+                <label for="payroll-formation-select" class="hr-sr">اختر التشكيل الإداري</label>
+                <select id="payroll-formation-select" class="hr-select" @onchange="OnFormationChanged" value="@(filter.FormationId?.ToString() ?? "")">
+                    <option value="">-- كافة التشكيلات (عرض مدمج شامل) --</option>
+                    @foreach (var f in availableFormations)
+                    {
+                        <option value="@f.Id">@f.Name</option>
+                    }
+                </select>
+            </div>
+
+            @* Month & Year Selector *@
+            <div style="display:flex;align-items:center;gap:var(--s-2);">
+                <div>
+                    <label for="payroll-month-select" class="hr-sr">الشهر</label>
+                    <select id="payroll-month-select" class="hr-select" @onchange="OnMonthChanged" value="@filter.Month">
+                        <option value="1">1 - كانون الثاني (يناير)</option>
+                        <option value="2">2 - شباط (فبراير)</option>
+                        <option value="3">3 - آذار (مارس)</option>
+                        <option value="4">4 - نيسان (أبريل)</option>
+                        <option value="5">5 - أيار (مايو)</option>
+                        <option value="6">6 - حزيران (يونيو)</option>
+                        <option value="7">7 - تموز (يوليو)</option>
+                        <option value="8">8 - آب (أغسطس)</option>
+                        <option value="9">9 - أيلول (سبتمبر)</option>
+                        <option value="10">10 - تشرين الأول (أكتوبر)</option>
+                        <option value="11">11 - تشرين الثاني (نوفمبر)</option>
+                        <option value="12">12 - كانون الأول (ديسمبر)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="payroll-year-select" class="hr-sr">السنة</label>
+                    <select id="payroll-year-select" class="hr-select hr-num" @onchange="OnYearChanged" value="@filter.Year" style="width:6.5rem;">
+                        @for (int y = DateTime.Today.Year + 1; y >= 2020; y--)
+                        {
+                            <option value="@y">@y</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @* Actions Group *@
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;margin-inline-start:auto;">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadReportAsync" disabled="@isLoading" title="إعادة احتساب وتحديث البيانات">
+                    @if (isLoading)
+                    {
+                        <span class="hr-spinner hr-spinner-xs" aria-hidden="true"></span>
+                        <span>جارٍ الاحتساب…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="arrow-path" Size="sm" />
+                        <span>تحديث الاحتساب</span>
+                    }
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="ExportCsvAsync" disabled="@(isLoading || report == null || report.Employees.Count == 0)" title="تصدير جدول الرواتب بملف Excel / CSV">
+                    <Icon Name="arrow-down-tray" Size="sm" />
+                    <span>تصدير Excel/CSV</span>
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="PrintPayrollSheet" disabled="@(isLoading || report == null || report.Employees.Count == 0)" title="طباعة كشف الرواتب الرسمي للتشكيل">
+                    <Icon Name="printer" Size="sm" />
+                    <span>طباعة كشف الرواتب</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    @* ==================== 2. EXECUTIVE KPI CARDS ==================== *@
+    @if (report != null)
+    {
+        <div class="hr-kpi-grid">
+            @* Gross Salary Total *@
+            <div class="hr-kpi-card">
+                <div class="hr-kpi-header">
+                    <span class="hr-kpi-title">إجمالي الرواتب المستحقة (فاتورة الشهر)</span>
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true">
+                        <Icon Name="banknotes" Size="sm" />
+                    </span>
+                </div>
+                <div class="hr-kpi-body">
+                    <strong class="hr-stat-figure hr-num" style="font-size:1.6rem;color:var(--accent);">
+                        @report.TotalGrossSalary.ToString("N0")
+                        <span class="hr-stat-unit">د.ع</span>
+                    </strong>
+                    <div style="margin-block-start:var(--s-1);display:flex;align-items:center;gap:var(--s-2);">
+                        <span class="hr-badge hr-badge-ok">استحقاق شهر @report.MonthNameAr</span>
+                    </div>
+                </div>
+                <div class="hr-meta" style="font-size:var(--fs-caption);">
+                    متوسط الراتب للموظف: <strong class="hr-num">@report.AverageGrossSalary.ToString("N0") د.ع</strong>
+                </div>
+            </div>
+
+            @* Basic Salary Total *@
+            <div class="hr-kpi-card">
+                <div class="hr-kpi-header">
+                    <span class="hr-kpi-title">إجمالي الرواتب الإسمية</span>
+                    <span class="hr-iconplate hr-plate-b" aria-hidden="true">
+                        <Icon Name="table-cells" Size="sm" />
+                    </span>
+                </div>
+                <div class="hr-kpi-body">
+                    <strong class="hr-stat-figure hr-num" style="font-size:1.6rem;">
+                        @report.TotalBasicSalary.ToString("N0")
+                        <span class="hr-stat-unit">د.ع</span>
+                    </strong>
+                    <div style="margin-block-start:var(--s-1);">
+                        @{
+                            var basicPercent = report.TotalGrossSalary > 0 
+                                ? Math.Round((report.TotalBasicSalary / report.TotalGrossSalary) * 100m, 1) 
+                                : 0m;
+                        }
+                        <span class="hr-badge">يمثل @basicPercent% من إجمالي الفاتورة</span>
+                    </div>
+                </div>
+                <div class="hr-meta" style="font-size:var(--fs-caption);">
+                    مستنداً إلى الدرجة والمرحلة المعتمدة
+                </div>
+            </div>
+
+            @* Allowances Total *@
+            <div class="hr-kpi-card">
+                <div class="hr-kpi-header">
+                    <span class="hr-kpi-title">إجمالي المخصصات الشهرية</span>
+                    <span class="hr-iconplate hr-plate-c" aria-hidden="true">
+                        <Icon Name="sparkles" Size="sm" />
+                    </span>
+                </div>
+                <div class="hr-kpi-body">
+                    <strong class="hr-stat-figure hr-num" style="font-size:1.6rem;color:var(--series-3);">
+                        @report.TotalAllowances.ToString("N0")
+                        <span class="hr-stat-unit">د.ع</span>
+                    </strong>
+                    <div style="margin-block-start:var(--s-1);display:flex;gap:var(--s-1);flex-wrap:wrap;">
+                        <span class="hr-badge" title="المخصصات النسبية">نسبية: @report.TotalPercentageAllowances.ToString("N0") د.ع</span>
+                        <span class="hr-badge" title="المخصصات المقطوعة">مقطوعة: @report.TotalFixedAllowances.ToString("N0") د.ع</span>
+                    </div>
+                </div>
+                <div class="hr-meta" style="font-size:var(--fs-caption);">
+                    شهادة، منصب، خطورة، موقع، نقل، زوجية...
+                </div>
+            </div>
+
+            @* Employee Count & Packages *@
+            <div class="hr-kpi-card">
+                <div class="hr-kpi-header">
+                    <span class="hr-kpi-title">كادر الموظفين والتغطية</span>
+                    <span class="hr-iconplate hr-plate-d" aria-hidden="true">
+                        <Icon Name="users" Size="sm" />
+                    </span>
+                </div>
+                <div class="hr-kpi-body">
+                    <strong class="hr-stat-figure hr-num" style="font-size:1.6rem;">
+                        @report.TotalEmployeesCount
+                        <span class="hr-stat-unit">موظف</span>
+                    </strong>
+                    <div style="margin-block-start:var(--s-1);display:flex;gap:var(--s-1);flex-wrap:wrap;">
+                        <span class="hr-badge hr-badge-ok" title="موظفون لديهم حزمة مخصصات محددة">
+                            @report.EmployeesWithPackageCount بحزم معتمدة
+                        </span>
+                        @if (report.EmployeesOnScaleOnlyCount > 0)
+                        {
+                            <span class="hr-badge hr-badge-warn" title="موظفون محتسب لهم راتب السلم الإسمي فقط دون حزمة مخصصات خاصة">
+                                @report.EmployeesOnScaleOnlyCount براتب السلم فقط
+                            </span>
+                        }
+                    </div>
+                </div>
+                <div class="hr-meta" style="font-size:var(--fs-caption);">
+                    في @(filter.FormationId.HasValue ? report.SelectedFormationName : $"{report.Formations.Count} تشكيلات إدارية")
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ==================== 3. VIEW SWITCHER TABS & TOOLBAR ==================== *@
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);margin-block-start:var(--s-2);">
+        <div style="display:flex;gap:var(--s-2);">
+            <button type="button" 
+                    class="hr-btn @(activeTab == "employees" ? "hr-btn-primary" : "hr-btn-secondary")"
+                    @onclick='() => activeTab = "employees"'>
+                <Icon Name="users" Size="xs" />
+                <span>جدول الموظفين التفصيلي (@(report?.Employees.Count ?? 0))</span>
+            </button>
+            <button type="button" 
+                    class="hr-btn @(activeTab == "formations" ? "hr-btn-primary" : "hr-btn-secondary")"
+                    @onclick='() => activeTab = "formations"'>
+                <Icon Name="building-office-2" Size="xs" />
+                <span>ملخص مقارنة التشكيلات (@(report?.Formations.Count ?? 0))</span>
+            </button>
+        </div>
+
+        @if (activeTab == "employees")
+        {
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                @* Search Input *@
+                <div class="hr-search" style="min-width:14rem;">
+                    <Icon Name="magnifying-glass" Size="xs" Class="hr-search-icon" />
+                    <input aria-label="البحث في رواتب الموظفين" type="text" 
+                           class="hr-input" 
+                           placeholder="بحث بالاسم، الرقم الوظيفي، العنوان…" 
+                           @bind="filter.SearchTerm" 
+                           @bind:after="OnSearchChanged" 
+                           style="padding-inline-start:2rem;" />
+                    @if (!string.IsNullOrWhiteSpace(filter.SearchTerm))
+                    {
+                        <button type="button" class="hr-btn-quiet" style="position:absolute;inset-inline-end:0.5rem;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;" @onclick="ClearSearch">
+                            <Icon Name="x-mark" Size="xs" />
+                        </button>
+                    }
+                </div>
+
+                @* Status Filter *@
+                <select aria-label="تصفية حسب نوع الراتب" class="hr-select hr-select-compact" @bind="filter.StatusFilter" @bind:after="OnFilterParamChanged">
+                    <option value="all">كافة الموظفين</option>
+                    <option value="withPackage">بحزم مخصصات معتمدة</option>
+                    <option value="scaleOnly">براتب السلم فقط</option>
+                </select>
+
+                @* Sort By *@
+                <select aria-label="ترتيب الموظفين" class="hr-select hr-select-compact" @bind="filter.SortBy" @bind:after="OnFilterParamChanged">
+                    <option value="gross_desc">الأعلى راتباً شهرياً</option>
+                    <option value="gross_asc">الأقل راتباً شهرياً</option>
+                    <option value="basic_desc">الأعلى راتباً إسمياً</option>
+                    <option value="name">ترتيب أبجدي بالاسم</option>
+                    <option value="id">بالرقم الوظيفي</option>
+                </select>
+            </div>
+        }
+        else if (activeTab == "formations")
+        {
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                <span class="hr-meta" style="font-size:var(--fs-caption);font-weight:700;">ترتيب التشكيلات:</span>
+                <select aria-label="ترتيب التشكيلات" class="hr-select hr-select-compact" @bind="filter.FormationSortBy" @bind:after="OnFormationSortChanged" style="min-width:19rem;font-weight:600;">
+                    <option value="intensity_desc">⭐ الأعلى إنفاقاً مقارنة بعدد الموظفين (كثافة الإنفاق)</option>
+                    <option value="intensity_asc">الأقل إنفاقاً مقارنة بعدد الموظفين</option>
+                    <option value="gross_desc">الأعلى في إجمالي فاتورة الرواتب</option>
+                    <option value="gross_asc">الأقل في إجمالي فاتورة الرواتب</option>
+                    <option value="employees_desc">الأكبر بعدد الموظفين (أعلى نسبة كادر)</option>
+                    <option value="employees_asc">الأقل بعدد الموظفين</option>
+                    <option value="average_desc">الأعلى في متوسط راتب الموظف</option>
+                    <option value="allowance_ratio_desc">الأعلى في نسبة المخصصات للإسمي</option>
+                    <option value="name_asc">ترتيب أبجدي حسب الاسم</option>
+                </select>
+            </div>
+        }
+    </div>
+
+    @* ==================== 4. TAB CONTENT: DETAILED EMPLOYEES TABLE ==================== *@
+    @if (activeTab == "employees")
+    {
+        @if (isLoading)
+        {
+            <div class="hr-card" style="padding:var(--s-5);text-align:center;">
+                <span class="hr-spinner hr-spinner-lg" style="margin-inline:auto;"></span>
+                <p class="hr-meta" style="margin-block-start:var(--s-2);">جارٍ احتساب رواتب كادر التشكيل وتوليد الكشف التفصيلي…</p>
+            </div>
+        }
+        else if (report == null || report.Employees.Count == 0)
+        {
+            <div class="hr-empty hr-card" style="padding:var(--s-5);text-align:center;">
+                <span class="hr-empty-art hr-plate-a" aria-hidden="true"><Icon Name="banknotes" Size="lg" /></span>
+                <h2 class="hr-h3">لا توجد بيانات موظفين تطابق محددات البحث</h2>
+                <p class="hr-meta">تأكد من اختيار التشكيل الصحيح أو مسح عبارة البحث المحددة.</p>
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" style="margin-block-start:var(--s-2);" @onclick="ResetFilters">
+                    إعادة ضبط الفلاتر
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap hr-card" style="overflow-x:auto;">
+                <table class="hr-table" style="width:100%;font-size:var(--fs-body);">
+                    <thead>
+                        <tr>
+                            <th scope="col" style="width:40px;text-align:center;">ت</th>
+                            <th scope="col">الموظف والرقم الوظيفي</th>
+                            <th scope="col">التشكيل والعنوان الوظيفي</th>
+                            <th scope="col">الدرجة والمرحلة</th>
+                            <th scope="col" style="text-align:left;">الراتب الإسمي</th>
+                            <th scope="col" style="text-align:left;">مخصصات نسبية</th>
+                            <th scope="col" style="text-align:left;">مخصصات مقطوعة</th>
+                            <th scope="col" style="text-align:left;">إجمالي المخصصات</th>
+                            <th scope="col" style="text-align:left;background:color-mix(in srgb, var(--accent) 8%, transparent);">إجمالي الراتب المستحق</th>
+                            <th scope="col" style="text-align:center;">حالة الحزمة</th>
+                            <th scope="col" style="text-align:center;width:120px;">إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ int rowIdx = 1; }
+                        @foreach (var emp in report.Employees)
+                        {
+                            <tr>
+                                <td style="text-align:center;" class="hr-meta hr-num">@(rowIdx++)</td>
+                                
+                                @* Employee Info *@
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                                        <div class="hr-avatar" style="width:2rem;height:2rem;border-radius:var(--r-full);background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:var(--fs-caption);color:var(--text);border:1px solid var(--line);">
+                                            @(string.IsNullOrWhiteSpace(emp.FullName) ? "?" : emp.FullName.Substring(0, 1))
+                                        </div>
+                                        <div>
+                                            <a href="employees/@emp.EmployeeId" class="hr-link" style="font-weight:700;display:block;">
+                                                @emp.FullName
+                                            </a>
+                                            <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">
+                                                #@emp.EmployeeNumber
+                                            </span>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                @* Formation & Job Title *@
+                                <td>
+                                    <span class="hr-badge" style="font-size:var(--fs-caption);display:inline-block;margin-block-end:2px;">
+                                        @emp.FormationName
+                                    </span>
+                                    <div class="hr-meta" style="font-size:var(--fs-caption);">
+                                        @emp.JobTitle
+                                    </div>
+                                </td>
+
+                                @* Grade & Stage *@
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(emp.GradeName) || !string.IsNullOrWhiteSpace(emp.StageName))
+                                    {
+                                        <span style="font-weight:600;font-size:var(--fs-caption);">
+                                            @(emp.GradeName ?? "-") / @(emp.StageName ?? "-")
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">-</span>
+                                    }
+                                </td>
+
+                                @* Basic Salary *@
+                                <td style="text-align:left;">
+                                    @if (emp.BasicSalary > 0)
+                                    {
+                                        <strong class="hr-num">@emp.BasicSalary.ToString("N0")</strong>
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">د.ع</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta" style="color:var(--text-muted);font-style:italic;">غير متوفر</span>
+                                    }
+                                </td>
+
+                                @* Percentage Allowances *@
+                                <td style="text-align:left;">
+                                    @if (emp.TotalPercentageAmount > 0)
+                                    {
+                                        <span class="hr-num" style="color:var(--series-2);font-weight:600;">
+                                            @emp.TotalPercentageAmount.ToString("N0")
+                                        </span>
+                                        <span class="hr-badge" style="font-size:10px;padding:1px 4px;margin-inline-start:2px;">
+                                            @emp.TotalPercentageRate.ToString("G29")%
+                                        </span>
+                                    }
+                                    else if (!emp.HasActiveAllowancePackage)
+                                    {
+                                        <span class="hr-meta" style="color:var(--text-muted);font-style:italic;">غير متوفر</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">-</span>
+                                    }
+                                </td>
+
+                                @* Fixed Allowances *@
+                                <td style="text-align:left;">
+                                    @if (emp.TotalFixedAmount > 0)
+                                    {
+                                        <span class="hr-num" style="color:var(--series-4);font-weight:600;">
+                                            @emp.TotalFixedAmount.ToString("N0")
+                                        </span>
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">د.ع</span>
+                                    }
+                                    else if (!emp.HasActiveAllowancePackage)
+                                    {
+                                        <span class="hr-meta" style="color:var(--text-muted);font-style:italic;">غير متوفر</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">-</span>
+                                    }
+                                </td>
+
+                                @* Total Allowances *@
+                                <td style="text-align:left;">
+                                    @if (emp.TotalAllowances > 0)
+                                    {
+                                        <strong class="hr-num" style="color:var(--series-3);">
+                                            @emp.TotalAllowances.ToString("N0")
+                                        </strong>
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">د.ع</span>
+                                    }
+                                    else if (!emp.HasActiveAllowancePackage)
+                                    {
+                                        <span class="hr-meta" style="color:var(--text-muted);font-style:italic;">غير متوفر</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">0 د.ع</span>
+                                    }
+                                </td>
+
+                                @* Gross Salary *@
+                                <td style="text-align:left;background:color-mix(in srgb, var(--accent) 8%, transparent);">
+                                    @if (emp.GrossSalary > 0)
+                                    {
+                                        <strong class="hr-num" style="font-size:1.05rem;color:var(--accent);font-weight:800;">
+                                            @emp.GrossSalary.ToString("N0")
+                                        </strong>
+                                        <span class="hr-stat-unit" style="font-size:var(--fs-caption);">د.ع</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge" style="font-size:var(--fs-caption);">غير متوفر</span>
+                                    }
+                                </td>
+
+                                @* Package Status *@
+                                <td style="text-align:center;">
+                                    @if (emp.HasActiveAllowancePackage)
+                                    {
+                                        <span class="hr-badge hr-badge-ok" title="حزمة مخصصات محددة وسارية">
+                                            <Icon Name="check" Size="xs" />
+                                            <span>معتمدة (@emp.AllowanceItems.Count)</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-warn" title="محسوب وفق السلم الوظيفي فقط دون مخصصات إضافية">
+                                            <Icon Name="exclamation-circle" Size="xs" />
+                                            <span>سلم فقط</span>
+                                        </span>
+                                    }
+                                </td>
+
+                                @* Actions *@
+                                <td style="text-align:center;">
+                                    <div style="display:flex;align-items:center;justify-content:center;gap:var(--s-1);">
+                                        <button type="button" 
+                                                class="hr-btn hr-btn-secondary hr-btn-xs" 
+                                                @onclick="() => OpenEmployeeDetailsModal(emp)" 
+                                                title="استعراض تفاصيل المخصصات وقسيمة الراتب">
+                                            <Icon Name="eye" Size="xs" />
+                                            <span>التفاصيل</span>
+                                        </button>
+                                        <a href="employees/@emp.EmployeeId" class="hr-btn hr-btn-quiet hr-btn-xs" title="الانتقال للملف الوظيفي الشامل">
+                                            <Icon Name="arrow-top-right-on-square" Size="xs" />
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+
+                    @* Table Grand Totals Footer *@
+                    <tfoot>
+                        <tr style="background:var(--surface-sunken);font-weight:700;">
+                            <td colspan="4" style="text-align:right;">
+                                <strong>المجموع الكلي لكادر التشكيل المختار (@report.Employees.Count موظف)</strong>
+                            </td>
+                            <td style="text-align:left;">
+                                <strong class="hr-num">@report.Employees.Sum(e => e.BasicSalary).ToString("N0")</strong>
+                                <span class="hr-meta" style="font-size:var(--fs-caption);">د.ع</span>
+                            </td>
+                            <td style="text-align:left;">
+                                <strong class="hr-num" style="color:var(--series-2);">@report.Employees.Sum(e => e.TotalPercentageAmount).ToString("N0")</strong>
+                            </td>
+                            <td style="text-align:left;">
+                                <strong class="hr-num" style="color:var(--series-4);">@report.Employees.Sum(e => e.TotalFixedAmount).ToString("N0")</strong>
+                            </td>
+                            <td style="text-align:left;">
+                                <strong class="hr-num" style="color:var(--series-3);">@report.Employees.Sum(e => e.TotalAllowances).ToString("N0")</strong>
+                            </td>
+                            <td style="text-align:left;background:color-mix(in srgb, var(--accent) 12%, transparent);">
+                                <strong class="hr-num" style="font-size:1.1rem;color:var(--accent);">
+                                    @report.Employees.Sum(e => e.GrossSalary).ToString("N0")
+                                </strong>
+                                <span class="hr-stat-unit">د.ع</span>
+                            </td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        }
+    }
+
+    @* ==================== 5. TAB CONTENT: FORMATIONS COMPARISON ==================== *@
+    @if (activeTab == "formations" && report != null)
+    {
+        @* Analytical Highlight Banner: Top Spending vs Staff Formation *@
+        @if (report.HighestIntensityFormation != null && report.Formations.Count > 1)
+        {
+            <div class="hr-card" style="padding:var(--s-3);background:color-mix(in srgb, var(--accent) 5%, var(--surface));border:1px solid color-mix(in srgb, var(--accent) 25%, transparent);border-radius:var(--r-lg);margin-block-end:var(--s-3);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);">
+                <div style="display:flex;align-items:center;gap:var(--s-3);">
+                    <div class="hr-iconplate hr-plate-a" style="background:var(--accent);color:var(--text-on-accent);border-radius:var(--r-md);padding:var(--s-2);display:flex;align-items:center;justify-content:center;">
+                        <Icon Name="sparkles" Size="sm" />
+                    </div>
+                    <div>
+                        <div style="font-size:var(--fs-caption);color:var(--text-muted);font-weight:700;">
+                            تحليل التباين وكثافة الإنفاق (التشكيل ذو الإنفاق الأكبر مقارنة بعدد موظفيه):
+                        </div>
+                        <div style="font-size:1.1rem;font-weight:800;color:var(--text);margin-block:2px;">
+                            @report.HighestIntensityFormation.FormationName
+                        </div>
+                        <div style="font-size:var(--fs-caption);color:var(--text-muted);">
+                            يستحوذ على <strong class="hr-num" style="color:var(--accent);font-size:1rem;">@report.HighestIntensityFormation.SpendingPercentage.ToString("F1")%</strong> من إجمالي ميزانية الرواتب مقابل <strong class="hr-num" style="font-size:1rem;">@report.HighestIntensityFormation.EmployeePercentage.ToString("F1")%</strong> فقط من الكادر (مؤشر الكثافة: <strong class="hr-num" style="color:var(--accent);font-size:1rem;">@report.HighestIntensityFormation.SpendingIntensityRatio.ToString("F2")×</strong> المعدل العام).
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:var(--s-2);">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="() => FilterByFormation(report.HighestIntensityFormation.FormationId)">
+                        <Icon Name="eye" Size="xs" />
+                        <span>استعراض موظفي هذا التشكيل</span>
+                    </button>
+                </div>
+            </div>
+        }
+
+        <div class="hr-tablewrap hr-card" style="overflow-x:auto;">
+            <table class="hr-table" style="width:100%;font-size:var(--fs-body);">
+                <thead>
+                    <tr>
+                        <th scope="col" style="width:40px;text-align:center;">ت</th>
+                        <th scope="col" style="cursor:pointer;" @onclick='() => SetFormationSort("name_asc")' title="انقر للترتيب أبجدياً">
+                            التشكيل الإداري
+                            @if (filter.FormationSortBy == "name_asc") { <span> ▲</span> }
+                        </th>
+                        <th scope="col" style="text-align:center;cursor:pointer;min-width:130px;" @onclick='() => SetFormationSort("employees_desc")' title="انقر للترتيب حسب نسبة وعدد الكادر">
+                            كادر التشكيل والنسبة %
+                            @if (filter.FormationSortBy == "employees_desc") { <span> ▼</span> }
+                            else if (filter.FormationSortBy == "employees_asc") { <span> ▲</span> }
+                        </th>
+                        <th scope="col" style="text-align:left;cursor:pointer;min-width:150px;background:color-mix(in srgb, var(--accent) 5%, transparent);" @onclick='() => SetFormationSort("gross_desc")' title="انقر للترتيب حسب إجمالي فاتورة الرواتب">
+                            فاتورة الرواتب والنسبة %
+                            @if (filter.FormationSortBy == "gross_desc") { <span> ▼</span> }
+                            else if (filter.FormationSortBy == "gross_asc") { <span> ▲</span> }
+                        </th>
+                        <th scope="col" style="text-align:left;cursor:pointer;" @onclick='() => SetFormationSort("average_desc")' title="انقر للترتيب حسب متوسط الراتب">
+                            متوسط راتب الموظف
+                            @if (filter.FormationSortBy == "average_desc") { <span> ▼</span> }
+                        </th>
+                        <th scope="col" style="text-align:center;cursor:pointer;min-width:180px;background:color-mix(in srgb, var(--accent) 12%, transparent);" @onclick='() => SetFormationSort("intensity_desc")' title="انقر للترتيب حسب كثافة الإنفاق مقارنة بنسبة عدد الموظفين">
+                            ⭐ مؤشر كثافة الإنفاق (الإنفاق ÷ العدد)
+                            @if (filter.FormationSortBy == "intensity_desc") { <span> ▼</span> }
+                            else if (filter.FormationSortBy == "intensity_asc") { <span> ▲</span> }
+                        </th>
+                        <th scope="col" style="text-align:left;cursor:pointer;" @onclick='() => SetFormationSort("allowance_ratio_desc")' title="انقر للترتيب حسب نسبة المخصصات للإسمي">
+                            الراتب الإسمي والمخصصات
+                            @if (filter.FormationSortBy == "allowance_ratio_desc") { <span> ▼</span> }
+                        </th>
+                        <th scope="col" style="text-align:center;width:90px;">حزم معتمدة</th>
+                        <th scope="col" style="text-align:center;width:90px;">تصفية</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ int fIdx = 1; }
+                    @foreach (var f in report.Formations)
+                    {
+                        var isSelected = filter.FormationId == f.FormationId;
+                        <tr style="@(isSelected ? "background:color-mix(in srgb, var(--accent) 8%, transparent);" : "")">
+                            <td style="text-align:center;" class="hr-meta hr-num">@(fIdx++)</td>
+                            
+                            @* Formation Name *@
+                            <td>
+                                <strong style="font-size:1rem;display:block;">@f.FormationName</strong>
+                                @if (isSelected)
+                                {
+                                    <span class="hr-badge hr-badge-accent" style="margin-block-start:2px;font-size:10px;">التشكيل المحدد حالياً</span>
+                                }
+                            </td>
+
+                            @* Employee Count and Share % *@
+                            <td style="text-align:center;">
+                                <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+                                    <div>
+                                        <strong class="hr-num" style="font-size:1rem;">@f.EmployeeCount</strong>
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">موظف</span>
+                                    </div>
+                                    <span class="hr-badge" style="font-size:10px;padding:1px 6px;">
+                                        @f.EmployeePercentage.ToString("F1")% من المؤسسة
+                                    </span>
+                                    @* Mini Progress Bar for Headcount *@
+                                    <div style="width:70px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-block-start:2px;">
+                                        <div style="width:@(Math.Min(100m, f.EmployeePercentage))%;height:100%;background:var(--text-muted);border-radius:2px;"></div>
+                                    </div>
+                                </div>
+                            </td>
+
+                            @* Gross Salary and Spending Share % *@
+                            <td style="text-align:left;background:color-mix(in srgb, var(--accent) 5%, transparent);">
+                                <strong class="hr-num" style="color:var(--accent);font-size:1.05rem;display:block;">
+                                    @f.TotalGrossSalary.ToString("N0") <span class="hr-stat-unit" style="font-size:var(--fs-caption);">د.ع</span>
+                                </strong>
+                                <span class="hr-badge hr-badge-accent" style="font-size:10px;padding:1px 6px;">
+                                    @f.SpendingPercentage.ToString("F1")% من الميزانية
+                                </span>
+                                @* Mini Progress Bar for Spending *@
+                                <div style="width:70px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-block-start:2px;">
+                                    <div style="width:@(Math.Min(100m, f.SpendingPercentage))%;height:100%;background:var(--accent);border-radius:2px;"></div>
+                                </div>
+                            </td>
+
+                            @* Average Salary *@
+                            <td style="text-align:left;">
+                                <strong class="hr-num" style="font-size:1rem;">@f.AverageGrossSalary.ToString("N0")</strong>
+                                <span class="hr-meta" style="font-size:var(--fs-caption);">د.ع</span>
+                            </td>
+
+                            @* Spending Intensity Index (Spending vs Headcount Disparity) *@
+                            <td style="text-align:center;background:color-mix(in srgb, var(--accent) 10%, transparent);">
+                                <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+                                    <strong class="hr-num" style="font-size:1.2rem;font-weight:900;color:@(f.SpendingIntensityRatio >= 1.25m ? "var(--accent)" : "inherit");">
+                                        @f.SpendingIntensityRatio.ToString("F2")×
+                                    </strong>
+                                    @if (f.SpendingIntensityRatio >= 1.25m)
+                                    {
+                                        <span class="hr-badge hr-badge-warn" style="font-size:10px;font-weight:700;" title="إنفاق كبير مقارنة بنسبة عدد الموظفين">
+                                            إنفاق مرتفع جداً (@f.SpendingIntensityRatio.ToString("F2")×)
+                                        </span>
+                                    }
+                                    else if (f.SpendingIntensityRatio >= 1.05m)
+                                    {
+                                        <span class="hr-badge hr-badge-accent" style="font-size:10px;" title="أعلى من المعدل العام">
+                                            أعلى من المعدل (@f.SpendingIntensityRatio.ToString("F2")×)
+                                        </span>
+                                    }
+                                    else if (f.SpendingIntensityRatio >= 0.95m)
+                                    {
+                                        <span class="hr-badge hr-badge-ok" style="font-size:10px;" title="إنفاق متوازن مع النسبة العددية">
+                                            متوازن (@f.SpendingIntensityRatio.ToString("F2")×)
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge" style="font-size:10px;" title="إنفاق أقل من النسبة العددية">
+                                            أقل من المعدل (@f.SpendingIntensityRatio.ToString("F2")×)
+                                        </span>
+                                    }
+                                </div>
+                            </td>
+
+                            @* Basic & Allowances Breakdown *@
+                            <td style="text-align:left;font-size:var(--fs-caption);">
+                                <div>
+                                    <span class="hr-meta">الإسمي: </span>
+                                    <span class="hr-num" style="font-weight:600;">@f.TotalBasicSalary.ToString("N0")</span> د.ع
+                                </div>
+                                <div style="margin-block-start:2px;">
+                                    <span class="hr-meta">المخصصات: </span>
+                                    <span class="hr-num" style="color:var(--series-3);font-weight:600;">@f.TotalAllowances.ToString("N0")</span> د.ع
+                                    <span class="hr-badge" style="font-size:9px;padding:0 3px;margin-inline-start:2px;">
+                                        @f.AllowanceToBasicRatio.ToString("F0")%
+                                    </span>
+                                </div>
+                            </td>
+
+                            @* Packages *@
+                            <td style="text-align:center;">
+                                <span class="hr-badge hr-badge-ok" style="font-size:11px;">@f.EmployeesWithPackageCount / @f.EmployeeCount</span>
+                            </td>
+
+                            @* Action *@
+                            <td style="text-align:center;">
+                                <button type="button" 
+                                        class="hr-btn @(isSelected ? "hr-btn-primary" : "hr-btn-secondary") hr-btn-xs"
+                                        @onclick="() => FilterByFormation(f.FormationId)">
+                                    @(isSelected ? "محدد" : "تصفية")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr style="background:var(--surface-sunken);font-weight:700;">
+                        <td colspan="2" style="text-align:right;">
+                            <strong>المجموع العام لكافة تشكيلات المؤسسة (@report.Formations.Count تشكيل)</strong>
+                        </td>
+                        <td style="text-align:center;">
+                            <strong class="hr-num">@report.TotalEmployeesCount</strong>
+                            <div class="hr-meta" style="font-size:10px;">(100% الكادر)</div>
+                        </td>
+                        <td style="text-align:left;background:color-mix(in srgb, var(--accent) 8%, transparent);">
+                            <strong class="hr-num" style="color:var(--accent);font-size:1.1rem;">
+                                @report.TotalGrossSalary.ToString("N0")
+                            </strong> د.ع
+                            <div class="hr-meta" style="font-size:10px;">(100% الميزانية)</div>
+                        </td>
+                        <td style="text-align:left;">
+                            <strong class="hr-num">@report.AverageGrossSalary.ToString("N0")</strong> د.ع
+                            <div class="hr-meta" style="font-size:10px;">(المعدل العام)</div>
+                        </td>
+                        <td style="text-align:center;background:color-mix(in srgb, var(--accent) 12%, transparent);">
+                            <strong class="hr-num" style="font-size:1.15rem;">1.00×</strong>
+                            <div class="hr-meta" style="font-size:10px;">(معيار التوازن)</div>
+                        </td>
+                        <td style="text-align:left;">
+                            <div><span class="hr-meta">إسمي: </span><span class="hr-num">@report.TotalBasicSalary.ToString("N0")</span></div>
+                            <div><span class="hr-meta">مخصصات: </span><span class="hr-num" style="color:var(--series-3);">@report.TotalAllowances.ToString("N0")</span></div>
+                        </td>
+                        <td style="text-align:center;">
+                            <span class="hr-badge hr-badge-ok">@report.EmployeesWithPackageCount من @report.TotalEmployeesCount</span>
+                        </td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    }
+
+</div>
+
+@* ==================== 6. MODAL: EMPLOYEE SALARY BREAKDOWN & PAYSLIP ==================== *@
+@if (showDetailsModal && selectedEmployee != null)
+{
+    <div class="hr-modal-scrim" @onclick="CloseDetailsModal">
+        <div class="hr-modal hr-modal-lg" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="payslip-modal-title" tabindex="-1" @onkeydown="OnDetailsModalKeyDown">
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true">
+                        <Icon Name="banknotes" Size="sm" />
+                    </span>
+                    <div class="hr-modal-titles">
+                        <h2 id="payslip-modal-title" class="hr-h3">قسيمة الراتب واحتساب المخصصات</h2>
+                        <p class="hr-meta">@selectedEmployee.FullName - #@selectedEmployee.EmployeeNumber (@selectedEmployee.FormationName)</p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="CloseDetailsModal" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body hr-stack">
+                @* Salary Summary Strip *@
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(140px, 100%), 1fr));gap:var(--s-2);padding:var(--s-3);background:var(--surface-sunken);border-radius:var(--r-lg);border:1px solid var(--line);">
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">الراتب الإسمي:</span>
+                        @if (selectedEmployee.BasicSalary > 0)
+                        {
+                            <strong class="hr-num" style="font-size:1.1rem;">@selectedEmployee.BasicSalary.ToString("N0") د.ع</strong>
+                        }
+                        else
+                        {
+                            <span class="hr-meta" style="color:var(--text-muted);font-style:italic;font-size:1rem;">غير متوفر</span>
+                        }
+                    </div>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">المخصصات النسبية (@selectedEmployee.TotalPercentageRate.ToString("G29")%):</span>
+                        @if (selectedEmployee.TotalPercentageAmount > 0)
+                        {
+                            <strong class="hr-num" style="font-size:1.1rem;color:var(--series-2);">@selectedEmployee.TotalPercentageAmount.ToString("N0") د.ع</strong>
+                        }
+                        else if (!selectedEmployee.HasActiveAllowancePackage)
+                        {
+                            <span class="hr-meta" style="color:var(--text-muted);font-style:italic;font-size:1rem;">غير متوفر</span>
+                        }
+                        else
+                        {
+                            <strong class="hr-num" style="font-size:1.1rem;color:var(--series-2);">0 د.ع</strong>
+                        }
+                    </div>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">المخصصات الثابتة:</span>
+                        @if (selectedEmployee.TotalFixedAmount > 0)
+                        {
+                            <strong class="hr-num" style="font-size:1.1rem;color:var(--series-4);">@selectedEmployee.TotalFixedAmount.ToString("N0") د.ع</strong>
+                        }
+                        else if (!selectedEmployee.HasActiveAllowancePackage)
+                        {
+                            <span class="hr-meta" style="color:var(--text-muted);font-style:italic;font-size:1rem;">غير متوفر</span>
+                        }
+                        else
+                        {
+                            <strong class="hr-num" style="font-size:1.1rem;color:var(--series-4);">0 د.ع</strong>
+                        }
+                    </div>
+                    <div style="background:color-mix(in srgb, var(--accent) 12%, transparent);padding:var(--s-2);border-radius:var(--r-md);">
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;color:var(--accent);font-weight:700;">إجمالي الراتب الشهري:</span>
+                        @if (selectedEmployee.GrossSalary > 0)
+                        {
+                            <strong class="hr-num" style="font-size:1.25rem;color:var(--accent);font-weight:800;">@selectedEmployee.GrossSalary.ToString("N0") د.ع</strong>
+                        }
+                        else
+                        {
+                            <span class="hr-badge" style="font-size:0.95rem;">غير متوفر</span>
+                        }
+                    </div>
+                </div>
+
+                @* Package Metadata *@
+                <div class="hr-grid-2" style="font-size:var(--fs-body);background:var(--surface);padding:var(--s-2);border:1px solid var(--line);border-radius:var(--r-md);">
+                    <div>
+                        <span class="hr-meta">العنوان الوظيفي: </span>
+                        <strong>@selectedEmployee.JobTitle</strong>
+                    </div>
+                    <div>
+                        <span class="hr-meta">الدرجة والمرحلة: </span>
+                        <strong>@(selectedEmployee.GradeName ?? "-") / @(selectedEmployee.StageName ?? "-")</strong>
+                    </div>
+                    <div>
+                        <span class="hr-meta">رقم وسند الأمر الإداري: </span>
+                        <strong>@(selectedEmployee.OrderNumber ?? "غير محدد")</strong>
+                    </div>
+                    <div>
+                        <span class="hr-meta">تاريخ سريان الحزمة: </span>
+                        <strong>@(selectedEmployee.PackageStartDate?.ToString("yyyy/MM/dd") ?? "سارية المفعول")</strong>
+                    </div>
+                </div>
+
+                @* Allowances Detailed Table *@
+                <div style="margin-block-start:var(--s-2);">
+                    <h3 class="hr-h3" style="margin-block-end:var(--s-2);font-size:1rem;">
+                        بنود المخصصات المعتمدة في الراتب (@selectedEmployee.AllowanceItems.Count)
+                    </h3>
+
+                    @if (selectedEmployee.AllowanceItems.Count > 0)
+                    {
+                        <div class="hr-tablewrap" style="border:1px solid var(--line);border-radius:var(--r-md);">
+                            <table class="hr-table" style="font-size:var(--fs-body);">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">اسم المخصص</th>
+                                        <th scope="col" style="text-align:center;">نوع الاحتساب</th>
+                                        <th scope="col" style="text-align:center;">النسبة / القيمة</th>
+                                        <th scope="col" style="text-align:left;">المبلغ المحسوب شهرياً</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var itm in selectedEmployee.AllowanceItems)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <strong>@itm.Name</strong>
+                                                @if (!string.IsNullOrWhiteSpace(itm.Notes))
+                                                {
+                                                    <span class="hr-meta" style="display:block;font-size:var(--fs-caption);">@itm.Notes</span>
+                                                }
+                                            </td>
+                                            <td style="text-align:center;">
+                                                @(itm.CalculationType == AllowanceCalculationType.Percentage ? "نسبة مئوية %" : "مبلغ مقطوع ثابت")
+                                            </td>
+                                            <td style="text-align:center;" class="hr-num">
+                                                @(itm.CalculationType == AllowanceCalculationType.Percentage ? $"{itm.Percentage:G29}%" : $"{itm.FixedAmount:N0} د.ع")
+                                            </td>
+                                            <td style="text-align:left;">
+                                                <strong class="hr-num" style="color:var(--series-3);">@itm.CalculatedAmount.ToString("N0") د.ع</strong>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="hr-empty" style="padding:var(--s-3);border:1px dashed var(--line);border-radius:var(--r-md);text-align:center;">
+                            <p class="hr-meta" style="margin:0;">لا توجد مخصصات إضافية مسجلة لهذا الموظف؛ الراتب محسوب استناداً إلى الراتب الإسمي المحدد في السلم الوظيفي فقط.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="hr-modal-foot" style="display:flex;align-items:center;justify-content:space-between;">
+                <a href="employees/@selectedEmployee.EmployeeId" class="hr-btn hr-btn-secondary">
+                    <Icon Name="user" Size="xs" />
+                    <span>الانتقال للملف الوظيفي</span>
+                </a>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="CloseDetailsModal">
+                    إغلاق
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== 7. PRINT SHEET FOR OFFICIAL PAYROLL AUDIT ==================== *@
+<div id="official-payroll-print-sheet" class="payroll-print-only" style="display:none;">
+    @if (report != null)
+    {
+        <div style="text-align:center;margin-block-end:20px;border-bottom:2px solid #000;padding-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div style="text-align:right;">
+                    <div style="font-weight:bold;font-size:14pt;">جمهورية العراق</div>
+                    <div style="font-weight:bold;font-size:13pt;">البنك المركزي العراقي</div>
+                    <div style="font-size:11pt;">الدائرة الإدارية والمالية / قسم الرواتب</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-weight:900;font-size:16pt;margin-bottom:4px;">كشف الرواتب والمخصصات الشهرية</div>
+                    <div style="font-size:12pt;font-weight:bold;">استحقاق شهر: @report.MonthNameAr لسنة @report.Year</div>
+                    <div style="font-size:11pt;color:#333;">التشكيل الإداري: @(string.IsNullOrWhiteSpace(report.SelectedFormationName) ? "كافة التشكيلات الإدارية" : report.SelectedFormationName)</div>
+                </div>
+                <div style="text-align:left;font-size:10pt;">
+                    <div>تاريخ الإصدار: @DateTime.Today.ToString("yyyy/MM/dd")</div>
+                    <div>عدد الكادر: @report.Employees.Count موظف</div>
+                </div>
+            </div>
+        </div>
+
+        <table style="width:100%;border-collapse:collapse;font-size:10pt;" border="1" cellpadding="5">
+            <thead>
+                <tr style="background:#eee;text-align:center;font-weight:bold;">
+                    <th scope="col" style="width:30px;">ت</th>
+                    <th scope="col">الرقم الوظيفي</th>
+                    <th scope="col">اسم الموظف الثلاثي</th>
+                    <th scope="col">العنوان الوظيفي</th>
+                    <th scope="col">الدرجة/المرحلة</th>
+                    <th scope="col">الراتب الإسمي</th>
+                    <th scope="col">نسب المخصصات</th>
+                    <th scope="col">مخصصات نسبية</th>
+                    <th scope="col">مخصصات مقطوعة</th>
+                    <th scope="col">إجمالي المخصصات</th>
+                    <th scope="col">إجمالي الراتب المستحق</th>
+                    <th scope="col" style="width:70px;">التوقيع</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{ int pIdx = 1; }
+                @foreach (var emp in report.Employees)
+                {
+                    <tr>
+                        <td style="text-align:center;">@(pIdx++)</td>
+                        <td style="text-align:center;">@emp.EmployeeNumber</td>
+                        <td>@emp.FullName</td>
+                        <td>@emp.JobTitle</td>
+                        <td style="text-align:center;">@(emp.GradeName ?? "-") / @(emp.StageName ?? "-")</td>
+                        <td style="text-align:left;">@emp.BasicSalary.ToString("N0")</td>
+                        <td style="text-align:center;">@(emp.TotalPercentageRate > 0 ? $"{emp.TotalPercentageRate:G29}%" : "-")</td>
+                        <td style="text-align:left;">@emp.TotalPercentageAmount.ToString("N0")</td>
+                        <td style="text-align:left;">@emp.TotalFixedAmount.ToString("N0")</td>
+                        <td style="text-align:left;">@emp.TotalAllowances.ToString("N0")</td>
+                        <td style="text-align:left;font-weight:bold;">@emp.GrossSalary.ToString("N0")</td>
+                        <td></td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr style="background:#eee;font-weight:bold;">
+                    <td colspan="5" style="text-align:center;">المجموع العام للكشف</td>
+                    <td style="text-align:left;">@report.Employees.Sum(e => e.BasicSalary).ToString("N0")</td>
+                    <td></td>
+                    <td style="text-align:left;">@report.Employees.Sum(e => e.TotalPercentageAmount).ToString("N0")</td>
+                    <td style="text-align:left;">@report.Employees.Sum(e => e.TotalFixedAmount).ToString("N0")</td>
+                    <td style="text-align:left;">@report.Employees.Sum(e => e.TotalAllowances).ToString("N0")</td>
+                    <td style="text-align:left;font-size:11pt;">@report.Employees.Sum(e => e.GrossSalary).ToString("N0")</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        @* Official Signatures Footer *@
+        <div style="margin-top:40px;display:flex;justify-content:space-around;text-align:center;font-weight:bold;font-size:11pt;">
+            <div>
+                <div>منظم الكشف (شعبة الرواتب)</div>
+                <div style="margin-top:35px;">___________________</div>
+            </div>
+            <div>
+                <div>مدقق الحسابات المالية</div>
+                <div style="margin-top:35px;">___________________</div>
+            </div>
+            <div>
+                <div>مدير التشكيل الإداري</div>
+                <div style="margin-top:35px;">___________________</div>
+            </div>
+            <div>
+                <div>مصادقة المدير العام</div>
+                <div style="margin-top:35px;">___________________</div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    @@media print {
+        body * {
+            visibility: hidden;
+        }
+        #official-payroll-print-sheet, #official-payroll-print-sheet * {
+            visibility: visible;
+        }
+        #official-payroll-print-sheet {
+            display: block !important;
+            position: absolute;
+            inset-inline-start: 0;
+            inset-block-start: 0;
+            width: 100%;
+            background: #fff;
+            color: #000;
+            padding: 10mm;
+        }
+        @@page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+    }
+</style>
+
+@code {
+    private PayrollFilterDto filter = new();
+    private MonthlyPayrollReportDto? report;
+    private List<Formation> availableFormations = [];
+    private bool isLoading = true;
+    private string activeTab = "employees";
+
+    private bool showDetailsModal = false;
+    private EmployeePayrollItemDto? selectedEmployee;
+
+    protected override async Task OnInitializedAsync()
+    {
+        availableFormations = await PayrollService.GetAvailableFormationsAsync();
+        await LoadReportAsync();
+    }
+
+    private async Task LoadReportAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            report = await PayrollService.GetMonthlyPayrollReportAsync(filter);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFormationChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        filter.FormationId = int.TryParse(val, out var id) && id > 0 ? id : null;
+        await LoadReportAsync();
+    }
+
+    private async Task OnMonthChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var m) && m >= 1 && m <= 12)
+        {
+            filter.Month = m;
+            await LoadReportAsync();
+        }
+    }
+
+    private async Task OnYearChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var y) && y >= 2000)
+        {
+            filter.Year = y;
+            await LoadReportAsync();
+        }
+    }
+
+    private async Task OnSearchChanged()
+    {
+        await LoadReportAsync();
+    }
+
+    private async Task OnFilterParamChanged()
+    {
+        await LoadReportAsync();
+    }
+
+    private async Task OnFormationSortChanged()
+    {
+        await LoadReportAsync();
+    }
+
+    private async Task SetFormationSort(string sortKey)
+    {
+        if (filter.FormationSortBy == sortKey)
+        {
+            filter.FormationSortBy = sortKey.EndsWith("_desc")
+                ? sortKey.Replace("_desc", "_asc")
+                : sortKey.Replace("_asc", "_desc");
+        }
+        else
+        {
+            filter.FormationSortBy = sortKey;
+        }
+
+        await LoadReportAsync();
+    }
+
+    private async Task ClearSearch()
+    {
+        filter.SearchTerm = null;
+        await LoadReportAsync();
+    }
+
+    private async Task ResetFilters()
+    {
+        filter.SearchTerm = null;
+        filter.StatusFilter = "all";
+        filter.SortBy = "gross_desc";
+        await LoadReportAsync();
+    }
+
+    private async Task FilterByFormation(int formationId)
+    {
+        filter.FormationId = formationId;
+        activeTab = "employees";
+        await LoadReportAsync();
+    }
+
+    private void OpenEmployeeDetailsModal(EmployeePayrollItemDto emp)
+    {
+        selectedEmployee = emp;
+        showDetailsModal = true;
+    }
+
+    private void OnDetailsModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseDetailsModal();
+    }
+
+    private void CloseDetailsModal()
+    {
+        showDetailsModal = false;
+        selectedEmployee = null;
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        if (report == null) return;
+        var csvBytes = PayrollService.GeneratePayrollCsv(report);
+        var base64 = Convert.ToBase64String(csvBytes);
+        var formationName = string.IsNullOrWhiteSpace(report.SelectedFormationName) ? "كافة_التشكيلات" : report.SelectedFormationName.Replace(" ", "_");
+        var fileName = $"رواتب_{formationName}_{report.Year}_{report.Month}.csv";
+
+        var js = $@"
+            (function() {{
+                const blob = new Blob([Uint8Array.from(atob('{base64}'), c => c.charCodeAt(0))], {{ type: 'text/csv;charset=utf-8;' }});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '{fileName}';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }})();
+        ";
+        await JSRuntime.InvokeVoidAsync("eval", js);
+    }
+
+    private async Task PrintPayrollSheet()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+}

@@ -1,0 +1,343 @@
+@page "/salary-scale"
+@using API.HR.Node.Contracts
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Salary
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@inject ISalaryScaleService SalaryService
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>السلم الوظيفي والدرجات والمراحل | CBI HR</PageTitle>
+
+<div class="hr-stack">
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>لوحة التحكم</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">السلم الوظيفي</span>
+            </nav>
+            <h1 class="hr-h1" style="margin-block-start: var(--s-2)">السلم الوظيفي وجدول الدرجات والمراحل</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start: var(--s-1)">
+                جدول الرواتب الإسمية، العلاوات السنوية، والمدد الأصغرية للترفيع مع الربط المباشر ببيانات الموظفين.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ReloadDataAsync" disabled="@isLoading">
+                <Icon Name="arrow-path" Size="sm" />
+                <span>تحديث البيانات</span>
+            </button>
+            <a href="/employees" class="hr-btn hr-btn-secondary hr-btn-sm">
+                <Icon Name="users" Size="sm" />
+                <span>دليل الموظفين</span>
+            </a>
+        </div>
+    </header>
+
+    @if (isLoading)
+    {
+        <div class="hr-card hr-empty" role="status">
+            <span class="hr-spinner hr-spinner-lg" aria-hidden="true"></span>
+            <p class="hr-meta">جاري تحميل ومزامنة السلم الوظيفي والمراحل...</p>
+        </div>
+    }
+    else if (matrix == null || matrix.Rows.Count == 0)
+    {
+        <div class="hr-card hr-empty">
+            <span class="hr-empty-art hr-empty-art-warn" aria-hidden="true"><Icon Name="exclamation-circle" Size="lg" /></span>
+            <h2 class="hr-h3">لم يتم العثور على بيانات السلم الوظيفي</h2>
+            <p class="hr-meta">يمكنك إعادة تهيئة السلم تلقائياً من النظام.</p>
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="ReloadDataAsync">
+                <Icon Name="arrow-path" Size="sm" />
+                <span>تهيئة السلم الوظيفي الآن</span>
+            </button>
+        </div>
+    }
+    else
+    {
+        @* Summary *@
+        <div class="hr-grid-kpi">
+            <div class="hr-card hr-stat hr-stat-a">
+                <div class="hr-stat-label">
+                    <span>إجمالي الدرجات الوظيفية</span>
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true"><Icon Name="squares-2x2" Size="sm" /></span>
+                </div>
+                <strong class="hr-stat-figure">@matrix.Rows.Count<span class="hr-stat-unit">درجة</span></strong>
+            </div>
+
+            <div class="hr-card hr-stat hr-stat-b">
+                <div class="hr-stat-label">
+                    <span>المراحل الوظيفية</span>
+                    <span class="hr-iconplate hr-plate-b" aria-hidden="true"><Icon Name="bars-3" Size="sm" /></span>
+                </div>
+                <strong class="hr-stat-figure">@matrix.Stages.Count<span class="hr-stat-unit">مرحلة</span></strong>
+            </div>
+
+            <div class="hr-card hr-stat hr-stat-c">
+                <div class="hr-stat-label">
+                    <span>الموظفون المربوطون بالسلم</span>
+                    <span class="hr-iconplate hr-plate-c" aria-hidden="true"><Icon Name="users" Size="sm" /></span>
+                </div>
+                <strong class="hr-stat-figure">@matrix.TotalMappedEmployees.ToString("N0")<span class="hr-stat-unit">موظف</span></strong>
+            </div>
+
+            <div class="hr-card hr-stat hr-stat-d">
+                <div class="hr-stat-label">
+                    <span>كتلة الرواتب الإسمية التقديرية</span>
+                    <span class="hr-iconplate hr-plate-d" aria-hidden="true"><Icon Name="banknotes" Size="sm" /></span>
+                </div>
+                <strong class="hr-stat-figure">@((matrix.TotalEstimatedPayrollThousands * 1000m).ToString("N0"))<span class="hr-stat-unit">د.ع</span></strong>
+            </div>
+        </div>
+
+        @* Salary scale matrix *@
+        <section class="hr-card" aria-labelledby="scale-title">
+            <div class="hr-card-head">
+                <div>
+                    <h2 id="scale-title" class="hr-h3">جدول الرواتب والدرجات والمراحل المعتمد</h2>
+                    <p class="hr-meta">الرواتب مبينة بآلاف الدنانير العراقية (مثال: 910 تعني 910,000 دينار عراقي)</p>
+                </div>
+                <p class="hr-meta hr-scale-key">
+                    <span class="hr-scale__count" aria-hidden="true">3</span>
+                    <span>الرقم الداخلي يمثل عدد الموظفين الفعليين</span>
+                </p>
+            </div>
+
+            <div class="hr-tablewrap" style="max-block-size:75dvh">
+                <table class="hr-table hr-table-wide hr-scale">
+                    <caption class="hr-sr">جدول الرواتب: الدرجات في الصفوف والمراحل في الأعمدة. اختر خلية لعرض تفاصيلها.</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">الدرجة الوظيفية</th>
+                            @for (int stg = 1; stg <= 11; stg++)
+                            {
+                                int currentStage = stg;
+                                <th scope="col" class="@(selectedStage == currentStage ? "is-col" : null)">
+                                    <button type="button" class="hr-cellbtn"
+                                            aria-pressed="@(selectedStage == currentStage ? "true" : "false")"
+                                            aria-label="@($"تحديد المرحلة {currentStage}")"
+                                            @onclick="() => SelectStage(currentStage)">
+                                        <span class="hr-scale__value">@currentStage</span>
+                                        <span class="hr-scale__sub">مرحلة</span>
+                                    </button>
+                                </th>
+                            }
+                            <th scope="col">العلاوة السنوية</th>
+                            <th scope="col">سنوات الخدمة</th>
+                            <th scope="col">المجموع</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in matrix.Rows)
+                        {
+                            bool isSelectedRow = selectedGradeCode == row.GradeCode;
+                            <tr class="@(isSelectedRow ? "is-row" : null)">
+                                <th scope="row">
+                                    <button type="button" class="hr-cellbtn hr-cellbtn--start"
+                                            aria-pressed="@(isSelectedRow ? "true" : "false")"
+                                            @onclick="() => SelectGrade(row.GradeCode)">
+                                        @row.GradeCode
+                                    </button>
+                                </th>
+
+                                @for (int stg = 1; stg <= 11; stg++)
+                                {
+                                    int stageNum = stg;
+                                    row.Cells.TryGetValue(stageNum, out var cell);
+                                    bool isHighlightedCell = isSelectedRow && selectedStage == stageNum;
+                                    var cellClass = isHighlightedCell ? "is-cell" : (selectedStage == stageNum ? "is-col" : null);
+
+                                    <td class="@cellClass">
+                                        @if (cell != null)
+                                        {
+                                            <button type="button" class="hr-cellbtn"
+                                                    aria-pressed="@(isHighlightedCell ? "true" : "false")"
+                                                    aria-label="@($"الدرجة {row.GradeCode}، المرحلة {stageNum}: {cell.BaseSalary:0} ألف دينار، {cell.EmployeeCount} موظف")"
+                                                    title="@($"الدرجة {row.GradeCode} · المرحلة {stageNum} | الراتب: {cell.BaseSalary:N0} ألف د.ع ({cell.FullSalary:N0} د.ع) | الموظفون: {cell.EmployeeCount}")"
+                                                    @onclick="() => SelectCell(row.GradeCode, stageNum)">
+                                                <span class="hr-scale__value">@cell.BaseSalary.ToString("0")</span>
+                                                @if (cell.EmployeeCount > 0)
+                                                {
+                                                    <span class="hr-scale__count">@cell.EmployeeCount</span>
+                                                }
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-scale__empty" aria-label="لا توجد قيمة">—</span>
+                                        }
+                                    </td>
+                                }
+
+                                <td class="hr-num">@(row.AnnualAllowance.HasValue ? row.AnnualAllowance.Value.ToString("0") : "—")</td>
+                                <td class="hr-num">@(row.RequiredServiceYears.HasValue ? $"{row.RequiredServiceYears.Value}" : "—")</td>
+                                <td><span class="hr-badge hr-badge-accent hr-num">@row.TotalEmployeesInGrade</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th scope="row">المجموع الإجمالي للموظفين بالمرحلة</th>
+                            @for (int stg = 1; stg <= 11; stg++)
+                            {
+                                var stgHeader = matrix.Stages.FirstOrDefault(s => s.StageNumber == stg);
+                                <td class="hr-num @(selectedStage == stg ? "is-col" : null)">@(stgHeader?.TotalEmployees ?? 0)</td>
+                            }
+                            <td colspan="2">المجموع الكلي</td>
+                            <td><span class="hr-badge hr-badge-ok hr-num">@matrix.TotalMappedEmployees</span></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+
+        @* Selected cell detail *@
+        @if (selectedCell != null)
+        {
+            <section class="hr-card" aria-labelledby="cell-title" aria-live="polite">
+                <div class="hr-card-head">
+                    <div class="hr-card-head__lead">
+                        <span class="hr-iconplate" aria-hidden="true"><Icon Name="information-circle" Size="sm" /></span>
+                        <div>
+                            <h2 id="cell-title" class="hr-h3">تفاصيل: الدرجة (@selectedCell.GradeCode) · المرحلة (@selectedCell.StageCode)</h2>
+                            <p class="hr-meta">البيانات المالية والوظيفية الرسمية المعتمدة لهذه الخلية</p>
+                        </div>
+                    </div>
+                    <a href="@($"/employees?search={Uri.EscapeDataString(selectedCell.GradeCode)}")" class="hr-btn hr-btn-secondary hr-btn-sm">
+                        <Icon Name="users" Size="sm" />
+                        <span>عرض موظفي هذه الدرجة (@selectedCell.EmployeeCount موظف)</span>
+                    </a>
+                </div>
+
+                <div class="hr-card-body hr-grid-kpi">
+                    <div class="hr-card hr-card-quiet hr-stat">
+                        <div class="hr-stat-label"><span>الراتب الإسمي المعتمد</span></div>
+                        <strong class="hr-stat-figure">@selectedCell.FullSalary.ToString("N0")<span class="hr-stat-unit">د.ع</span></strong>
+                        <p class="hr-stat-foot">(@selectedCell.BaseSalary.ToString("0") ألف دينار عراقي)</p>
+                    </div>
+
+                    <div class="hr-card hr-card-quiet hr-stat">
+                        <div class="hr-stat-label"><span>العلاوة السنوية</span></div>
+                        <strong class="hr-stat-figure">
+                            @(selectedCell.AnnualAllowance.HasValue ? (selectedCell.AnnualAllowance.Value * 1000m).ToString("N0") : "—")
+                            @if (selectedCell.AnnualAllowance.HasValue)
+                            {
+                                <span class="hr-stat-unit">د.ع</span>
+                            }
+                        </strong>
+                        <p class="hr-stat-foot">@(selectedCell.AnnualAllowance.HasValue ? $"({selectedCell.AnnualAllowance.Value:0} ألف سنوياً)" : "لا تنطبق علاوة")</p>
+                    </div>
+
+                    <div class="hr-card hr-card-quiet hr-stat">
+                        <div class="hr-stat-label"><span>سنوات الخدمة للترفيع</span></div>
+                        <strong class="hr-stat-figure">
+                            @(selectedCell.RequiredServiceYears.HasValue ? $"{selectedCell.RequiredServiceYears.Value}" : "—")
+                            @if (selectedCell.RequiredServiceYears.HasValue)
+                            {
+                                <span class="hr-stat-unit">سنوات</span>
+                            }
+                        </strong>
+                        <p class="hr-stat-foot">المدة الأصغرية القانونية للترفيع</p>
+                    </div>
+
+                    <div class="hr-card hr-card-quiet hr-stat">
+                        <div class="hr-stat-label"><span>الموظفون المسجلون حالياً</span></div>
+                        <strong class="hr-stat-figure">@selectedCell.EmployeeCount<span class="hr-stat-unit">موظف</span></strong>
+                        <p class="hr-stat-foot">ضمن هذه الدرجة والمرحلة تحديداً</p>
+                    </div>
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private SalaryScaleMatrixDto? matrix;
+    private bool isLoading = true;
+    private string? selectedGradeCode;
+    private int? selectedStage;
+    private SalaryScaleCellDto? selectedCell;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            matrix = await SalaryService.GetMatrixAsync();
+            if (matrix?.Rows.Count > 0 && selectedGradeCode == null)
+            {
+                // Default selection to Grade 1, Stage 1
+                var firstRow = matrix.Rows.FirstOrDefault(r => r.GradeCode == "1") ?? matrix.Rows.First();
+                selectedGradeCode = firstRow.GradeCode;
+                selectedStage = 1;
+                firstRow.Cells.TryGetValue(1, out selectedCell);
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ReloadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            await SalaryService.EnsureSeededAsync();
+            await LoadDataAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void SelectGrade(string gradeCode)
+    {
+        selectedGradeCode = gradeCode;
+        UpdateSelectedCell();
+    }
+
+    private void SelectStage(int stageNum)
+    {
+        selectedStage = stageNum;
+        UpdateSelectedCell();
+    }
+
+    private void SelectCell(string gradeCode, int stageNum)
+    {
+        selectedGradeCode = gradeCode;
+        selectedStage = stageNum;
+        UpdateSelectedCell();
+    }
+
+    private void UpdateSelectedCell()
+    {
+        if (matrix == null || selectedGradeCode == null || !selectedStage.HasValue)
+        {
+            selectedCell = null;
+            return;
+        }
+
+        var row = matrix.Rows.FirstOrDefault(r => r.GradeCode == selectedGradeCode);
+        if (row != null && row.Cells.TryGetValue(selectedStage.Value, out var cell))
+        {
+            selectedCell = cell;
+        }
+        else
+        {
+            selectedCell = null;
+        }
+    }
+}

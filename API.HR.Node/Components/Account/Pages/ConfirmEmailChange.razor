@@ -1,0 +1,84 @@
+﻿@page "/Account/ConfirmEmailChange"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>تأكيد تغيير البريد | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="at-symbol" Size="lg" /></span>
+                <h1 class="hr-h1">تأكيد تغيير البريد الإلكتروني</h1>
+                <div style="width:100%;text-align:start">
+                    <StatusMessage Message="@message" />
+                </div>
+                <a class="hr-btn hr-btn-primary" href="Account/Manage/Email" style="margin-block-start:.5rem">
+                    <Icon Name="envelope" Size="sm" />
+                    <span>إعدادات البريد</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? message;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? UserId { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Email { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Code { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (UserId is null || Email is null || Code is null)
+        {
+            RedirectManager.RedirectToWithStatus(
+                "Account/Login", "Error: رابط تأكيد تغيير البريد غير صالح.", HttpContext);
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(UserId);
+        if (user is null)
+        {
+            message = $"Error: تعذّر العثور على الحساب صاحب المعرّف {UserId}.";
+            return;
+        }
+
+        var code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
+        var result = await UserManager.ChangeEmailAsync(user, Email, code);
+        if (!result.Succeeded)
+        {
+            message = "Error: تعذّر تغيير البريد الإلكتروني.";
+            return;
+        }
+
+        // In our UI email and user name are one and the same, so when we update the email
+        // we need to update the user name.
+        var setUserNameResult = await UserManager.SetUserNameAsync(user, Email);
+        if (!setUserNameResult.Succeeded)
+        {
+            message = "Error: تعذّر تغيير اسم المستخدم.";
+            return;
+        }
+
+        await SignInManager.RefreshSignInAsync(user);
+        message = "تم تأكيد تغيير بريدك الإلكتروني بنجاح.";
+    }
+}

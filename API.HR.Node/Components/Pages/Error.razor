@@ -1,0 +1,65 @@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>حدث خطأ | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Error page.
+
+    An error screen has one job: say plainly what happened and give a way
+    forward. The request identifier is offered because it is the one thing
+    support will ask for — selectable, in tabular figures, and labelled.
+
+    The environment note the template shipped with is developer guidance,
+    not something to put in front of an operator, so it is scoped to a
+    detail that stays closed.
+*@
+
+<div class="hr-stack">
+    <div class="hr-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-danger" aria-hidden="true">
+                    <Icon Name="exclamation-triangle" Size="lg" />
+                </span>
+
+                <h1 class="hr-h1">حدث خطأ أثناء تنفيذ طلبك</h1>
+                <p class="hr-sub hr-measure-sm">
+                    لم يتمكن النظام من إكمال العملية. يمكنك المحاولة مجدداً، أو العودة إلى الصفحة الرئيسية.
+                </p>
+
+                @if (ShowRequestId)
+                {
+                    <div class="hr-alert" style="margin-block-start:.5rem;text-align:start">
+                        <Icon Name="information-circle" Size="sm" />
+                        <div class="hr-alert-grow">
+                            <p class="hr-alert-title">معرّف الطلب</p>
+                            <p class="hr-num hr-wrap-any" style="margin-block-start:.25rem">@RequestId</p>
+                            <p class="hr-meta" style="margin-block-start:.5rem">
+                                أرفق هذا المعرّف عند مراسلة الدعم الفني ليتمكن من تتبّع الحالة.
+                            </p>
+                        </div>
+                    </div>
+                }
+
+                <div class="hr-pagehead-actions" style="margin-block-start:.5rem">
+                    <a class="hr-btn hr-btn-primary" href="">
+                        <Icon Name="home" Size="sm" />
+                        <span>العودة إلى الرئيسية</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

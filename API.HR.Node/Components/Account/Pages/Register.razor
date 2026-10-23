@@ -1,0 +1,48 @@
+@page "/Account/Register"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>التسجيل غير متاح | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Self-registration is closed; access is provisioned centrally. The page
+    still renders rather than redirecting silently, so anyone who follows an
+    old link is told why and where to go instead.
+
+    The two Bootstrap Icons glyphs it used were the last non-Heroicons in
+    the system, and the icon font they needed was never loaded — so they had
+    been rendering as empty boxes.
+*@
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-warn" aria-hidden="true">
+                    <Icon Name="shield-check" Size="lg" />
+                </span>
+
+                <h1 class="hr-h1">التسجيل المباشر غير متاح</h1>
+
+                <p class="hr-sub hr-measure-sm">
+                    وفق سياسة الأمان المؤسسية، يقتصر الدخول إلى النظام على حسابات
+                    Microsoft المؤسسية عبر الدخول الموحّد. تُنشأ الحسابات مركزياً
+                    من قبل مسؤول النظام.
+                </p>
+
+                <a class="hr-btn hr-btn-primary" href="Account/Login" style="margin-block-start:.5rem">
+                    <Icon Name="arrow-right-on-rectangle" Size="sm" />
+                    <span>الانتقال إلى تسجيل الدخول</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        RedirectManager.RedirectTo("Account/Login");
+    }
+}

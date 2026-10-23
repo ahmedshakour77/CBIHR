@@ -1,0 +1,992 @@
+@page "/job-hierarchy"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@using API.HR.Node.Services.OrganizationalHierarchy
+@using API.HR.Node.Services.Localization
+@inject IJobHierarchyService JobHierarchyService
+@inject ILanguageService Lang
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>@(Lang.IsKurdish ? "پێکهاتەی وەزیفی و هێڵکاریی دارێژەیی | CBI HR" : "الهيكل الوظيفي والتنظيمي الشجري | البنك المركزي العراقي")</PageTitle>
+
+<div class="hr-page" dir="rtl">
+
+    @* ==================== 1. PAGE HEADER ==================== *@
+    <header>
+        <div class="hr-pagehead">
+            <div class="hr-pagehead-titles hr-card-head__lead" style="align-items: center">
+                <div class="hr-iconplate hr-iconplate-lg hr-tone-4" aria-hidden="true">
+                    <Icon Name="squares-2x2" Size="md" />
+                </div>
+                <div>
+                    <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                        <h1 class="hr-h1" style="margin:0">الهيكل الوظيفي والتنظيمي الشجري</h1>
+                        <span class="hr-badge hr-badge-accent" style="background:color-mix(in srgb, var(--series-4) 15%, transparent);color:var(--series-4);border:1px solid color-mix(in srgb, var(--series-4) 30%, transparent);">
+                            البنك المركزي العراقي
+                        </span>
+                        <span class="hr-badge hr-badge-ok">بيانات حية 100%</span>
+                    </div>
+                    <p class="hr-meta" style="margin:4px 0 0 0;line-height:1.5;">
+                        مخطط شجري تفاعلي متطور يعرض سلسلة القيادة والتبعية، التشكيلات المركزية، الفروع الإقليمية، وتوزيع الكوادر والمناصب الإشرافية.
+                    </p>
+                </div>
+            </div>
+
+            <div class="hr-pagehead-actions">
+                <a href="org-hierarchy" 
+                   class="hr-btn hr-btn-secondary hr-btn-sm" 
+                   title="إدارة وتعديل وحدات شجرة الهيكل الوظيفي والمسؤولين والكوادر">
+                    <Icon Name="pencil-square" Size="xs" />
+                    <span>إدارة شجرة الهيكل الوظيفي </span>
+                </a>
+
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="PrintOrgChart" title="طباعة المخطط الشجري">
+                    <Icon Name="printer" Size="xs" />
+                    <span>طباعة المخطط</span>
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ReloadDataAsync" title="تحديث البيانات">
+                    <Icon Name="arrow-path" Size="xs" />
+                    <span>تحديث</span>
+                </button>
+            </div>
+        </div>
+
+        @* STATS STRIP *@
+        @if (overviewStats != null)
+        {
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(180px, 100%), 1fr));gap:var(--s-2);margin-block-start:var(--s-3);">
+                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;gap:var(--s-2);background:var(--surface);">
+                    <span style="width:34px;height:34px;border-radius:var(--r-md);background:color-mix(in srgb, var(--series-4) 12%, transparent);color:var(--series-4);display:grid;place-items:center;">
+                        <Icon Name="building-library" Size="xs" />
+                    </span>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">الوحدات والتشكيلات الإدارية</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">@overviewStats.TotalFormations وحدة</strong>
+                    </div>
+                </div>
+
+                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;gap:var(--s-2);background:var(--surface);">
+                    <span style="width:34px;height:34px;border-radius:var(--r-md);background:color-mix(in srgb, var(--series-2) 12%, transparent);color:var(--series-2);display:grid;place-items:center;">
+                        <Icon Name="users" Size="xs" />
+                    </span>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">الموظفون في الهيكلية</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">@overviewStats.TotalEmployees.ToString("N0") موظف</strong>
+                    </div>
+                </div>
+
+                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;gap:var(--s-2);background:var(--surface);">
+                    <span style="width:34px;height:34px;border-radius:var(--r-md);background:color-mix(in srgb, var(--series-1) 12%, transparent);color:var(--series-1);display:grid;place-items:center;">
+                        <Icon Name="shield-check" Size="xs" />
+                    </span>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">المناصب والمسؤولون المكلفون</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">@overviewStats.LeadershipPositionsCount منصب</strong>
+                    </div>
+                </div>
+
+                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;gap:var(--s-2);background:var(--surface);">
+                    <span style="width:34px;height:34px;border-radius:var(--r-md);background:color-mix(in srgb, var(--series-3) 12%, transparent);color:var(--series-3);display:grid;place-items:center;">
+                        <Icon Name="map-pin" Size="xs" />
+                    </span>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">الفروع المعتمدة في الشجرة</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">@overviewStats.BranchCount @(overviewStats.BranchCount == 1 ? "فرع" : "فروع")</strong>
+                    </div>
+                </div>
+
+                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;gap:var(--s-2);background:var(--surface);">
+                    <span style="width:34px;height:34px;border-radius:var(--r-md);background:color-mix(in srgb, var(--series-2) 12%, transparent);color:var(--series-2);display:grid;place-items:center;">
+                        <Icon Name="chart-bar" Size="xs" />
+                    </span>
+                    <div>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">الشعب الإدارية</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">@overviewStats.SupervisorySectionsCount شعبة</strong>
+                    </div>
+                </div>
+            </div>
+        }
+    </header>
+
+    @* SYNC SUCCESS ALERT *@
+    @if (!string.IsNullOrEmpty(syncMessage))
+    {
+        <div class="hr-alert hr-alert-ok" style="margin-block-end:var(--s-3);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+            <div style="display:flex;align-items:center;gap:var(--s-2);">
+                <Icon Name="check-circle" Size="sm" />
+                <span>@syncMessage</span>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick="() => syncMessage = null">
+                <Icon Name="x-mark" Size="xs" />
+            </button>
+        </div>
+    }
+
+    @* ==================== 2. TOOLBAR & VIEW SWITCHER ==================== *@
+    <div class="hr-card" style="padding:var(--s-3);margin-block-end:var(--s-3);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);background:var(--surface);">
+        
+        @* View Mode Selector *@
+        <div style="display:flex;align-items:center;gap:var(--s-1);background:var(--surface-sunken);padding:3px;border-radius:var(--r-md);border:1px solid var(--line);">
+            <button type="button" 
+                    class="hr-btn hr-btn-sm @(activeTab == "chart" ? "hr-btn-primary" : "hr-btn-quiet")" 
+                    style="border-radius:var(--r-sm);font-weight:600;" 
+                    @onclick='() => SetTab("chart")'>
+                <Icon Name="squares-2x2" Size="xs" />
+                <span>المخطط الشجري التفاعلي (Org Chart)</span>
+            </button>
+            <button type="button" 
+                    class="hr-btn hr-btn-sm @(activeTab == "grades" ? "hr-btn-primary" : "hr-btn-quiet")" 
+                    style="border-radius:var(--r-sm);font-weight:600;" 
+                    @onclick='() => SetTab("grades")'>
+                 
+                <span>شجرة الدرجات والعناوين الوظيفية</span>
+            </button>
+            <button type="button" 
+                    class="hr-btn hr-btn-sm @(activeTab == "grid" ? "hr-btn-primary" : "hr-btn-quiet")" 
+                    style="border-radius:var(--r-sm);font-weight:600;" 
+                    @onclick='() => SetTab("grid")'>
+                <Icon Name="table-cells" Size="xs" />
+                <span>دليل التشكيلات والمسؤولين</span>
+            </button>
+        </div>
+
+        @* Search & Filters *@
+        <div style="display:flex;align-items:center;gap:var(--s-2);flex:1;max-width:400px;min-width:min(240px, 100%);">
+            <div style="position:relative;width:100%;">
+                <input aria-label="ابحث عن تشكيل، منصب، أو مسؤول" type="text" 
+                       class="hr-input hr-input-sm" 
+                       style="padding-inline-start:2rem;width:100%;" 
+                       placeholder="ابحث عن تشكيل، منصب، أو مسؤول..." 
+                       @bind="searchQuery" 
+                       @bind:event="oninput" />
+                <span style="position:absolute;inset-inline-start:8px;top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none;">
+                    <Icon Name="magnifying-glass" Size="xs" />
+                </span>
+                @if (!string.IsNullOrEmpty(searchQuery))
+                {
+                    <button type="button" 
+                            style="position:absolute;inset-inline-end:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-3);cursor:pointer;" 
+                            @onclick="() => searchQuery = string.Empty">
+                        <Icon Name="x-mark" Size="xs" />
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Tree Controls (Only visible in Chart mode) *@
+        @if (activeTab == "chart")
+        {
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                
+                @* Mouse Interaction Badge *@
+                <span class="hr-badge" style="font-size:var(--fs-caption);padding:4px 8px;gap:5px;border:1px solid var(--line-soft);" title="اسحب بالماوس لتحريك المخطط بحرية في كل الاتجاهات، واستخدم عجلة الماوس للتكبير والتصغير">
+                    <span>🖱️ سحب لتحريك المخطط · عجلة للتكبير</span>
+                </span>
+
+                @* Adjustable Layout Mode Button *@
+                <button type="button" 
+                        class="hr-btn hr-btn-sm @(isCompactLeafLayout ? "hr-btn-primary" : "hr-btn-secondary")" 
+                        style="border-radius:var(--r-sm);font-weight:600;font-size:var(--fs-label);" 
+                        @onclick="ToggleLayoutMode" 
+                        title="تخطيط متوازن: عرض الأقسام بدون فروع واحدة تحت الأخرى لتوفير مساحة الشاشة أو التمدد أفقياً">
+                    <Icon Name="squares-2x2" Size="xs" />
+                    <span>@(isCompactLeafLayout ? "تخطيط متوازن (رأسي للأقسام)" : "تخطيط أفقي ممتد")</span>
+                </button>
+
+                <div style="width:1px;height:20px;background:var(--line);margin:0 2px;"></div>
+
+                @* Zoom Controls *@
+                <div style="display:flex;align-items:center;gap:2px;">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ZoomOut" title="تصغير">
+                        <Icon Name="minus" Size="xs" />
+                    </button>
+                    <span class="hr-meta hr-num" style="min-width:44px;text-align:center;font-size:var(--fs-caption);">@((int)(zoomLevel * 100))%</span>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ZoomIn" title="تكبير">
+                        <Icon Name="plus" Size="xs" />
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ResetZoom" title="إعادة ضبط الحجم (100%)">
+                        <span>100%</span>
+                    </button>
+                </div>
+
+                <div style="width:1px;height:20px;background:var(--line);margin:0 2px;"></div>
+
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ExpandAll">
+                    <Icon Name="chevron-down" Size="xs" />
+                    <span>توسيع الكل</span>
+                </button>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CollapseAll">
+                    <Icon Name="chevron-up" Size="xs" />
+                    <span>طي الفروع</span>
+                </button>
+            </div>
+        }
+    </div>
+
+    @* ==================== 3. CONTENT AREA ==================== *@
+    @if (isLoading)
+    {
+        <div class="hr-card" style="padding:var(--s-8);text-align:center;">
+            <div class="hr-spinner hr-spinner-lg" style="margin-inline:auto;"></div>
+            <p class="hr-meta" style="margin-block-start:var(--s-3);">جارٍ تحليل وتحميل شجرة الهيكل الوظيفي اللحظية...</p>
+        </div>
+    }
+    else if (treeRoot == null)
+    {
+        <div class="hr-card hr-empty" style="padding:var(--s-8);text-align:center;">
+            <Icon Name="exclamation-circle" Size="lg" />
+            <h2 class="hr-h2">تعذر قراءة الهيكل الوظيفي</h2>
+            <p class="hr-meta">يرجى التأكد من اتصال قاعدة البيانات والمحاولة مجدداً.</p>
+        </div>
+    }
+    else
+    {
+        @* TAB 1: INTERACTIVE VISUAL ORG CHART TREE *@
+        @if (activeTab == "chart")
+        {
+            @if (treeRoot.Id == "empty-tree")
+            {
+                <div class="hr-card hr-empty" style="padding:var(--s-8);text-align:center;max-width:560px;margin:var(--s-8) auto;border:1px dashed var(--line);border-radius:var(--r-lg);">
+                    <div style="font-size:3rem;margin-block-end:var(--s-2);">🌳</div>
+                    <h2 class="hr-h2" style="margin-block-end:var(--s-2);">شجرة الهيكل الوظيفي فارغة حالياً</h2>
+                    <p class="hr-meta" style="line-height:1.6;margin-block-end:var(--s-4);">
+                        المخطط التفاعلي يعتمد حصراً على الشجرة التي تنشئها في نظام الهيكل الوظيفي. لم يتم العثور على تشكيلات إدارية حتى الآن.
+                    </p>
+                    <a href="org-hierarchy" class="hr-btn hr-btn-primary">
+                        <Icon Name="squares-plus" Size="sm" />
+                        <span>بناء وإضافة تشكيلات الشجرة الآن </span>
+                    </a>
+                </div>
+            }
+            else
+            {
+                <div id="hr-orgchart-viewport"
+                     class="hr-orgchart-viewport">
+                    
+                    <div id="hr-orgchart-canvas"
+                         class="hr-orgchart-canvas" 
+                         style="transform: scale(@zoomLevel);">
+                        
+                        @* Render Tree Recursively *@
+                        @RenderOrgNode(treeRoot)
+
+                    </div>
+                </div>
+            }
+        }
+
+        @* TAB 2: JOB TITLES & GRADES BREAKDOWN *@
+        @if (activeTab == "grades")
+        {
+            <div style="display:flex;flex-direction:column;gap:var(--s-4);">
+                <div class="hr-card" style="padding:var(--s-4);background:var(--surface);">
+                    <h2 class="hr-h2" style="margin:0 0 var(--s-1) 0;">التدرج الوظيفي للدرجات والعناوين</h2>
+                    <p class="hr-meta" style="margin:0;">تحليل أعداد الكوادر عبر الدرجات الوظيفية الرسمية والعناوين التخصصية في البنك المركزي.</p>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(320px, 100%), 1fr));gap:var(--s-3);">
+                    @foreach (var grade in jobGrades)
+                    {
+                        <div class="hr-card" style="padding:var(--s-4);border:1px solid color-mix(in srgb, var(--series-1) 40%, var(--line));">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:var(--s-3);padding-block-end:var(--s-2);border-block-end:1px solid var(--line);flex-wrap:wrap;gap:var(--s-2);">
+                                <div>
+                                    <strong style="font-size:var(--fs-title);color:var(--text);display:block;">@grade.GradeName</strong>
+                                    <span class="hr-meta">@grade.JobTitles.Count عنوان وظيفي</span>
+                                </div>
+                                <span class="hr-badge hr-badge-accent hr-num" style="font-size:var(--fs-body);padding:4px 10px;">
+                                    @grade.TotalEmployees موظف
+                                </span>
+                            </div>
+
+                            <div style="display:flex;flex-direction:column;gap:var(--s-2);">
+                                @foreach (var jt in grade.JobTitles.Take(6))
+                                {
+                                    <div style="display:flex;flex-direction:column;gap:4px;padding:6px 8px;background:var(--surface-sunken);border-radius:var(--r-xs);border:1px solid var(--line-soft);">
+                                        <div style="display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-caption);flex-wrap:wrap;gap:var(--s-2);">
+                                            <strong style="color:var(--text);">@jt.JobTitleName</strong>
+                                            <span class="hr-num hr-badge" style="background:var(--surface);padding:1px 6px;border-radius:var(--r-full);border:1px solid var(--line);font-size:var(--fs-caption);">
+                                                @jt.EmployeesCount
+                                            </span>
+                                        </div>
+                                        @if (jt.SampleEmployees.Count > 0)
+                                        {
+                                            <div style="display:flex;align-items:center;gap:4px;margin-block-start:2px;flex-wrap:wrap;">
+                                                @foreach (var sample in jt.SampleEmployees.Take(4))
+                                                {
+                                                    <div style="display:inline-flex;align-items:center;gap:4px;background:var(--surface);padding:2px 6px;border-radius:var(--r-full);border:1px solid var(--line);font-size:var(--fs-caption);" title="@sample.Name (@sample.EmployeeID)">
+                                                        <UserAvatar EmployeeId="@sample.EmployeeID" UserName="@sample.Name" Size="xs" />
+                                                        <span style="max-width:85px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">@sample.Name</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                @if (grade.JobTitles.Count > 6)
+                                {
+                                    <span class="hr-meta" style="font-size:var(--fs-caption);text-align:center;">+ @(grade.JobTitles.Count - 6) عناوين وظيفية أخرى</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @* TAB 3: SUMMARY GRID *@
+        @if (activeTab == "grid")
+        {
+            <div class="hr-card" style="overflow:hidden;">
+                <div class="hr-card-head" style="padding:var(--s-4);border-block-end:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);">
+                    <div>
+                        <h2 class="hr-h2" style="margin:0;">دليل وحدات وتشكيلات شجرة الهيكل الوظيفي</h2>
+                        <span class="hr-meta">كافة التشكيلات المعرفة في الشجرة مع مسؤوليها وكوادرها</span>
+                    </div>
+                    <span class="hr-badge hr-badge-ok">@GetAllTreeNodesFlat(treeRoot).Count وحدة مسجلة</span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="hr-table" style="width:100%;font-size:var(--fs-body);">
+                        <thead>
+                            <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">اسم التشكيل / الوحدة</th>
+                                <th scope="col">نوع الوحدة</th>
+                                <th scope="col">المسؤول / المدير المكلف</th>
+                                <th scope="col">عنوان المنصب</th>
+                                <th scope="col" style="text-align:center;">إجمالي الكادر</th>
+                                <th scope="col" style="text-align:center;">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{ 
+                                int rowIdx = 1; 
+                                var flatNodes = GetAllTreeNodesFlat(treeRoot);
+                            }
+                            @if (flatNodes.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="7" style="text-align:center;padding:var(--s-6);color:var(--text-3);">
+                                        لا توجد وحدات معرفة في شجرة الهيكل الوظيفي حالياً.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var form in flatNodes)
+                                {
+                                    <tr>
+                                        <td class="hr-num" style="color:var(--text-3);">@(rowIdx++)</td>
+                                        <td>
+                                            <strong style="color:var(--text);">@form.Title</strong>
+                                            <span class="hr-meta hr-num" style="display:block;font-size:var(--fs-caption);">@(form.Code ?? "-")</span>
+                                        </td>
+                                        <td>
+                                            <span class="hr-badge" style="background:var(--surface-sunken);font-size:var(--fs-caption);">@form.Category</span>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(form.LeaderName))
+                                            {
+                                                <div style="display:flex;align-items:center;gap:8px;">
+                                                    <UserAvatar EmployeeId="@form.LeaderEmployeeId" UserName="@form.LeaderName" Size="sm" />
+                                                    <div>
+                                                        <strong style="color:var(--text);display:block;font-size:var(--fs-control);">@form.LeaderName</strong>
+                                                        @if (!string.IsNullOrEmpty(form.LeaderEmployeeId))
+                                                        {
+                                                            <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">الرقم: @form.LeaderEmployeeId</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div style="display:flex;align-items:center;gap:6px;">
+                                                    <UserAvatar EmployeeId="" UserName="شاغر" Size="xs" />
+                                                    <span class="hr-meta">قيد التكليف / غير مخصص</span>
+                                                </div>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="hr-meta" style="font-weight:600;">@(form.LeaderTitle ?? "المسؤول")</span>
+                                        </td>
+                                        <td style="text-align:center;">
+                                            <span class="hr-badge hr-badge-accent hr-num" style="font-size:var(--fs-label);padding:2px 8px;">
+                                                @form.TotalEmployeesCount
+                                            </span>
+                                        </td>
+                                        <td style="text-align:center;">
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="() => OpenUnitDrawer(form)">
+                                                <Icon Name="users" Size="xs" />
+                                                <span>عرض الكادر</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+
+    @* ==================== 4. UNIT STAFF DRAWER / MODAL ==================== *@
+    @if (selectedDrawerNode != null)
+    {
+        <div class="hr-drawer-backdrop" style="position:fixed;inset:0;background:color-mix(in srgb, var(--b-1000) 50%, transparent);z-index:var(--z-drawer);display:flex;justify-content:flex-start;" @onclick="CloseDrawer">
+            <div class="hr-drawer"
+                 role="dialog" aria-modal="true" aria-labelledby="org-drawer-title" tabindex="-1"
+                 style="background:var(--surface);width:min(600px, 95vw);height:100%;overflow-y:auto;padding:var(--s-5);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;gap:var(--s-4);"
+                 @onkeydown="OnDrawerKeyDown"
+                 @onclick:stopPropagation="true">
+                
+                @* Drawer Header *@
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;padding-block-end:var(--s-3);border-block-end:1px solid var(--line);flex-wrap:wrap;gap:var(--s-2);">
+                    <div>
+                        <span class="hr-badge hr-badge-accent" style="font-size:var(--fs-caption);margin-block-end:4px;">@selectedDrawerNode.Category</span>
+                        <h2 id="org-drawer-title" class="hr-h2" style="margin:0;">@selectedDrawerNode.Title</h2>
+                        <span class="hr-meta hr-num">رمز التشكيل: @selectedDrawerNode.Code</span>
+                    </div>
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="CloseDrawer" aria-label="إغلاق التفاصيل">
+                        <Icon Name="x-mark" Size="sm" />
+                    </button>
+                </div>
+
+                @* Leader Card *@
+                <div class="hr-card" style="padding:var(--s-4);background:color-mix(in srgb, var(--series-4) 8%, transparent);border:1px solid color-mix(in srgb, var(--series-4) 25%, transparent);border-radius:var(--r-lg);display:flex;align-items:center;gap:var(--s-3);">
+                    <UserAvatar EmployeeId="@selectedDrawerNode.LeaderEmployeeId" UserName="@selectedDrawerNode.LeaderName" Size="xl" Style="border:3px solid var(--series-4);box-shadow:var(--shadow-md);flex-shrink:0;" />
+                    <div style="flex:1;min-width:0;">
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">المسؤول المعين للتشكيل:</span>
+                        <strong style="font-size:var(--fs-title);color:var(--text);display:block;margin-block:2px;">
+                            @(selectedDrawerNode.LeaderName ?? "غير مسمى حالياً في المنظومة")
+                        </strong>
+                        <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;margin-block-start:4px;">
+                            <span class="hr-badge" style="background:var(--series-1);color:var(--series-on);font-size:var(--fs-caption);">
+                                @(selectedDrawerNode.LeaderTitle ?? "مدير عام")
+                            </span>
+                            @if (!string.IsNullOrEmpty(selectedDrawerNode.LeaderEmployeeId))
+                            {
+                                <span class="hr-badge hr-num" style="font-size:var(--fs-caption);">
+                                    الرقم الوظيفي: @selectedDrawerNode.LeaderEmployeeId
+                                </span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @* Metrics Pill *@
+                <div style="display:flex;gap:var(--s-2);flex-wrap:wrap;">
+                    <div style="flex:1;background:var(--surface-sunken);padding:var(--s-2);border-radius:var(--r-sm);text-align:center;">
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">إجمالي كادر التشكيل</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">@selectedDrawerNode.Employees.Count موظف</strong>
+                    </div>
+                    <div style="flex:1;background:var(--surface-sunken);padding:var(--s-2);border-radius:var(--r-sm);text-align:center;">
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">نسبة الذكور</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">
+                            @CalculateGenderPct(selectedDrawerNode.Employees, "ذكر")%
+                        </strong>
+                    </div>
+                    <div style="flex:1;background:var(--surface-sunken);padding:var(--s-2);border-radius:var(--r-sm);text-align:center;">
+                        <span class="hr-meta" style="font-size:var(--fs-caption);display:block;">نسبة الإناث</span>
+                        <strong class="hr-num" style="font-size:var(--fs-title);color:var(--text);">
+                            @CalculateGenderPct(selectedDrawerNode.Employees, "أنث")%
+                        </strong>
+                    </div>
+                </div>
+
+                @* Search inside drawer *@
+                <div>
+                    <input aria-label="بحث داخل موظفي هذا التشكيل" type="text" 
+                           class="hr-input hr-input-sm" 
+                           placeholder="بحث داخل موظفي هذا التشكيل..." 
+                           @bind="drawerSearch" 
+                           @bind:event="oninput" />
+                </div>
+
+                @* Employees Table *@
+                <div style="flex:1;overflow-y:auto;border:1px solid var(--line);border-radius:var(--r-md);">
+                    @{
+                        var filteredEmps = selectedDrawerNode.Employees
+                            .Where(e => string.IsNullOrEmpty(drawerSearch) || 
+                                        e.Name.Contains(drawerSearch, StringComparison.OrdinalIgnoreCase) || 
+                                        e.EmployeeID.Contains(drawerSearch) || 
+                                        (e.JobTitle?.Contains(drawerSearch, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                                        (e.PositionTitle?.Contains(drawerSearch, StringComparison.OrdinalIgnoreCase) ?? false))
+                            .ToList();
+                    }
+
+                    @if (filteredEmps.Count == 0)
+                    {
+                        <div style="padding:var(--s-4);text-align:center;color:var(--text-3);">
+                            لا يوجد موظفون مطابقون لبحثك.
+                        </div>
+                    }
+                    else
+                    {
+                        <table class="hr-table" style="font-size:var(--fs-caption);width:100%;">
+                            <thead>
+                                <tr>
+                                    <th scope="col">الموظف</th>
+                                    <th scope="col">العنوان الوظيفي</th>
+                                    <th scope="col">المنصب</th>
+                                    <th scope="col">الدرجة</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var emp in filteredEmps)
+                                {
+                                    <tr style="@(emp.IsLeader ? "background:color-mix(in srgb, var(--series-4) 6%, transparent);" : "")">
+                                        <td>
+                                            <div style="display:flex;align-items:center;gap:8px;">
+                                                <UserAvatar EmployeeId="@emp.EmployeeID" UserName="@emp.Name" Size="sm" />
+                                                <div>
+                                                    <strong style="color:var(--text);display:block;">@emp.Name</strong>
+                                                    <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">@emp.EmployeeID</span>
+                                                </div>
+                                                @if (emp.IsLeader)
+                                                {
+                                                    <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:1px 5px;">مسؤول</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td>@(emp.JobTitle ?? "-")</td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(emp.PositionTitle))
+                                            {
+                                                <span class="hr-badge" style="background:var(--series-1);color:var(--series-on);font-size:var(--fs-caption);">@emp.PositionTitle</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="hr-meta">-</span>
+                                            }
+                                        </td>
+                                        <td class="hr-num">@(emp.Grade ?? "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="CloseDrawer">إغلاق</button>
+                </div>
+            </div>
+        </div>
+    }
+
+</div>
+
+@* ==================== RECURSIVE TREE NODE RENDERER ==================== *@
+@code {
+    private RenderFragment RenderCard(JobHierarchyNodeDto node, bool isVertical = false) => __builder =>
+    {
+        var isCollapsed = collapsedNodeIds.Contains(node.Id);
+        var hasChildren = node.Children.Count > 0;
+        var isHighlighted = !string.IsNullOrEmpty(searchQuery) && 
+                            (node.Title.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) || 
+                             (node.LeaderName?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                             (node.LeaderTitle?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                             (node.LeaderEmployeeId?.Contains(searchQuery) ?? false));
+
+        var borderStyle = node.Tone switch
+        {
+            "gold" => "border: 2px solid var(--series-4); box-shadow: 0 6px 24px color-mix(in srgb, var(--series-4) 22%, transparent);",
+            "purple" => "border: 2px solid var(--series-1); box-shadow: 0 6px 20px color-mix(in srgb, var(--series-1) 18%, transparent);",
+            "teal" => "border: 2px solid var(--series-2); box-shadow: 0 6px 20px color-mix(in srgb, var(--series-2) 18%, transparent);",
+            "blue" => "border: 2px solid var(--series-2); box-shadow: 0 6px 20px color-mix(in srgb, var(--series-2) 18%, transparent);",
+            "emerald" => "border: 2px solid var(--series-3); box-shadow: 0 6px 20px color-mix(in srgb, var(--series-3) 18%, transparent);",
+            _ => "border: 1px solid var(--line); box-shadow: var(--shadow-sm);"
+        };
+
+        var headerBg = node.Tone switch
+        {
+            "gold" => "background: var(--series-4); color:var(--series-on);",
+            "purple" => "background: var(--series-1); color:var(--series-on);",
+            "teal" => "background: var(--series-2); color:var(--series-on);",
+            "blue" => "background: var(--series-2); color:var(--series-on);",
+            "emerald" => "background: var(--series-3); color:var(--series-on);",
+            _ => "background: var(--surface-sunken); color:var(--text);"
+        };
+
+        var cardWidth = isVertical ? "270px" : "280px";
+
+        @* PREMIUM CARD ITEM *@
+        <div class="hr-org-card"
+             role="button"
+             tabindex="0"
+             aria-label="@($"عرض تفاصيل {node.Title}")"
+             style="width: @cardWidth; background:var(--surface); border-radius:var(--r-lg); overflow:hidden; @borderStyle transition: box-shadow var(--t-state) var(--ease), transform var(--t-state) var(--ease-out); cursor:pointer; @(isHighlighted ? "outline: 3px solid var(--series-4); transform: translateY(-4px) scale(1.03);" : "")"
+             @onkeydown='e => { if (e.Key == "Enter") OpenUnitDrawer(node); }'
+             @onclick="() => OpenUnitDrawer(node)">
+            
+            @* Node Card Header *@
+            <div style="padding: 10px 14px; @headerBg display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                    <span style="font-size:var(--fs-caption); font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                        @node.Category
+                    </span>
+                    @if (!string.IsNullOrEmpty(node.Code))
+                    {
+                        <span class="hr-num" style="font-size:var(--fs-caption); background:color-mix(in srgb, var(--b-1000) 22%, transparent); padding:1px 5px; border-radius:var(--r-xs); opacity:0.95;">
+                            @node.Code
+                        </span>
+                    }
+                </div>
+                <span class="hr-num" style="font-size:var(--fs-caption); background:color-mix(in srgb, var(--series-on) 28%, transparent); padding:2px 8px; border-radius:var(--r-md); font-weight:bold; white-space:nowrap;">
+                    @node.TotalEmployeesCount موظف
+                </span>
+            </div>
+
+            @* Node Card Body *@
+            <div style="padding: 12px 14px; display:flex; flex-direction:column; gap:8px;">
+                @* Unit Title *@
+                <strong style="font-size:var(--fs-body); color:var(--text); line-height:1.35; display:block; min-height:38px; font-weight:800;">
+                    @node.Title
+                </strong>
+
+                @* Leader / Manager Profile Spotlight *@
+                <div style="background:var(--surface-sunken); border:1px solid var(--line); border-radius:var(--r-md); padding:8px 10px; display:flex; align-items:center; gap:10px;">
+                    @if (!string.IsNullOrEmpty(node.LeaderName))
+                    {
+                        <UserAvatar EmployeeId="@node.LeaderEmployeeId" UserName="@node.LeaderName" Size="lg" Style="border: 2px solid var(--accent); box-shadow: var(--shadow-xs); flex-shrink:0;" />
+                        <div style="flex:1; min-width:0;">
+                            <strong style="font-size:var(--fs-control); color:var(--text); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="@node.LeaderName">
+                                @node.LeaderName
+                            </strong>
+                            @if (!string.IsNullOrEmpty(node.LeaderEmployeeId))
+                            {
+                                <div style="display:flex; align-items:center; gap:4px; margin-block-start:2px;">
+                                    <span class="hr-badge hr-num" style="font-size:var(--fs-caption); padding:1px 6px;">
+                                        الرقم: @node.LeaderEmployeeId
+                                    </span>
+                                </div>
+                            }
+                            <span class="hr-meta" style="font-size:var(--fs-caption); display:block; margin-block-start:2px; color:var(--accent-ink); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                @(node.LeaderTitle ?? "المسؤول المباشر")
+                            </span>
+                        </div>
+                    }
+                    else
+                    {
+                        <UserAvatar EmployeeId="" UserName="شاغر" Size="lg" Style="border: 2px dashed var(--line); opacity: 0.65; flex-shrink:0;" />
+                        <div style="flex:1; min-width:0;">
+                            <span style="font-size:var(--fs-label); color:var(--text-3); font-weight:600; display:block;">
+                                منصب شاغر / قيد التكليف
+                            </span>
+                            <span class="hr-meta" style="font-size:var(--fs-caption); display:block; margin-block-start:2px;">
+                                @(node.LeaderTitle ?? "لم يتم تعيين مسؤول")
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                @* Bottom Stats & Actions *@
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-block-start:4px; padding-block-start:6px; border-block-start:1px solid var(--line-soft);flex-wrap:wrap;gap:var(--s-2);">
+                    <span style="font-size:var(--fs-caption); color:var(--accent); font-weight:700; text-decoration:none; display:flex; align-items:center; gap:4px;">
+                        <span>عرض الكادر (@node.DirectEmployeesCount)</span>
+                        <span>⬅️</span>
+                    </span>
+                    @if (hasChildren)
+                    {
+                        <button type="button" 
+                                class="hr-btn hr-btn-quiet hr-btn-xs" 
+                                style="padding:2px 8px; font-size:var(--fs-caption); height:24px; border:1px solid var(--line-soft); border-radius:var(--r-full);" 
+                                @onclick:stopPropagation="true" 
+                                @onclick="() => ToggleCollapse(node.Id)">
+                            <Icon Name="@(isCollapsed ? "plus" : "minus")" Size="xs" />
+                            <span>@(isCollapsed ? $"إظهار ({node.Children.Count})" : "طي")</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    };
+
+    private RenderFragment RenderOrgNode(JobHierarchyNodeDto node) => __builder =>
+    {
+        var isCollapsed = collapsedNodeIds.Contains(node.Id);
+        var hasChildren = node.Children.Count > 0;
+
+        <div class="hr-org-node-container">
+            
+            @RenderCard(node, false)
+
+            @* CHILDREN & CONNECTING BRANCHES *@
+            @if (hasChildren && !isCollapsed)
+            {
+                var isAllChildrenLeaves = node.Children.Count > 0 && node.Children.All(c => c.Children.Count == 0);
+                var renderAsVerticalStack = isCompactLeafLayout && isAllChildrenLeaves && node.Children.Count > 1;
+
+                @* Vertical stem from parent down to branches *@
+                <div style="width:2px; height:24px; background:var(--line);"></div>
+
+                @if (renderAsVerticalStack)
+                {
+                    @* COMPACT VERTICAL STACK (الاقسام تظهر واحدة جوة الاخرى اذا مبيهه فروع علمود يوازي عرض الشاشة) *@
+                    <div class="hr-org-leaf-stack">
+                        @for (int i = 0; i < node.Children.Count; i++)
+                        {
+                            var child = node.Children[i];
+                            var isFirst = i == 0;
+                            var isLast = i == node.Children.Count - 1;
+
+                            <div style="position:relative; display:flex; align-items:flex-start;">
+                                @* Vertical trunk line segment along side *@
+                                <div style="position:absolute; inset-inline-start:-36px; width:2px; background:var(--line);
+                                            top: 0;
+                                            bottom: @(isLast ? "calc(100% - 24px)" : "0");"></div>
+
+                                @* Top horizontal connector from parent stem to vertical trunk line (first card only) *@
+                                @if (isFirst)
+                                {
+                                    <div style="position:absolute; inset-inline-start:-36px; top:0; width:calc(50% + 36px); height:2px; background:var(--line);"></div>
+                                }
+
+                                @* Horizontal branch line entering card header *@
+                                <div style="position:absolute; inset-inline-start:-36px; top:24px; width:36px; height:2px; background:var(--line);"></div>
+
+                                @RenderCard(child, isVertical: true)
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    @* CONTINUOUS HORIZONTAL CONNECTING TREE *@
+                    <div class="hr-org-children">
+                        @for (int i = 0; i < node.Children.Count; i++)
+                        {
+                            var child = node.Children[i];
+                            var isFirst = i == 0;
+                            var isLast = i == node.Children.Count - 1;
+                            var isSingle = node.Children.Count == 1;
+
+                            <div class="hr-org-child-col">
+                                @* Continuous Horizontal Line across siblings *@
+                                @if (!isSingle)
+                                {
+                                    @if (isFirst)
+                                    {
+                                        <div style="position:absolute; top:0; left:0; right:50%; height:2px; background:var(--line);"></div>
+                                    }
+                                    else if (isLast)
+                                    {
+                                        <div style="position:absolute; top:0; left:50%; right:0; height:2px; background:var(--line);"></div>
+                                    }
+                                    else
+                                    {
+                                        <div style="position:absolute; top:0; left:0; right:0; height:2px; background:var(--line);"></div>
+                                    }
+                                }
+
+                                @* Vertical drop line into child *@
+                                <div style="width:2px; height:20px; background:var(--line);"></div>
+
+                                @RenderOrgNode(child)
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    };
+}
+
+@* ==================== CODE LOGIC ==================== *@
+@code {
+    private bool isLoading = true;
+    private bool isCompactLeafLayout = true;
+    private string activeTab = "chart"; // "chart", "grades", "grid"
+    private string searchQuery = string.Empty;
+    private string drawerSearch = string.Empty;
+    private double zoomLevel = 0.95;
+
+    private string? syncMessage;
+    private JobHierarchyOverviewStatsDto? overviewStats;
+    private JobHierarchyNodeDto? treeRoot;
+    private List<JobGradeHierarchyDto> jobGrades = new();
+    private HashSet<string> collapsedNodeIds = new();
+    private JobHierarchyNodeDto? selectedDrawerNode;
+    private DotNetObjectReference<JobHierarchyPage>? dotNetRef;
+
+    private void ToggleLayoutMode()
+    {
+        isCompactLeafLayout = !isCompactLeafLayout;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            overviewStats = await JobHierarchyService.GetOverviewStatsAsync();
+            treeRoot = await JobHierarchyService.GetOrgChartTreeAsync();
+            jobGrades = await JobHierarchyService.GetJobGradesHierarchyAsync();
+
+            // Default: keep sectors expanded, collapse large sub-branches if needed
+            collapsedNodeIds.Clear();
+        }
+        catch (Exception ex)
+        {
+            syncMessage = $"حدث خطأ أثناء تحميل الهيكل: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ReloadDataAsync()
+    {
+        syncMessage = null;
+        await LoadDataAsync();
+    }
+
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+    }
+
+    private void ToggleCollapse(string nodeId)
+    {
+        if (collapsedNodeIds.Contains(nodeId))
+            collapsedNodeIds.Remove(nodeId);
+        else
+            collapsedNodeIds.Add(nodeId);
+    }
+
+    private void ExpandAll()
+    {
+        collapsedNodeIds.Clear();
+    }
+
+    private void CollapseAll()
+    {
+        if (treeRoot != null)
+        {
+            collapsedNodeIds.Clear();
+            AddCollapsedRecursive(treeRoot);
+        }
+    }
+
+    private void AddCollapsedRecursive(JobHierarchyNodeDto node)
+    {
+        if (node.Children.Count > 0)
+        {
+            collapsedNodeIds.Add(node.Id);
+            foreach (var child in node.Children)
+            {
+                AddCollapsedRecursive(child);
+            }
+        }
+    }
+
+    private List<JobHierarchyNodeDto> GetAllTreeNodesFlat(JobHierarchyNodeDto? root)
+    {
+        var result = new List<JobHierarchyNodeDto>();
+        if (root == null || root.Id == "empty-tree") return result;
+
+        void Traverse(JobHierarchyNodeDto node)
+        {
+            if (node.Id != "cbi-umbrella-root")
+            {
+                result.Add(node);
+            }
+            foreach (var child in node.Children)
+            {
+                Traverse(child);
+            }
+        }
+
+        Traverse(root);
+        return result;
+    }
+
+    private void ZoomIn()
+    {
+        if (zoomLevel < 1.6)
+            zoomLevel = Math.Round(zoomLevel + 0.1, 2);
+    }
+
+    private void ZoomOut()
+    {
+        if (zoomLevel > 0.4)
+            zoomLevel = Math.Round(zoomLevel - 0.1, 2);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (activeTab == "chart" && treeRoot != null && treeRoot.Id != "empty-tree")
+        {
+            try
+            {
+                dotNetRef ??= DotNetObjectReference.Create(this);
+                await JSRuntime.InvokeVoidAsync("hrLoadScript", Assets["js/hr-orgchart.js"]);
+                await JSRuntime.InvokeVoidAsync("hrOrgChart.init", "hr-orgchart-viewport", "hr-orgchart-canvas", dotNetRef);
+            }
+            catch { }
+        }
+    }
+
+    [JSInvokable]
+    public void ResetZoom()
+    {
+        zoomLevel = 0.95;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnJsWheelZoom(double delta)
+    {
+        zoomLevel = Math.Round(Math.Clamp(zoomLevel + delta, 0.35, 2.0), 2);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("hrOrgChart.destroy", "hr-orgchart-viewport");
+        }
+        catch { }
+        dotNetRef?.Dispose();
+    }
+
+    private void OpenUnitDrawer(JobHierarchyNodeDto node)
+    {
+        selectedDrawerNode = node;
+        drawerSearch = string.Empty;
+    }
+
+    private void CloseDrawer()
+    {
+        selectedDrawerNode = null;
+    }
+
+    // Escape is the expected way out of any dismissible overlay.
+    private void OnDrawerKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseDrawer();
+    }
+
+    private async Task PrintOrgChart()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private static double CalculateGenderPct(List<JobHierarchyEmployeeItemDto> emps, string match)
+    {
+        if (emps.Count == 0) return 0;
+        var count = emps.Count(e => e.Gender != null && e.Gender.Contains(match, StringComparison.OrdinalIgnoreCase));
+        return Math.Round((double)count / emps.Count * 100, 1);
+    }
+}

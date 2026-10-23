@@ -1,0 +1,351 @@
+@rendermode InteractiveServer
+@using System.Security.Claims
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject API.HR.Node.Services.Features.ISystemFeatureService FeatureService
+@inject IJSRuntime JS
+@implements IDisposable
+
+@*
+    The floating dock: the navigation surface of the "floating" nav mode.
+
+    Four shortcuts and a "كل الأقسام" button, on a frosted surface that floats
+    over the page. The button opens a panel that rises out of the dock with
+    every destination the user may open, read from NavCatalog — the same
+    source as the rail and the drawer, so nothing is ever missing here that
+    exists there.
+
+    The panel used to be borrowed: the button ran eval() to click the mobile
+    drawer's hamburger, which CSS hides at >=1024px, so on a desktop it opened
+    an invisible drawer and every section past the four shortcuts was out of
+    reach. The dock owns its panel now.
+
+    The scrim sits outside <nav> on purpose: the dock is centred with a
+    transform, and a transformed ancestor would trap a position:fixed scrim
+    inside the dock's own box.
+*@
+
+<AuthorizeView>
+    <Authorized>
+        @{
+            var user = context.User;
+            var groups = GroupsFor(user);
+            var shortcuts = ShortcutsFor(groups, user);
+            var currentOverflow = CurrentEntry(groups, user, shortcuts);
+        }
+
+        @if (isOpen)
+        {
+            <div class="hr-dock-scrim" @onclick="Close" aria-hidden="true"></div>
+        }
+
+        <nav class="hr-dock @(isOpen ? "is-open" : null)" aria-label="@Lang.T("nav.dock", "شريط التنقل العائم")">
+            @if (isOpen)
+            {
+                <div class="hr-dock-sheet"
+                     id="hr-dock-sheet"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="hr-dock-sheet-title"
+                     tabindex="-1"
+                     @ref="sheet"
+                     @onkeydown="OnSheetKeyDown">
+
+                    <div class="hr-dock-sheet__head">
+                        <h2 id="hr-dock-sheet-title" class="hr-dock-sheet__title">@Lang.T("nav.all", "كل الأقسام")</h2>
+                        <button type="button"
+                                class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                                @onclick="Close"
+                                aria-label="@Lang.T("common.close", "إغلاق")">
+                            <Icon Name="x-mark" Size="sm" />
+                        </button>
+                    </div>
+
+                    <div class="hr-dock-sheet__body">
+                        @foreach (var group in groups)
+                        {
+                            var items = group.Items.Where(i => i.IsAllowedFor(user)).ToList();
+                            if (items.Count == 0) continue;
+                            var title = group.GetTitle(Lang.IsKurdish);
+
+                            <section class="hr-dock-group" aria-label="@title">
+                                <h3 class="hr-dock-group__title">@title</h3>
+                                <ul class="hr-dock-grid">
+                                    @foreach (var item in items)
+                                    {
+                                        var current = IsCurrent(item);
+                                        <li>
+                                            <a class="hr-dock-tile"
+                                               href="@item.Href"
+                                               title="@item.GetHint(Lang.IsKurdish)"
+                                               aria-current="@(current ? "page" : null)"
+                                               @onclick="Close">
+                                                <span class="hr-dock-tile__icon" aria-hidden="true"><Icon Name="@item.Icon" Size="sm" /></span>
+                                                <span class="hr-dock-tile__label">@item.GetLabel(Lang.IsKurdish)</span>
+                                            </a>
+                                        </li>
+                                    }
+                                </ul>
+                            </section>
+                        }
+
+                        @if (user.IsInRole("Admin"))
+                        {
+                            <section class="hr-dock-group" aria-label="@Lang.T("nav.group.tools", "أدوات")">
+                                <h3 class="hr-dock-group__title">@Lang.T("nav.group.tools", "أدوات")</h3>
+                                <ul class="hr-dock-grid">
+                                    <li>
+                                        <a class="hr-dock-tile" href="swagger" target="_blank" rel="noopener">
+                                            <span class="hr-dock-tile__icon" aria-hidden="true"><Icon Name="code-bracket" Size="sm" /></span>
+                                            <span class="hr-dock-tile__label">@Lang.T("nav.swagger", "توثيق الواجهات البرمجية")</span>
+                                            <span class="hr-sr">@Lang.T("common.new_tab", "(يفتح في تبويب جديد)")</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </section>
+                        }
+                    </div>
+
+                    <div class="hr-dock-sheet__foot">
+                        <div class="hr-dock-user">
+                            <UserAvatar EmployeeId="@user.FindFirst("employee_id")?.Value"
+                                        UserName="@user.Identity?.Name"
+                                        Size="sm" />
+                            <div class="hr-dock-user__text">
+                                <span class="hr-dock-user__name hr-truncate">@(user.Identity?.Name ?? Lang.T("auth.user", "المستخدم"))</span>
+                                <span class="hr-dock-user__role">@(user.IsInRole("Admin") ? Lang.T("auth.admin", "مسؤول النظام") : Lang.T("auth.employee", "موظف"))</span>
+                            </div>
+                        </div>
+
+                        <div class="hr-dock-user__actions">
+                            <button type="button"
+                                    class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                                    @onclick="OpenPreferences"
+                                    aria-label="@Lang.T("nav.prefs", "إعدادات العرض والمظهر")"
+                                    title="@Lang.T("nav.prefs", "إعدادات العرض والمظهر")">
+                                <Icon Name="adjustments-horizontal" Size="sm" />
+                            </button>
+                            <form action="Account/Logout" method="post">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="ReturnUrl" value="@currentPath" />
+                                <button type="submit" class="hr-btn hr-btn-danger-quiet">
+                                    <Icon Name="arrow-right-on-rectangle" Size="sm" />
+                                    <span>@Lang.T("auth.logout", "تسجيل الخروج")</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <ul class="hr-dock-bar">
+                @foreach (var item in shortcuts)
+                {
+                    var current = IsCurrent(item);
+                    <li>
+                        <a class="hr-nav__item"
+                           href="@item.Href"
+                           title="@item.GetHint(Lang.IsKurdish)"
+                           aria-current="@(current ? "page" : null)"
+                           @onclick="Close">
+                            <Icon Name="@item.Icon" Size="sm" />
+                            <span class="hr-nav__label">@ShortLabel(item)</span>
+                        </a>
+                    </li>
+                }
+
+                <li class="hr-dock-bar__more">
+                    <button type="button"
+                            class="hr-nav__item @(currentOverflow is not null ? "is-elsewhere" : null)"
+                            aria-haspopup="dialog"
+                            aria-expanded="@(isOpen ? "true" : "false")"
+                            aria-controls="hr-dock-sheet"
+                            aria-label="@(currentOverflow is null ? Lang.T("nav.all", "كل الأقسام") : $"{Lang.T("nav.all", "كل الأقسام")} — {Lang.T("nav.current", "الصفحة الحالية")}: {currentOverflow.GetLabel(Lang.IsKurdish)}")"
+                            @onclick="Toggle">
+                        @if (isOpen)
+                        {
+                            <Icon Name="x-mark" Size="sm" />
+                            <span class="hr-nav__label">@Lang.T("common.close", "إغلاق")</span>
+                        }
+                        else if (currentOverflow is not null)
+                        {
+                            <Icon Name="@currentOverflow.Icon" Size="sm" />
+                            <span class="hr-nav__label">@ShortLabel(currentOverflow)</span>
+                            <span class="hr-dock-more-dot" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <Icon Name="squares-2x2" Size="sm" />
+                            <span class="hr-nav__label">@Lang.T("nav.more", "المزيد")</span>
+                        }
+                    </button>
+                </li>
+            </ul>
+        </nav>
+    </Authorized>
+
+    <NotAuthorized>
+        <nav class="hr-dock" aria-label="@Lang.T("nav.dock", "شريط التنقل العائم")">
+            <ul class="hr-dock-bar">
+                <li>
+                    <a class="hr-nav__item" href="Account/Login">
+                        <Icon Name="lock-closed" Size="sm" />
+                        <span class="hr-nav__label">@Lang.T("auth.login", "تسجيل الدخول")</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    /// <summary>The shortcuts staff see first, in order, when their roles allow them.</summary>
+    private static readonly string[] PreferredShortcuts = { "", "employees", "leaves", "data-import" };
+    private const int ShortcutCount = 4;
+
+    private string currentPath = "";
+    private bool isOpen;
+    private bool focusSheet;
+    private ElementReference sheet;
+    private API.HR.Node.Data.SystemFeatureSettings featureSettings = new();
+
+    protected override void OnInitialized()
+    {
+        UpdateCurrentPath();
+        Nav.LocationChanged += OnLocationChanged;
+        Lang.OnLanguageChanged += OnLanguageChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        FeatureService.OnSettingsChanged += HandleSettingsChanged;
+    }
+
+    private async void HandleSettingsChanged()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static bool IsStaff(ClaimsPrincipal user) =>
+        user.IsInRole("Admin") || user.IsInRole("HRManager") ||
+        user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
+
+    private IReadOnlyList<NavGroup> GroupsFor(ClaimsPrincipal user)
+    {
+        var raw = (IsStaff(user) ? NavCatalog.All : NavCatalog.EmployeeCatalog)
+            .Where(g => g.IsAllowedFor(user));
+
+        if (!featureSettings.EnableMyFeedback)
+        {
+            return raw.Select(g => new NavGroup(
+                g.Title,
+                g.Items.Where(i => i.Href != "my-feedback").ToList(),
+                g.TitleKu,
+                g.Roles
+            )).Where(g => g.Items.Any()).ToList();
+        }
+        return raw.ToList();
+    }
+
+    // Preferred destinations first, then whatever else the catalog offers in
+    // its own order, so a role that cannot open one of the preferred pages
+    // still gets four real shortcuts instead of a shorter dock.
+    private static List<NavEntry> ShortcutsFor(IReadOnlyList<NavGroup> groups, ClaimsPrincipal user)
+    {
+        var allowed = groups.SelectMany(g => g.Items).Where(i => i.IsAllowedFor(user)).ToList();
+        var picked = new List<NavEntry>();
+
+        foreach (var href in PreferredShortcuts)
+        {
+            var match = allowed.FirstOrDefault(i => i.Href == href);
+            if (match is not null) picked.Add(match);
+        }
+        foreach (var item in allowed)
+        {
+            if (picked.Count >= ShortcutCount) break;
+            if (!picked.Contains(item)) picked.Add(item);
+        }
+
+        return picked.Take(ShortcutCount).ToList();
+    }
+
+    // The page the user is on, when it is not one of the shortcuts: the
+    // "more" button then stands in for it, so the dock always shows where
+    // you are.
+    private NavEntry? CurrentEntry(IReadOnlyList<NavGroup> groups, ClaimsPrincipal user, List<NavEntry> shortcuts)
+    {
+        if (shortcuts.Any(IsCurrent)) return null;
+        return groups.SelectMany(g => g.Items)
+            .Where(i => i.IsAllowedFor(user))
+            .FirstOrDefault(IsCurrent);
+    }
+
+    // Dock labels must fit a 4rem tab; the catalog's long names
+    // ("مركز استيراد البيانات (Excel)") are for the panel and the rail.
+    private string ShortLabel(NavEntry item)
+    {
+        var label = item.GetLabel(Lang.IsKurdish);
+        var paren = label.IndexOf(" (", StringComparison.Ordinal);
+        return paren > 0 ? label[..paren] : label;
+    }
+
+    private void UpdateCurrentPath() =>
+        currentPath = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/');
+
+    private bool IsCurrent(NavEntry item)
+    {
+        var target = item.Href.Trim('/');
+        if (string.IsNullOrEmpty(target) || item.Exact)
+        {
+            return currentPath.Equals(target, StringComparison.OrdinalIgnoreCase);
+        }
+        return currentPath.Equals(target, StringComparison.OrdinalIgnoreCase) ||
+               currentPath.StartsWith(target + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void Toggle()
+    {
+        isOpen = !isOpen;
+        focusSheet = isOpen;
+    }
+
+    private void Close() => isOpen = false;
+
+    private async Task OpenPreferences()
+    {
+        Close();
+        try { await JS.InvokeVoidAsync("hrOpenPreferences"); } catch { }
+    }
+
+    private void OnSheetKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") Close();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusSheet && isOpen)
+        {
+            focusSheet = false;
+            try { await sheet.FocusAsync(); } catch { }
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        UpdateCurrentPath();
+        isOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLanguageChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        FeatureService.OnSettingsChanged -= HandleSettingsChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+        Lang.OnLanguageChanged -= OnLanguageChanged;
+    }
+}

@@ -1,0 +1,514 @@
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using API.HR.Node.Data.Feedback
+@using API.HR.Node.Services.Feedback
+@using API.HR.Node.Services.Localization
+@using Microsoft.AspNetCore.Components.Forms
+@inject ILanguageService Lang
+@inject IEmployeeFeedbackService FeedbackService
+@inject IFeedbackModalState ModalState
+@inject API.HR.Node.Services.Features.ISystemFeatureService FeatureService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="hr-feedback-wrapper @(Lang.IsRtl ? "is-rtl" : "is-ltr") hr-no-print" aria-live="polite">
+    <!-- Floating Action Button (يتحكم بظهوره الأدمن من لوحة التحكم) -->
+    @if (featureSettings.EnableMyFeedback && featureSettings.EnableFeedbackFab)
+    {
+        <button type="button"
+                id="hr-global-feedback-trigger"
+                class="hr-feedback-fab"
+                @onclick="OpenModal"
+                title="@(Lang.IsKurdish ? "پەیوەندیمان پێوە بکە - بەشدارییەکانت" : "مشاركة - مقترحات، استفسارات، وشكاوى")"
+                aria-label="@(Lang.IsKurdish ? "بەشداری" : "مشاركة")">
+            <span class="hr-feedback-fab-icon">
+                <Icon Name="chat-bubble-left-right" Size="sm" />
+            </span>
+            <span class="hr-feedback-fab-label">
+                @(Lang.IsKurdish ? "بەشداری" : (Lang.IsEnglish ? "Participate" : "مشاركة"))
+            </span>
+            <span class="hr-feedback-fab-pulse" aria-hidden="true"></span>
+        </button>
+    }
+
+    <!-- Feedback Modal Dialog -->
+    @if (isOpen)
+    {
+        <div class="hr-feedback-backdrop" @onclick="CloseModal">
+            <div class="hr-feedback-modal @(Lang.IsRtl ? "rtl" : "ltr")"
+                 @onclick:stopPropagation="true"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="feedback-modal-title">
+
+                @if (isSubmitted && lastResult?.Success == true)
+                {
+                    <!-- Success View -->
+                    <div class="hr-feedback-success">
+                        <div class="hr-feedback-success-icon">
+                            <Icon Name="check-circle" Size="xl" />
+                        </div>
+                        <h2 id="feedback-modal-title" class="hr-h2" style="margin-block-end:0.5rem;">
+                            @(Lang.IsKurdish ? "پەیامەکەت بە سەرکەوتوویی نێردرا" : "تم استلام مشاركتك بنجاح")
+                        </h2>
+                        <p class="hr-sub" style="margin-block-end:1.25rem;">
+                            @(Lang.IsKurdish
+                                ? "سوپاس بۆ بەشداریکردنت لە پەرەپێدانی سیستم. پەیامەکەت ڕادەستی لایەنی پەیوەندیدار دەکرێت."
+                                : "شكراً لمساهمتك في تحسين بيئة العمل وتطوير المنظومة. تمت إحالة مشاركتك للإدارة المختصة للمراجعة.")
+                        </p>
+
+                        <div class="hr-feedback-refbox">
+                            <span class="hr-meta">رقم المتابعة المرجعي:</span>
+                            <strong class="hr-num hr-feedback-refcode">@lastResult.ReferenceNumber</strong>
+                        </div>
+
+                        <div class="hr-feedback-actions" style="margin-top:1.5rem; justify-content:center;">
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ResetForm">
+                                <Icon Name="plus" Size="xs" />
+                                <span>مشاركة جديدة</span>
+                            </button>
+                            <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="NavigateToMyFeedback">
+                                <Icon Name="chat-bubble-left-right" Size="xs" />
+                                <span>متابعة مشاركاتي</span>
+                            </button>
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CloseModal">
+                                <span>إغلاق</span>
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <!-- Form Header -->
+                    <div class="hr-feedback-head">
+                        <div class="hr-feedback-lead">
+                            <span class="hr-iconplate hr-plate-a" aria-hidden="true">
+                                <Icon Name="chat-bubble-left-right" Size="sm" />
+                            </span>
+                            <div>
+                                <h2 id="feedback-modal-title" class="hr-h2" style="margin:0;">
+                                    @(Lang.IsKurdish ? "بەشداری | پەیوەندیمان پێوە بکە" : "مشاركة | تواصل معنا")
+                                </h2>
+                                <p class="hr-meta" style="margin-block-start:0.15rem;">
+                                    @(Lang.IsKurdish
+                                        ? "سەرنج، پێشنیاز، پرسیار، یان سکاڵاکانت بنووسە بۆ باشترکردنی کار"
+                                        : "شاركنا أفكارك، ملاحظاتك، استفساراتك، أو شكواك لنسمعك ونطور بيئة العمل معاً")
+                                </p>
+                            </div>
+                        </div>
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="CloseModal" aria-label="@Lang.T("common.close", "إغلاق")">
+                            <Icon Name="x-mark" Size="sm" />
+                        </button>
+                    </div>
+
+                    <!-- Form Body -->
+                    <div class="hr-feedback-body">
+                        @if (!featureSettings.EnableMyFeedback || availableTypes.Count == 0)
+                        {
+                            <div class="hr-alert hr-alert-warn" role="alert" style="margin:1rem 0;">
+                                <Icon Name="exclamation-circle" Size="sm" />
+                                <div>
+                                    <strong style="display:block; margin-bottom:0.25rem;">الخدمة متوقفة مؤقتاً</strong>
+                                    <span>@(string.IsNullOrWhiteSpace(featureSettings.DisabledMessage) ? "خدمة تقديم المشاركات متوقفة مؤقتاً بقرار الإدارة." : featureSettings.DisabledMessage)</span>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                        @if (!string.IsNullOrWhiteSpace(errorMessage))
+                        {
+                            <div class="hr-alert hr-alert-danger" role="alert" style="margin-bottom:1rem;">
+                                <Icon Name="exclamation-triangle" Size="xs" />
+                                <span>@errorMessage</span>
+                            </div>
+                        }
+
+                        <!-- 1. Type selection -->
+                        <div class="hr-feedback-field">
+                            <label class="hr-label" style="margin-bottom:0.5rem;">
+                                نوع المشاركة والتواصل <span class="hr-req" aria-hidden="true">*</span>
+                            </label>
+                            <div class="hr-feedback-chips" role="radiogroup" aria-label="@Lang.T("feedback.type", "نوع المشاركة")">
+                                @foreach (var type in availableTypes)
+                                {
+                                    var isSelected = selectedType == type.Key;
+                                    <button type="button"
+                                            role="radio"
+                                            aria-checked="@isSelected.ToString().ToLowerInvariant()"
+                                            class="hr-feedback-chip @(isSelected ? "is-active" : "")"
+                                            @onclick="() => selectedType = type.Key">
+                                        <Icon Name="@type.Icon" Size="xs" />
+                                        <span>@type.Label</span>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- 2. Subject / Title -->
+                        <div class="hr-feedback-field">
+                            <label class="hr-label" for="fb-title">
+                                عنوان مختصر للمشاركة <span class="hr-req" aria-hidden="true">*</span>
+                            </label>
+                            <input id="fb-title"
+                                   type="text"
+                                   class="hr-input"
+                                   maxlength="150"
+                                   placeholder="مثال: مقترح بخصوص تسريع اعتماد الإجازات، أو استفسار عن السلم الوظيفي..."
+                                   @bind="titleInput"
+                                   @bind:event="oninput" />
+                        </div>
+
+                        <!-- 3. Description with live word count -->
+                        <div class="hr-feedback-field">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;flex-wrap:wrap;gap:var(--s-2);">
+                                <label class="hr-label" for="fb-desc" style="margin:0;">
+                                    تفاصيل ووصف المشاركة <span class="hr-req" aria-hidden="true">*</span>
+                                </label>
+                                <span class="hr-badge @WordCountBadgeClass" style="font-size:var(--fs-caption);">
+                                    <span class="hr-num">@CurrentWordCount</span> / 500 كلمة
+                                </span>
+                            </div>
+                            <textarea id="fb-desc"
+                                      class="hr-input hr-feedback-textarea"
+                                      rows="5"
+                                      placeholder="وضح فكرتك أو ملاحظتك أو استفسارك بالتفصيل... (يجب أن يحتوي الوصف على 5 كلمات على الأقل وبحد أقصى 500 كلمة)"
+                                      @bind="descriptionInput"
+                                      @bind:event="oninput"></textarea>
+
+                            <div class="hr-feedback-helper">
+                                @if (CurrentWordCount == 0)
+                                {
+                                    <span class="hr-meta">الحد الأدنى: 5 كلمات · الحد الأقصى: 500 كلمة.</span>
+                                }
+                                else if (CurrentWordCount < 5)
+                                {
+                                    <span class="hr-text-warn" style="font-size:var(--fs-label); font-weight:600;">
+                                        متبقي @(5 - CurrentWordCount) كلمات للوصول إلى الحد الأدنى المطلوب (5 كلمات).
+                                    </span>
+                                }
+                                else if (CurrentWordCount > 500)
+                                {
+                                    <span class="hr-text-danger" style="font-size:var(--fs-label); font-weight:600;">
+                                        تجاوزت الحد الأقصى بمقدار @(CurrentWordCount - 500) كلمة! يرجى الاختصار.
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="hr-text-ok" style="font-size:var(--fs-label);">
+                                        <Icon Name="check-circle" Size="xs" /> الوصف مستوفٍ لشرط عدد الكلمات (@CurrentWordCount كلمة).
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                            @if (featureSettings.AllowAttachments)
+                            {
+                                <!-- 4. Attachment (Optional, max 2MB) -->
+                                <div class="hr-feedback-field">
+                                    <label class="hr-label">
+                                        ملف مرفق داعم <span class="hr-meta" style="font-weight:normal;">(اختياري · أقل من 2 ميغابايت)</span>
+                                    </label>
+
+                                    @if (selectedFile != null)
+                                    {
+                                        <div class="hr-feedback-file-item">
+                                            <div style="display:flex; align-items:center; gap:0.5rem; min-width:0;">
+                                                <span class="hr-iconplate hr-plate-b" aria-hidden="true">
+                                                    <Icon Name="document-text" Size="xs" />
+                                                </span>
+                                                <div class="hr-truncate">
+                                                    <strong class="hr-cell-strong hr-truncate" title="@selectedFile.Name">@selectedFile.Name</strong>
+                                                    <div class="hr-meta">@FormatFileSize(selectedFile.Size)</div>
+                                                </div>
+                                            </div>
+                                            <button type="button"
+                                                    class="hr-btn hr-btn-danger-quiet hr-btn-icon hr-btn-xs"
+                                                    @onclick="RemoveFile"
+                                                    aria-label="@Lang.T("file.remove", "إزالة الملف")"
+                                                    title="@Lang.T("file.remove", "إزالة الملف")">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="hr-feedback-dropzone">
+                                            <Icon Name="arrow-up-tray" Size="md" Class="hr-feedback-upload-icon" />
+                                            <div style="margin-top:0.35rem;">
+                                                <strong>انقر لاختيار ملف</strong> أو اسحبه هنا
+                                            </div>
+                                            <p class="hr-meta" style="font-size:var(--fs-caption); margin-top:0.25rem;">
+                                                ملف واحد داعم (PDF, Word, صور JPG/PNG) · الحد الأقصى 2 MB
+                                            </p>
+                                            <InputFile OnChange="HandleFileSelected"
+                                                       accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
+                                                       class="hr-feedback-file-input" />
+                                        </div>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(fileErrorMessage))
+                                    {
+                                        <p class="hr-text-danger" style="font-size:var(--fs-label); margin-top:0.35rem;">
+                                            @fileErrorMessage
+                                        </p>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <!-- Form Footer -->
+                    <div class="hr-feedback-foot">
+                        <span class="hr-meta" style="font-size:var(--fs-caption);">
+                            تصل مشاركتك مباشرة لإدارة الموارد البشرية مع حفظ كامل للخصوصية.
+                        </span>
+                        <div style="display:flex; gap:0.5rem;">
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CloseModal" disabled="@isSubmitting">
+                                إغلاق
+                            </button>
+                            @if (featureSettings.EnableMyFeedback && availableTypes.Count > 0)
+                            {
+                                <button type="button"
+                                        class="hr-btn hr-btn-primary hr-btn-sm"
+                                        @onclick="SubmitFeedback"
+                                        disabled="@(!IsFormValid || isSubmitting)">
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="hr-spinner hr-spinner-xs" aria-hidden="true"></span>
+                                        <span>جارٍ الإرسال…</span>
+                                    }
+                                    else
+                                    {
+                                        <Icon Name="check" Size="xs" />
+                                        <span>إرسال المشاركة</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isOpen => ModalState.IsOpen;
+    private bool isSubmitting;
+    private bool isSubmitted;
+    private string selectedType = "فكرة";
+    private string titleInput = string.Empty;
+    private string descriptionInput = string.Empty;
+    private string? errorMessage;
+    private string? fileErrorMessage;
+    private IBrowserFile? selectedFile;
+    private FeedbackSubmissionResult? lastResult;
+
+    private record TypeChoice(string Key, string Label, string Icon);
+
+    private API.HR.Node.Data.SystemFeatureSettings featureSettings = new();
+
+    private List<TypeChoice> availableTypes
+    {
+        get
+        {
+            var list = new List<TypeChoice>();
+            if (featureSettings.AllowIdeas)
+                list.Add(new("فكرة", "فكرة أو مقترح", "light-bulb"));
+            if (featureSettings.AllowNotes)
+                list.Add(new("ملاحظة", "ملاحظة عمل", "document-text"));
+            if (featureSettings.AllowInquiries)
+                list.Add(new("استفسار", "استفسار وظيفي", "question-mark-circle"));
+            if (featureSettings.AllowComplaints)
+                list.Add(new("شكوى", "شكوى إدارية", "exclamation-triangle"));
+            if (featureSettings.AllowOthers)
+                list.Add(new("أخرى", "أخرى / عام", "chat-bubble-left-right"));
+            return list;
+        }
+    }
+
+    private int CurrentWordCount => EmployeeFeedbackService.CountWords(descriptionInput);
+
+    private bool IsWordCountValid => CurrentWordCount >= EmployeeFeedbackService.MinWordCount &&
+                                     CurrentWordCount <= EmployeeFeedbackService.MaxWordCount;
+
+    private string WordCountBadgeClass
+    {
+        get
+        {
+            if (CurrentWordCount == 0) return "hr-badge-ghost";
+            if (CurrentWordCount < 5) return "hr-badge-warn";
+            if (CurrentWordCount > 500) return "hr-badge-danger";
+            return "hr-badge-ok";
+        }
+    }
+
+    private bool IsFormValid => !string.IsNullOrWhiteSpace(titleInput?.Trim()) &&
+                                IsWordCountValid &&
+                                string.IsNullOrWhiteSpace(fileErrorMessage);
+
+    private void OpenModal()
+    {
+        errorMessage = null;
+        fileErrorMessage = null;
+        if (!availableTypes.Any(t => t.Key == selectedType) && availableTypes.Count > 0)
+        {
+            selectedType = availableTypes[0].Key;
+        }
+        ModalState.Open();
+    }
+
+    private void CloseModal()
+    {
+        if (isSubmitting) return;
+        ModalState.Close();
+    }
+
+    private void ResetForm()
+    {
+        isSubmitted = false;
+        selectedType = "فكرة";
+        titleInput = string.Empty;
+        descriptionInput = string.Empty;
+        selectedFile = null;
+        errorMessage = null;
+        fileErrorMessage = null;
+        lastResult = null;
+    }
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        fileErrorMessage = null;
+        var file = e.File;
+        if (file == null) return;
+
+        // 2 MB limit check: 2 * 1024 * 1024 = 2,097,152 bytes
+        if (file.Size > EmployeeFeedbackService.MaxFileSizeBytes)
+        {
+            fileErrorMessage = $"حجم الملف ({FormatFileSize(file.Size)}) يتجاوز الحد الأقصى المسموح (2 ميغابايت).";
+            selectedFile = null;
+            return;
+        }
+
+        selectedFile = file;
+    }
+
+    private void RemoveFile()
+    {
+        selectedFile = null;
+        fileErrorMessage = null;
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{(bytes / 1024.0):F1} KB";
+        return $"{(bytes / (1024.0 * 1024.0)):F2} MB";
+    }
+
+    private async Task SubmitFeedback()
+    {
+        if (!IsFormValid || isSubmitting) return;
+
+        isSubmitting = true;
+        errorMessage = null;
+
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = auth.User;
+
+            Stream? stream = null;
+            if (selectedFile != null)
+            {
+                // Max allowed stream read 2MB
+                stream = selectedFile.OpenReadStream(EmployeeFeedbackService.MaxFileSizeBytes);
+            }
+
+            var dto = new FeedbackSubmissionDto
+            {
+                FeedbackType = selectedType,
+                Title = titleInput.Trim(),
+                Description = descriptionInput.Trim(),
+                FileName = selectedFile?.Name,
+                ContentType = selectedFile?.ContentType,
+                FileStream = stream,
+                FileSize = selectedFile?.Size
+            };
+
+            var result = await FeedbackService.SubmitFeedbackAsync(dto, user);
+            if (result.Success)
+            {
+                lastResult = result;
+                isSubmitted = true;
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage ?? "تعذر إرسال المشاركة. يرجى المحاولة مرة أخرى.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"خطأ: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void NavigateToMyFeedback()
+    {
+        ModalState.Close();
+        ResetForm();
+        Nav.NavigateTo("my-feedback");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        FeatureService.OnSettingsChanged += HandleSettingsChanged;
+    }
+
+    private async void HandleSettingsChanged()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        if (!availableTypes.Any(t => t.Key == selectedType) && availableTypes.Count > 0)
+        {
+            selectedType = availableTypes[0].Key;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected override void OnInitialized()
+    {
+        ModalState.OnChanged += HandleStateChanged;
+        Lang.OnLanguageChanged += HandleStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("eval", "window.hrOpenFeedback = function() { var el = document.getElementById('hr-global-feedback-trigger'); if(el) el.click(); };");
+            }
+            catch { }
+        }
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        FeatureService.OnSettingsChanged -= HandleSettingsChanged;
+        ModalState.OnChanged -= HandleStateChanged;
+        Lang.OnLanguageChanged -= HandleStateChanged;
+    }
+}

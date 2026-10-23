@@ -1,0 +1,193 @@
+﻿@page "/Account/Manage/Email"
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>البريد الإلكتروني | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Confirmation state is shown as a labelled badge rather than the bare "✓"
+    the scaffolding used — a check mark alone has no accessible name and
+    reads as decoration.
+
+    The verification form sits outside the change-email form because a form
+    cannot be nested inside another; the button reaches it by its form
+    attribute, which is why the empty form element above is kept.
+*@
+
+<div class="hr-stack-sm">
+    <StatusMessage Message="@message" />
+
+    <form @onsubmit="OnSendEmailVerificationAsync" @formname="send-verification" id="send-verification-form" method="post">
+        <AntiforgeryToken />
+    </form>
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="envelope" Size="sm" /></span>
+                <div class="hr-idcell-text">
+                    <h2 class="hr-h2">البريد الإلكتروني</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">يُستخدم للتنبيهات واستعادة الحساب</p>
+                </div>
+                @if (isEmailConfirmed)
+                {
+                    <span class="hr-badge hr-badge-ok">
+                        <Icon Name="check-circle" Size="xs" />
+                        <span>مُوثَّق</span>
+                    </span>
+                }
+                else
+                {
+                    <span class="hr-badge hr-badge-warn">
+                        <Icon Name="exclamation-circle" Size="xs" />
+                        <span>غير مُوثَّق</span>
+                    </span>
+                }
+            </div>
+        </div>
+
+        <EditForm Model="Input" FormName="change-email" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <DataAnnotationsValidator />
+
+            <div class="hr-card-body">
+                <ValidationSummary class="hr-error-summary" role="alert" />
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="email">البريد الحالي</label>
+                    <input type="text" value="@email" id="email" class="hr-input" dir="ltr" readonly />
+
+                    @if (!isEmailConfirmed)
+                    {
+                        <div class="hr-alert hr-alert-warn" style="margin-block-start:.75rem">
+                            <Icon Name="exclamation-circle" Size="sm" />
+                            <div class="hr-alert-grow">
+                                <p>لم يُوثَّق هذا البريد بعد. أرسل رسالة التحقق لإكمال التوثيق.</p>
+                                <button type="submit" class="hr-btn hr-btn-secondary hr-btn-sm" form="send-verification-form"
+                                        style="margin-block-start:.5rem">
+                                    <Icon Name="envelope" Size="xs" />
+                                    <span>إرسال رسالة التحقق</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="Input.NewEmail">
+                        البريد الجديد <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                    </label>
+                    <InputText @bind-Value="Input.NewEmail" id="Input.NewEmail" class="hr-input" dir="ltr"
+                               autocomplete="email" aria-required="true" placeholder="name@cbi.iq" />
+                    <ValidationMessage For="() => Input.NewEmail" class="hr-error" />
+                    <p class="hr-help">سيُرسل رابط تأكيد إلى العنوان الجديد، ولا يُعتمد قبل تأكيده.</p>
+                </div>
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+                <button type="submit" class="hr-btn hr-btn-primary">
+                    <Icon Name="check" Size="xs" />
+                    <span>تغيير البريد الإلكتروني</span>
+                </button>
+            </div>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    private string? message;
+    private ApplicationUser? user;
+    private string? email;
+    private bool isEmailConfirmed;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm(FormName = "change-email")]
+    private InputModel Input { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        email = await UserManager.GetEmailAsync(user);
+        isEmailConfirmed = await UserManager.IsEmailConfirmedAsync(user);
+
+        Input.NewEmail ??= email;
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        if (Input.NewEmail is null || Input.NewEmail == email)
+        {
+            message = "البريد الإلكتروني لم يتغيّر.";
+            return;
+        }
+
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var code = await UserManager.GenerateChangeEmailTokenAsync(user, Input.NewEmail);
+        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+            NavigationManager.ToAbsoluteUri("Account/ConfirmEmailChange").AbsoluteUri,
+            new Dictionary<string, object?> { ["userId"] = userId, ["email"] = Input.NewEmail, ["code"] = code });
+
+        await EmailSender.SendConfirmationLinkAsync(user, Input.NewEmail, HtmlEncoder.Default.Encode(callbackUrl));
+
+        message = "أُرسل رابط تأكيد تغيير البريد. تفقّد صندوق الوارد في العنوان الجديد.";
+    }
+
+    private async Task OnSendEmailVerificationAsync()
+    {
+        if (email is null)
+        {
+            return;
+        }
+
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+            NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code });
+
+        await EmailSender.SendConfirmationLinkAsync(user, email, HtmlEncoder.Default.Encode(callbackUrl));
+
+        message = "أُرسلت رسالة التحقق. تفقّد صندوق الوارد.";
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "أدخل البريد الإلكتروني الجديد.")]
+        [EmailAddress(ErrorMessage = "صيغة البريد الإلكتروني غير صحيحة.")]
+        [Display(Name = "البريد الجديد")]
+        public string? NewEmail { get; set; }
+    }
+}

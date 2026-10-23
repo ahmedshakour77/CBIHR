@@ -1,0 +1,1579 @@
+@page "/users"
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using API.HR.Node.Data
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = AuthorizationPolicies.ManageUsers)]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject ILogger<Users> Logger
+
+<PageTitle>المستخدمون والأدوار | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Accounts, roles and the sign-up allow list.
+
+    Three related but distinct jobs, so they are tabs on one page rather
+    than three pages — and real tabs: a tablist, aria-selected, and one
+    panel at a time, so a screen reader reports the same structure the eye
+    sees.
+
+    Each row carries four actions. Naming them all in full would crowd the
+    table, so the two frequent ones keep their labels and the two rarer
+    ones become icon controls with accessible names — and the destructive
+    lockout toggle is separated from the rest.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">الحسابات والأمان</span>
+            <h1 class="hr-h1">المستخدمون والأدوار والصلاحيات</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                إدارة حسابات الدخول، وإسناد أدوار النظام والصلاحيات التفصيلية، وضبط قائمة البريد المصرّح له بالتسجيل.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <a href="/data-import" class="hr-btn hr-btn-secondary" title="استيراد وتحديث البريد المؤسسي للموظفين من ملف إكسل">
+                <Icon Name="arrow-up-tray" Size="sm" />
+                <span>استيراد البريد المؤسسي (Excel)</span>
+            </a>
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateUserModal">
+                <Icon Name="user-plus" Size="sm" />
+                <span>حساب جديد</span>
+            </button>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="hr-alert @(isStatusError ? "hr-alert-danger" : "hr-alert-ok")" role="alert">
+            <Icon Name="@(isStatusError ? "exclamation-triangle" : "check-circle")" Size="sm" />
+            <div class="hr-alert-grow">
+                <p class="hr-wrap-any">@statusMessage</p>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                    @onclick="() => statusMessage = null" aria-label="إخفاء الرسالة">
+                <Icon Name="x-mark" Size="sm" />
+            </button>
+        </div>
+    }
+
+    <div class="hr-tabs" role="tablist" aria-label="أقسام إدارة الحسابات">
+        <button type="button" role="tab" class="hr-tab"
+                id="tab-users" aria-controls="panel-users"
+                aria-selected="@((activeTab == "users") ? "true" : "false")"
+                @onclick='() => activeTab = "users"'>
+            <Icon Name="user-circle" Size="sm" />
+            <span>الحسابات</span>
+            <span class="hr-badge hr-num">@usersList.Count</span>
+        </button>
+
+        <button type="button" role="tab" class="hr-tab"
+                id="tab-roles" aria-controls="panel-roles"
+                aria-selected="@((activeTab == "roles") ? "true" : "false")"
+                @onclick='() => activeTab = "roles"'>
+            <Icon Name="shield-check" Size="sm" />
+            <span>أدوار النظام</span>
+            <span class="hr-badge hr-num">@rolesList.Count</span>
+        </button>
+
+        <button type="button" role="tab" class="hr-tab"
+                id="tab-whitelist" aria-controls="panel-whitelist"
+                aria-selected="@((activeTab == "whitelist") ? "true" : "false")"
+                @onclick='() => activeTab = "whitelist"'>
+            <Icon Name="clipboard-document-list" Size="sm" />
+            <span>القائمة المصرّح بها</span>
+            <span class="hr-badge hr-num">@whitelistedUsers.Count</span>
+        </button>
+    </div>
+
+    @* ---------- accounts ---------- *@
+    @if (activeTab == "users")
+    {
+        <div id="panel-users" role="tabpanel" aria-labelledby="tab-users" tabindex="0">
+            <section class="hr-card">
+                <div class="hr-toolbar">
+                    <div class="hr-toolbar-search">
+                        <label class="hr-field-label" for="user-search">بحث في الحسابات</label>
+                        <div class="hr-search">
+                            <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                            <input id="user-search"
+                                   type="search"
+                                   class="hr-input"
+                                   placeholder="اسم الحساب، البريد، الدور أو الرقم الوظيفي"
+                                   value="@searchTerm"
+                                   @oninput="OnSearchInput" />
+                        </div>
+                    </div>
+
+                    <div class="hr-toolbar-actions">
+                        <button type="button" class="hr-btn hr-btn-secondary" @onclick="RefreshAllData" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="hr-spinner" aria-hidden="true"></span>
+                                <span>جارٍ التحديث…</span>
+                            }
+                            else
+                            {
+                                <Icon Name="arrow-path" Size="sm" />
+                                <span>تحديث</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                @if (isLoading)
+                {
+                    <div class="hr-card-body">
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            <div class="hr-skeleton" style="height:3.25rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                        }
+                    </div>
+                }
+                else if (filteredUsers.Count == 0)
+                {
+                    <div class="hr-empty">
+                        <span class="hr-empty-art" aria-hidden="true"><Icon Name="user-circle" Size="lg" /></span>
+                        <p class="hr-h3">@(usersList.Count == 0 ? "لا توجد حسابات" : "لا نتائج مطابقة")</p>
+                        <p class="hr-sub hr-measure-sm">
+                            @(usersList.Count == 0
+                                ? "لم يُنشأ أي حساب مستخدم بعد."
+                                : "جرّب تعديل نص البحث.")
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <div class="hr-tablewrap">
+                        <table class="hr-table hr-table-wide">
+                            <caption class="hr-sr">حسابات المستخدمين وأدوارهم وصلاحياتهم</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">الحساب</th>
+                                    <th scope="col">البريد الإلكتروني</th>
+                                    <th scope="col">الموظف المرتبط</th>
+                                    <th scope="col">الأدوار</th>
+                                    <th scope="col">الصلاحيات</th>
+                                    <th scope="col">الحالة</th>
+                                    <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in filteredUsers)
+                                {
+                                    <tr @key="u.Id">
+                                        <td>
+                                            <div class="hr-idcell">
+                                                <API.HR.Node.Components.Layout.UserAvatar EmployeeId="@u.EmployeeID"
+                                                                                          UserName="@u.UserName"
+                                                                                          Size="sm" />
+                                                <div class="hr-idcell-text">
+                                                    <span class="hr-cell-strong hr-truncate">@u.UserName</span>
+                                                    @if (!string.IsNullOrWhiteSpace(u.EmployeeID))
+                                                    {
+                                                        <span class="hr-cell-sub hr-num hr-truncate">رقم: @u.EmployeeID</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        <td><span class="hr-wrap-any">@(u.Email ?? "—")</span></td>
+
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(u.EmployeeID))
+                                            {
+                                                <span class="hr-cell-strong">@(u.LinkedEmployeeName ?? "—")</span>
+                                                <span class="hr-cell-sub hr-num">@u.EmployeeID</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="hr-badge hr-badge-warn">
+                                                    <Icon Name="link-slash" Size="xs" />
+                                                    <span>غير مرتبط</span>
+                                                </span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(u.FormationName))
+                                            {
+                                                <div style="margin-block-start:0.25rem;">
+                                                    <span class="hr-badge hr-badge-accent" title="التشكيل الإداري: @u.FormationName">
+                                                        <Icon Name="building-office-2" Size="xs" />
+                                                        <span class="hr-truncate" style="max-width:10rem;">@u.FormationName</span>
+                                                    </span>
+                                                </div>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            @if (u.AssignedRoles.Count == 0)
+                                            {
+                                                <span class="hr-meta">بدون أدوار</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="hr-chips">
+                                                    @foreach (var r in u.AssignedRoles)
+                                                    {
+                                                        <span class="hr-badge hr-badge-solid" title="@r">@FormatRole(r)</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            <span class="hr-badge hr-badge-accent">
+                                                <span class="hr-num">@u.PermissionClaimsCount</span>
+                                                <span>إذن</span>
+                                            </span>
+                                        </td>
+
+                                        <td>
+                                            @if (u.IsLockedOut)
+                                            {
+                                                <span class="hr-badge hr-badge-danger">
+                                                    <Icon Name="lock-closed" Size="xs" />
+                                                    <span>محظور</span>
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="hr-badge hr-badge-ok">
+                                                    <Icon Name="check-circle" Size="xs" />
+                                                    <span>نشط</span>
+                                                </span>
+                                            }
+                                        </td>
+
+                                        <td>
+                                            <div class="hr-rowactions">
+                                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                        @onclick="() => OpenRolesPermissionsModal(u)">
+                                                    <Icon Name="shield-check" Size="xs" />
+                                                    <span>الأدوار</span>
+                                                </button>
+
+                                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => OpenLinkModal(u)"
+                                                        aria-label="@($"ربط الحساب {u.UserName} برقم وظيفي")"
+                                                        title="ربط برقم وظيفي">
+                                                    <Icon Name="link" Size="xs" />
+                                                </button>
+
+                                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => OpenResetPasswordModal(u)"
+                                                        aria-label="@($"إعادة تعيين كلمة مرور {u.UserName}")"
+                                                        title="إعادة تعيين كلمة المرور">
+                                                    <Icon Name="key" Size="xs" />
+                                                </button>
+
+                                                <span class="hr-rowactions-sep" aria-hidden="true"></span>
+
+                                                <button type="button"
+                                                        class="hr-btn hr-btn-sm hr-btn-icon @(u.IsLockedOut ? "hr-btn-secondary" : "hr-btn-danger-quiet")"
+                                                        @onclick="() => AskToggleLockout(u)"
+                                                        aria-label="@(u.IsLockedOut ? $"إلغاء حظر {u.UserName}" : $"حظر حساب {u.UserName}")"
+                                                        title="@(u.IsLockedOut ? "إلغاء الحظر" : "حظر الحساب")">
+                                                    <Icon Name="@(u.IsLockedOut ? "lock-open" : "lock-closed")" Size="xs" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="hr-card-foot">
+                        <p class="hr-meta">
+                            عرض <span class="hr-num">@filteredUsers.Count</span>
+                            من <span class="hr-num">@usersList.Count</span> حساب
+                        </p>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+
+    @* ---------- roles ---------- *@
+    @if (activeTab == "roles")
+    {
+        <div id="panel-roles" role="tabpanel" aria-labelledby="tab-roles" tabindex="0" class="hr-stack-sm">
+            <div class="hr-section-head">
+                <div>
+                    <h2 class="hr-h2">أدوار النظام</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        الأدوار التي يُبنى عليها التحكم بالوصول عبر صفحات النظام.
+                    </p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenCreateRoleModal">
+                    <Icon Name="plus" Size="sm" />
+                    <span>دور جديد</span>
+                </button>
+            </div>
+
+            @if (rolesList.Count == 0)
+            {
+                <div class="hr-card">
+                    <div class="hr-empty">
+                        <span class="hr-empty-art" aria-hidden="true"><Icon Name="shield-check" Size="lg" /></span>
+                        <p class="hr-h3">لا توجد أدوار معرّفة</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="hr-grid-cards">
+                    @foreach (var role in rolesList)
+                    {
+                        <article class="hr-card" @key="role.RoleId">
+                            <div class="hr-card-body">
+                                <div class="hr-idcell">
+                                    <span class="hr-iconplate" aria-hidden="true"><Icon Name="shield-check" Size="sm" /></span>
+                                    <div class="hr-idcell-text">
+                                        <h3 class="hr-h3 hr-truncate">@role.RoleName</h3>
+                                        <span class="hr-cell-sub hr-num hr-truncate hr-cell-id">@role.RoleId</span>
+                                    </div>
+                                    <span class="hr-badge hr-badge-accent">
+                                        <span class="hr-num">@role.UserCount</span>
+                                        <span>عضو</span>
+                                    </span>
+                                </div>
+
+                                <div style="margin-block-start:1rem">
+                                    <p class="hr-eyebrow" style="margin-block-end:.5rem">الأعضاء</p>
+                                    @if (role.MemberUsernames.Count == 0)
+                                    {
+                                        <p class="hr-meta">لا يوجد أعضاء في هذا الدور.</p>
+                                    }
+                                    else
+                                    {
+                                        <div class="hr-chips">
+                                            @foreach (var m in role.MemberUsernames.Take(5))
+                                            {
+                                                <span class="hr-badge">@m</span>
+                                            }
+                                            @if (role.MemberUsernames.Count > 5)
+                                            {
+                                                <span class="hr-badge hr-badge-accent">
+                                                    <span class="hr-num">+@(role.MemberUsernames.Count - 5)</span>
+                                                    <span>آخرين</span>
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+
+                            @* The Admin role is the system's own floor and is not
+                               offered for deletion. *@
+                            @if (role.RoleName != "Admin")
+                            {
+                                <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+                                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm"
+                                            @onclick="() => AskDeleteRole(role)">
+                                        <Icon Name="trash" Size="xs" />
+                                        <span>حذف الدور</span>
+                                    </button>
+                                </div>
+                            }
+                        </article>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @* ---------- whitelist ---------- *@
+    @if (activeTab == "whitelist")
+    {
+        <div id="panel-whitelist" role="tabpanel" aria-labelledby="tab-whitelist" tabindex="0" class="hr-stack-sm">
+            <div class="hr-section-head">
+                <div>
+                    <h2 class="hr-h2">القائمة المصرّح لها بالتسجيل</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        يقتصر إنشاء الحسابات على عناوين البريد المدرجة هنا.
+                    </p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenAddWhitelistModal">
+                    <Icon Name="plus" Size="sm" />
+                    <span>إضافة بريد</span>
+                </button>
+            </div>
+
+            <section class="hr-card">
+                @if (whitelistedUsers.Count == 0)
+                {
+                    <div class="hr-empty">
+                        <span class="hr-empty-art" aria-hidden="true"><Icon Name="clipboard-document-list" Size="lg" /></span>
+                        <p class="hr-h3">القائمة فارغة</p>
+                        <p class="hr-sub hr-measure-sm">لم يُضَف أي بريد إلى قائمة التصريح بعد.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="hr-tablewrap">
+                        <table class="hr-table">
+                            <caption class="hr-sr">عناوين البريد المصرّح لها بإنشاء حساب</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">البريد الإلكتروني</th>
+                                    <th scope="col">الاسم والملاحظات</th>
+                                    <th scope="col">تاريخ الإضافة</th>
+                                    <th scope="col">الحالة</th>
+                                    <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var w in whitelistedUsers)
+                                {
+                                    <tr @key="w.Id">
+                                        <td><span class="hr-cell-strong hr-wrap-any">@w.Email</span></td>
+                                        <td>
+                                            <span class="hr-cell-strong">@(w.FullName ?? "—")</span>
+                                            @if (!string.IsNullOrWhiteSpace(w.Notes))
+                                            {
+                                                <span class="hr-cell-sub hr-wrap-any">@w.Notes</span>
+                                            }
+                                        </td>
+                                        <td class="hr-num">@w.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                        <td>
+                                            @if (w.IsActive)
+                                            {
+                                                <span class="hr-badge hr-badge-ok">
+                                                    <Icon Name="check-circle" Size="xs" />
+                                                    <span>مصرّح</span>
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="hr-badge hr-badge-warn">
+                                                    <Icon Name="no-symbol" Size="xs" />
+                                                    <span>موقوف</span>
+                                                </span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <div class="hr-rowactions">
+                                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                        @onclick="() => ToggleWhitelistStatus(w)">
+                                                    <Icon Name="@(w.IsActive ? "no-symbol" : "check")" Size="xs" />
+                                                    <span>@(w.IsActive ? "إيقاف" : "تفعيل")</span>
+                                                </button>
+
+                                                <span class="hr-rowactions-sep" aria-hidden="true"></span>
+
+                                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => AskRemoveWhitelist(w)"
+                                                        aria-label="@($"حذف {w.Email} من القائمة")"
+                                                        title="حذف من القائمة">
+                                                    <Icon Name="trash" Size="xs" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        </div>
+    }
+</div>
+
+@* ---------- roles & permissions ---------- *@
+<Modal IsOpen="@(selectedUserForRoles != null)"
+       Title="الأدوار والصلاحيات"
+       Subtitle="@selectedUserForRoles?.UserName"
+       Icon="shield-check"
+       Size="lg"
+       OnClose="CloseModals">
+    <Body>
+        <fieldset class="hr-fieldset">
+            <legend class="hr-legend-title">أدوار النظام</legend>
+            <p class="hr-help" style="margin-block-end:.75rem">
+                يمنح الدور مجموعة صلاحيات جاهزة. يمكن دمج أكثر من دور للحساب الواحد.
+            </p>
+            <div class="hr-optiongrid">
+                @foreach (var role in rolesList)
+                {
+                    var rName = role.RoleName;
+                    var isChecked = editingRoles.Contains(rName);
+                    <label class="hr-optioncard @(isChecked ? "is-selected" : "")">
+                        <input type="checkbox" checked="@isChecked"
+                               @onchange='(e) => ToggleRoleSelection(rName, (bool)e.Value!)' />
+                        <span class="hr-optioncard-text">@rName</span>
+                    </label>
+                }
+            </div>
+        </fieldset>
+
+        <fieldset class="hr-fieldset" style="margin-block-start:1.5rem">
+            <legend class="hr-legend-title">الصلاحيات التفصيلية</legend>
+            <p class="hr-help" style="margin-block-end:.75rem">
+                أذونات دقيقة تُضاف فوق الأدوار، لحالات لا يغطيها الدور وحده.
+            </p>
+            <div class="hr-optiongrid">
+                @foreach (var perm in availablePermissions)
+                {
+                    var isChecked = editingClaims.Contains(perm.Key);
+                    <label class="hr-optioncard @(isChecked ? "is-selected" : "")">
+                        <input type="checkbox" checked="@isChecked"
+                               @onchange='(e) => ToggleClaimSelection(perm.Key, (bool)e.Value!)' />
+                        <span class="hr-optioncard-text">
+                            <span class="hr-optioncard-title">@perm.Value</span>
+                            <span class="hr-optioncard-code hr-num hr-wrap-any">@perm.Key</span>
+                        </span>
+                    </label>
+                }
+            </div>
+        </fieldset>
+
+        <div class="hr-field" style="margin-block-start:1.5rem;padding:var(--s-3);background:var(--surface-raised);border-radius:var(--r-md);border:1px solid var(--line);">
+            <label class="hr-field-label" for="edit-user-formation" style="display:flex;align-items:center;gap:var(--s-1);">
+                <Icon Name="building-office-2" Size="xs" />
+                <span class="hr-cell-strong">ربط التشكيل الإداري (إذن مخصص للتشكيلات)</span>
+            </label>
+            <select id="edit-user-formation" class="hr-select" @bind="selectedUserFormationId">
+                <option value="">-- غير محدد (يعتمد تشكيل الموظف المرتبط تلقائياً) --</option>
+                @foreach (var f in allFormations)
+                {
+                    <option value="@f.Id">@f.Name</option>
+                }
+            </select>
+            <p class="hr-help" style="margin-block-start:.35rem">
+                المستخدم الذي يحصل على دور <strong>FormationManager</strong> أو إذن <strong>تصفح لوحة مؤشرات التشكيل الإداري</strong> يتم قفل لوحة مؤشراته على هذا التشكيل الإداري حصراً.
+            </p>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserRolesAndPermissions" disabled="@isProcessing">
+            @if (isProcessing)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ الحفظ…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>حفظ التغييرات</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- create user ---------- *@
+<Modal IsOpen="@showCreateUserModal"
+       Title="إنشاء حساب مستخدم"
+       Icon="user-plus"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-field">
+            <label class="hr-field-label" for="nu-username">
+                اسم المستخدم <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+            </label>
+            <input id="nu-username" type="text" class="hr-input" autocomplete="username"
+                   placeholder="مثال: ahmed.shakour" @bind="newUserModel.Username" />
+        </div>
+
+        <div class="hr-field">
+            <label class="hr-field-label" for="nu-email">
+                البريد الإلكتروني <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+            </label>
+            <input id="nu-email" type="email" class="hr-input" autocomplete="email" dir="ltr"
+                   placeholder="user@cbi.iq" @bind="newUserModel.Email" />
+            <p class="hr-help">يُضاف البريد تلقائياً إلى القائمة المصرّح لها.</p>
+        </div>
+
+        <PasswordField Label="كلمة المرور الابتدائية"
+                       Required="true"
+                       Placeholder="ستة أحرف على الأقل"
+                       Help="يُنصح بأن يغيّرها المستخدم عند أول دخول."
+                       @bind-Value="newUserModel.Password" />
+
+        <div class="hr-field">
+            <label class="hr-field-label" for="nu-empid">الرقم الوظيفي المرتبط</label>
+            <input id="nu-empid" type="text" inputmode="numeric" class="hr-input"
+                   placeholder="اختياري" @bind="newUserModel.EmployeeID" />
+            <p class="hr-help">اتركه فارغاً إن لم يكن الحساب مرتبطاً بسجل موظف.</p>
+        </div>
+
+        <div class="hr-field">
+            <label class="hr-field-label" for="nu-formation">التشكيل الإداري المرتبط</label>
+            <select id="nu-formation" class="hr-select" @bind="newUserModel.FormationId">
+                <option value="">-- اختياري (بدون تشكيل مخصص) --</option>
+                @foreach (var f in allFormations)
+                {
+                    <option value="@f.Id">@f.Name</option>
+                }
+            </select>
+            <p class="hr-help">لتحديد التشكيل الإداري الذي سيشرف عليه الحساب في لوحة المؤشرات.</p>
+        </div>
+
+        <fieldset class="hr-fieldset">
+            <legend class="hr-legend-title">الأدوار المبدئية</legend>
+            <div class="hr-chips" style="margin-block-start:.5rem">
+                @foreach (var r in rolesList)
+                {
+                    var rName = r.RoleName;
+                    var isChecked = newUserModel.SelectedRoles.Contains(rName);
+                    <label class="hr-optionchip @(isChecked ? "is-selected" : "")">
+                        <input type="checkbox" checked="@isChecked"
+                               @onchange='(e) => ToggleNewUserRole(rName, (bool)e.Value!)' />
+                        <span>@rName</span>
+                    </label>
+                }
+            </div>
+        </fieldset>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="CreateUserSubmit" disabled="@isProcessing">
+            @if (isProcessing)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ الإنشاء…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>إنشاء الحساب</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- create role ---------- *@
+<Modal IsOpen="@showCreateRoleModal"
+       Title="إنشاء دور نظامي"
+       Icon="shield-check"
+       Size="sm"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-field">
+            <label class="hr-field-label" for="nr-name">
+                اسم الدور <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+            </label>
+            <input id="nr-name" type="text" class="hr-input" dir="ltr"
+                   placeholder="Auditor, DepartmentHead…" @bind="newRoleNameInput" />
+            <p class="hr-help">يُفضَّل اسم لاتيني قصير بلا مسافات، لأنه يُستخدم في التحقق البرمجي.</p>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="CreateRoleSubmit"
+                disabled="@(string.IsNullOrWhiteSpace(newRoleNameInput) || isProcessing)">
+            <Icon Name="check" Size="xs" />
+            <span>إنشاء الدور</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- whitelist entry ---------- *@
+<Modal IsOpen="@showAddWhitelistModal"
+       Title="إضافة بريد إلى القائمة"
+       Icon="clipboard-document-list"
+       Size="sm"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-field">
+            <label class="hr-field-label" for="wl-email">
+                البريد الإلكتروني <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+            </label>
+            <input id="wl-email" type="email" class="hr-input" autocomplete="email" dir="ltr"
+                   placeholder="employee@cbi.iq" @bind="newWhitelistModel.Email" />
+        </div>
+
+        <div class="hr-field">
+            <label class="hr-field-label" for="wl-name">الاسم الكامل</label>
+            <input id="wl-name" type="text" class="hr-input" @bind="newWhitelistModel.FullName" />
+        </div>
+
+        <div class="hr-field">
+            <label class="hr-field-label" for="wl-notes">الملاحظات</label>
+            <input id="wl-notes" type="text" class="hr-input"
+                   placeholder="سبب التصريح" @bind="newWhitelistModel.Notes" />
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="AddWhitelistSubmit"
+                disabled="@(string.IsNullOrWhiteSpace(newWhitelistModel.Email) || isProcessing)">
+            <Icon Name="check" Size="xs" />
+            <span>إضافة</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- employee link ---------- *@
+<Modal IsOpen="@(selectedUserForLinking != null)"
+       Title="ربط الحساب بسجل موظف"
+       Subtitle="@selectedUserForLinking?.UserName"
+       Icon="link"
+       Size="sm"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-field">
+            <label class="hr-field-label" for="lk-empid">الرقم الوظيفي</label>
+            <input id="lk-empid" type="text" inputmode="numeric" class="hr-input"
+                   placeholder="مثال: 1001" @bind="inputEmployeeIdToLink" />
+            <p class="hr-help">يجب أن يكون الرقم موجوداً في سجلات الموظفين.</p>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+        @if (!string.IsNullOrEmpty(selectedUserForLinking?.EmployeeID))
+        {
+            <button type="button" class="hr-btn hr-btn-danger-quiet" @onclick="UnlinkUserEmployee" disabled="@isProcessing">
+                <Icon Name="link-slash" Size="xs" />
+                <span>فك الربط</span>
+            </button>
+        }
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserEmployeeLink"
+                disabled="@(string.IsNullOrWhiteSpace(inputEmployeeIdToLink) || isProcessing)">
+            <Icon Name="check" Size="xs" />
+            <span>حفظ الربط</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- password reset ---------- *@
+<Modal IsOpen="@(selectedUserForPasswordReset != null)"
+       Title="إعادة تعيين كلمة المرور"
+       Subtitle="@selectedUserForPasswordReset?.UserName"
+       Icon="key"
+       Size="sm"
+       OnClose="CloseModals">
+    <Body>
+        <div class="hr-alert hr-alert-warn" style="margin-block-end:1rem">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <p>سيفقد المستخدم كلمة مروره الحالية فوراً، ويجب إبلاغه بالكلمة الجديدة.</p>
+        </div>
+
+        <PasswordField Label="كلمة المرور الجديدة"
+                       Required="true"
+                       Placeholder="ستة أحرف على الأقل"
+                       @bind-Value="newPasswordInput" />
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="ResetPasswordSubmit"
+                disabled="@(string.IsNullOrWhiteSpace(newPasswordInput) || isProcessing)">
+            @if (isProcessing)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ التغيير…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>تغيير كلمة المرور</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- destructive confirmations ---------- *@
+<ConfirmDialog IsOpen="@(pendingRole is not null)"
+               Title="حذف دور النظام"
+               Subject="@pendingRole?.RoleName"
+               Message="سيفقد كل عضو في هذا الدور الصلاحيات التي كان يمنحها. لا يمكن التراجع عن الحذف."
+               ConfirmText="حذف الدور"
+               IsBusy="@isProcessing"
+               OnConfirm="ConfirmDeleteRole"
+               OnCancel="() => pendingRole = null" />
+
+<ConfirmDialog IsOpen="@(pendingWhitelist is not null)"
+               Title="حذف من القائمة المصرّح لها"
+               Subject="@pendingWhitelist?.Email"
+               Message="لن يعود بالإمكان إنشاء حساب بهذا البريد بعد حذفه من القائمة."
+               ConfirmText="حذف"
+               IsBusy="@isProcessing"
+               OnConfirm="ConfirmRemoveWhitelist"
+               OnCancel="() => pendingWhitelist = null" />
+
+<ConfirmDialog IsOpen="@(pendingLockout is not null)"
+               Title="@(pendingLockout?.IsLockedOut == true ? "إلغاء حظر الحساب" : "حظر الحساب")"
+               Subject="@pendingLockout?.UserName"
+               Message="@(pendingLockout?.IsLockedOut == true
+                            ? "سيتمكن المستخدم من تسجيل الدخول مجدداً."
+                            : "سيُمنع المستخدم من تسجيل الدخول حتى إلغاء الحظر.")"
+               ConfirmText="@(pendingLockout?.IsLockedOut == true ? "إلغاء الحظر" : "حظر الحساب")"
+               Destructive="@(pendingLockout?.IsLockedOut != true)"
+               IsBusy="@isProcessing"
+               OnConfirm="ConfirmToggleLockout"
+               OnCancel="() => pendingLockout = null" />
+
+@code {
+    public sealed class UserViewModel
+    {
+        public string Id { get; set; } = string.Empty;
+        public string? UserName { get; set; }
+        public string? Email { get; set; }
+        public string? EmployeeID { get; set; }
+        public string? LinkedEmployeeName { get; set; }
+        public int? FormationId { get; set; }
+        public string? FormationName { get; set; }
+        public bool IsLockedOut { get; set; }
+        public List<string> AssignedRoles { get; set; } = [];
+        public int PermissionClaimsCount { get; set; }
+    }
+
+    public sealed class RoleViewModel
+    {
+        public string RoleId { get; set; } = string.Empty;
+        public string RoleName { get; set; } = string.Empty;
+        public int UserCount { get; set; }
+        public List<string> MemberUsernames { get; set; } = [];
+    }
+
+    public sealed class CreateUserModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string? Password { get; set; }
+        public string? EmployeeID { get; set; }
+        public int? FormationId { get; set; }
+        public List<string> SelectedRoles { get; set; } = [];
+    }
+
+    public sealed class WhitelistModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string? FullName { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    private string activeTab = "users";
+    private List<UserViewModel> usersList = [];
+    private List<UserViewModel> filteredUsers = [];
+    private List<RoleViewModel> rolesList = [];
+    private List<AllowedUser> whitelistedUsers = [];
+
+    private string? searchTerm;
+    private bool isLoading = true;
+    private bool isProcessing;
+    private string? statusMessage;
+    private bool isStatusError;
+
+    // Available granular permission claims map
+    private static readonly Dictionary<string, string> availablePermissions = new()
+    {
+        { Permissions.ProfilePhotoRead, "قراءة وتصفح الصور الشخصية" },
+        { Permissions.ProfilePhotoUpload, "رفع صورة شخصية جديدة" },
+        { Permissions.ProfilePhotoReplace, "استبدال وتحديث صورة شخصية مفعلة" },
+        { Permissions.ProfilePhotoDelete, "حذف وأرشفة الصور الشخصية" },
+        { Permissions.ManageUsers, "إدارة المستخدمين والأدوار والصلاحيات" },
+        { Permissions.ManageDevices, "إدارة وتقييد هواتف الموظفين المقترنة" },
+        { Permissions.ViewAuditLogs, "تصفح واستعراض سجل التدقيق الأمني" },
+        { Permissions.ManageWorkflows, "تصميم، إدارة، ونشر المسارات الإدارية" },
+        { Permissions.ImportEmployees, "استيراد وتحديث بيانات الموظفين بالجملة" },
+        { Permissions.ImportAppreciationLetters, "استيراد وتحديث كتب الشكر والتقدير" },
+        { Permissions.ManageFeedback, "إدارة ومتابعة تواصل ومقترحات وشكاوى الموظفين" },
+        { Permissions.ViewFormationDashboard, "تصفح لوحة مؤشرات التشكيل الإداري" }
+    };
+
+    // Modal States
+    private UserViewModel? selectedUserForRoles;
+    private HashSet<string> editingRoles = new();
+    private HashSet<string> editingClaims = new();
+    private List<Formation> allFormations = [];
+    private int? selectedUserFormationId;
+
+    private bool showCreateUserModal;
+    private CreateUserModel newUserModel = new();
+
+    private bool showCreateRoleModal;
+    private string? newRoleNameInput;
+
+    private bool showAddWhitelistModal;
+    private WhitelistModel newWhitelistModel = new();
+
+    private UserViewModel? selectedUserForLinking;
+    private string? inputEmployeeIdToLink;
+
+    private UserViewModel? selectedUserForPasswordReset;
+    private string? newPasswordInput;
+
+    // Pending destructive actions
+    private RoleViewModel? pendingRole;
+    private AllowedUser? pendingWhitelist;
+    private UserViewModel? pendingLockout;
+
+    protected override async Task OnInitializedAsync() => await RefreshAllData();
+
+    private async Task RefreshAllData()
+    {
+        isLoading = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var roleMgr = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
+            // 1. Load Whitelist
+            whitelistedUsers = await dbContext.AllowedUsers.AsNoTracking().OrderByDescending(w => w.CreatedAt).ToListAsync();
+
+            // 2. Load Roles
+            var roles = await roleMgr.Roles.AsNoTracking().ToListAsync();
+            rolesList.Clear();
+            foreach (var r in roles)
+            {
+                var members = await userMgr.GetUsersInRoleAsync(r.Name!);
+                rolesList.Add(new RoleViewModel
+                {
+                    RoleId = r.Id,
+                    RoleName = r.Name!,
+                    UserCount = members.Count,
+                    MemberUsernames = members.Select(m => m.UserName!).ToList()
+                });
+            }
+
+            // 3. Load Formations
+            allFormations = await dbContext.Formations.AsNoTracking().OrderBy(f => f.Name).ToListAsync();
+
+            // 4. Load Users
+            var dbUsers = await dbContext.Users
+                .AsNoTracking()
+                .Include(u => u.Employee)
+                    .ThenInclude(e => e!.Formation)
+                .Include(u => u.Formation)
+                .ToListAsync();
+
+            usersList.Clear();
+            foreach (var u in dbUsers)
+            {
+                var assignedRoles = (await userMgr.GetRolesAsync(u)).ToList();
+                var claims = await userMgr.GetClaimsAsync(u);
+                var permCount = claims.Count(c => c.Type == "permission" || c.Type == "Permission");
+
+                var effFormationId = u.FormationId ?? u.Employee?.FormationId;
+                var effFormationName = u.Formation?.Name ?? u.Employee?.Formation?.Name;
+
+                usersList.Add(new UserViewModel
+                {
+                    Id = u.Id,
+                    UserName = u.UserName,
+                    Email = u.Email,
+                    EmployeeID = u.EmployeeID,
+                    LinkedEmployeeName = u.Employee?.Name,
+                    FormationId = effFormationId,
+                    FormationName = effFormationName,
+                    IsLockedOut = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
+                    AssignedRoles = assignedRoles,
+                    PermissionClaimsCount = permCount
+                });
+            }
+
+            ApplySearch();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error refreshing roles and users data.");
+            ShowStatus("حدث خطأ أثناء تحميل بيانات المستخدمين والأدوار.", isError: true);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString();
+        ApplySearch();
+    }
+
+    private void ApplySearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            filteredUsers = usersList.ToList();
+            return;
+        }
+
+        var term = searchTerm.Trim();
+        filteredUsers = usersList.Where(u =>
+            (u.UserName != null && u.UserName.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+            (u.Email != null && u.Email.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+            (u.EmployeeID != null && u.EmployeeID.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+            (u.LinkedEmployeeName != null && u.LinkedEmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+            u.AssignedRoles.Any(r => r.Contains(term, StringComparison.OrdinalIgnoreCase))
+        ).ToList();
+    }
+
+    // Modal Openers
+    private async Task OpenRolesPermissionsModal(UserViewModel userVM)
+    {
+        selectedUserForRoles = userVM;
+        editingRoles = new HashSet<string>(userVM.AssignedRoles);
+        editingClaims.Clear();
+        selectedUserFormationId = userVM.FormationId;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userMgr.FindByIdAsync(userVM.Id);
+            if (user != null)
+            {
+                selectedUserFormationId = user.FormationId ?? userVM.FormationId;
+                var claims = await userMgr.GetClaimsAsync(user);
+                foreach (var c in claims.Where(c => c.Type == "permission" || c.Type == "Permission"))
+                {
+                    editingClaims.Add(c.Value);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading claims for user.");
+        }
+    }
+
+    private void OpenCreateUserModal()
+    {
+        newUserModel = new CreateUserModel();
+        showCreateUserModal = true;
+    }
+
+    private void OpenCreateRoleModal()
+    {
+        newRoleNameInput = string.Empty;
+        showCreateRoleModal = true;
+    }
+
+    private void OpenAddWhitelistModal()
+    {
+        newWhitelistModel = new WhitelistModel();
+        showAddWhitelistModal = true;
+    }
+
+    private void OpenLinkModal(UserViewModel user)
+    {
+        selectedUserForLinking = user;
+        inputEmployeeIdToLink = user.EmployeeID;
+    }
+
+    private void OpenResetPasswordModal(UserViewModel user)
+    {
+        selectedUserForPasswordReset = user;
+        newPasswordInput = null;
+    }
+
+    private void CloseModals()
+    {
+        selectedUserForRoles = null;
+        showCreateUserModal = false;
+        showCreateRoleModal = false;
+        showAddWhitelistModal = false;
+        selectedUserForLinking = null;
+        selectedUserForPasswordReset = null;
+        inputEmployeeIdToLink = null;
+        newPasswordInput = null;
+        newRoleNameInput = null;
+    }
+
+    // Role & Claim Checkbox Handlers
+    private void ToggleRoleSelection(string roleName, bool isChecked)
+    {
+        if (isChecked) editingRoles.Add(roleName);
+        else editingRoles.Remove(roleName);
+    }
+
+    private void ToggleClaimSelection(string claimValue, bool isChecked)
+    {
+        if (isChecked) editingClaims.Add(claimValue);
+        else editingClaims.Remove(claimValue);
+    }
+
+    private void ToggleNewUserRole(string roleName, bool isChecked)
+    {
+        if (isChecked) newUserModel.SelectedRoles.Add(roleName);
+        else newUserModel.SelectedRoles.Remove(roleName);
+    }
+
+    // Form Submissions
+    private async Task SaveUserRolesAndPermissions()
+    {
+        if (selectedUserForRoles == null) return;
+        isProcessing = true;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userMgr.FindByIdAsync(selectedUserForRoles.Id);
+
+            if (user != null)
+            {
+                // 1. Sync Roles
+                var currentRoles = await userMgr.GetRolesAsync(user);
+                var rolesToRemove = currentRoles.Except(editingRoles);
+                var rolesToAdd = editingRoles.Except(currentRoles);
+
+                await userMgr.RemoveFromRolesAsync(user, rolesToRemove);
+                await userMgr.AddToRolesAsync(user, rolesToAdd);
+
+                // 2. Sync Permission Claims
+                var currentClaims = await userMgr.GetClaimsAsync(user);
+                var permClaims = currentClaims.Where(c => c.Type == "permission" || c.Type == "Permission").ToList();
+                await userMgr.RemoveClaimsAsync(user, permClaims);
+
+                var claimsToAdd = editingClaims.Select(c => new Claim("permission", c)).ToList();
+                await userMgr.AddClaimsAsync(user, claimsToAdd);
+
+                // 3. Sync Formation Linkage & Claims
+                user.FormationId = selectedUserFormationId;
+                await userMgr.UpdateAsync(user);
+
+                var existingFormationClaims = currentClaims.Where(c => c.Type == "formation_id" || c.Type == "formation_name").ToList();
+                if (existingFormationClaims.Any())
+                {
+                    await userMgr.RemoveClaimsAsync(user, existingFormationClaims);
+                }
+                if (selectedUserFormationId.HasValue)
+                {
+                    var fObj = allFormations.FirstOrDefault(f => f.Id == selectedUserFormationId.Value);
+                    await userMgr.AddClaimAsync(user, new Claim("formation_id", selectedUserFormationId.Value.ToString()));
+                    if (fObj != null)
+                    {
+                        await userMgr.AddClaimAsync(user, new Claim("formation_name", fObj.Name));
+                    }
+                }
+
+                ShowStatus($"تم تحديث أدوار وصلاحيات وتشكيل الحساب ({user.UserName}) بنجاح.");
+                CloseModals();
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save user roles and permissions.");
+            ShowStatus("حدث خطأ أثناء حفظ الصلاحيات والأدوار.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CreateUserSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(newUserModel.Username) || string.IsNullOrWhiteSpace(newUserModel.Email) || string.IsNullOrWhiteSpace(newUserModel.Password))
+        {
+            ShowStatus("يرجى ملء اسم المستخدم والبريد الإلكتروني وكلمة المرور.", isError: true);
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var newUser = new ApplicationUser
+            {
+                UserName = newUserModel.Username.Trim(),
+                Email = newUserModel.Email.Trim(),
+                EmailConfirmed = true,
+                EmployeeID = string.IsNullOrWhiteSpace(newUserModel.EmployeeID) ? null : newUserModel.EmployeeID.Trim(),
+                FormationId = newUserModel.FormationId
+            };
+
+            var res = await userMgr.CreateAsync(newUser, newUserModel.Password);
+            if (res.Succeeded)
+            {
+                if (newUserModel.SelectedRoles.Count > 0)
+                {
+                    await userMgr.AddToRolesAsync(newUser, newUserModel.SelectedRoles);
+                }
+
+                // Add to whitelist automatically
+                if (!dbContext.AllowedUsers.Any(a => a.Email != null && a.Email == newUserModel.Email))
+                {
+                    dbContext.AllowedUsers.Add(new AllowedUser
+                    {
+                        Email = newUserModel.Email.Trim(),
+                        FullName = newUserModel.Username,
+                        Notes = "Created via Admin Hub",
+                        IsActive = true,
+                        CreatedAt = DateTimeOffset.UtcNow
+                    });
+                    await dbContext.SaveChangesAsync();
+                }
+
+                ShowStatus($"تم إنشاء حساب المستخدم ({newUser.UserName}) بنجاح وتعيين الأدوار.");
+                CloseModals();
+                await RefreshAllData();
+            }
+            else
+            {
+                var errs = string.Join(" | ", res.Errors.Select(e => e.Description));
+                ShowStatus($"فشل إنشاء الحساب: {errs}", isError: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create new user account.");
+            ShowStatus("حدث خطأ أثناء إنشاء حساب المستخدم.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CreateRoleSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(newRoleNameInput)) return;
+
+        isProcessing = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var roleMgr = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+            var roleName = newRoleNameInput.Trim();
+
+            if (!await roleMgr.RoleExistsAsync(roleName))
+            {
+                var res = await roleMgr.CreateAsync(new IdentityRole(roleName));
+                if (res.Succeeded)
+                {
+                    ShowStatus($"تم إنشاء دور النظام الجديد ({roleName}) بنجاح.");
+                    CloseModals();
+                    await RefreshAllData();
+                }
+                else
+                {
+                    ShowStatus($"فشل إنشاء الدور: {string.Join(" | ", res.Errors.Select(e => e.Description))}", isError: true);
+                }
+            }
+            else
+            {
+                ShowStatus("اسم الدور موجود مسبقاً في النظام.", isError: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create new role.");
+            ShowStatus("حدث خطأ أثناء إنشاء الدور.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void AskDeleteRole(RoleViewModel role)
+    {
+        if (role.RoleName == "Admin") return;
+        pendingRole = role;
+    }
+
+    private async Task ConfirmDeleteRole()
+    {
+        if (pendingRole is null || pendingRole.RoleName == "Admin") return;
+
+        isProcessing = true;
+        var roleName = pendingRole.RoleName;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var roleMgr = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+            var role = await roleMgr.FindByNameAsync(roleName);
+            if (role != null)
+            {
+                await roleMgr.DeleteAsync(role);
+                ShowStatus($"تم حذف دور النظام ({roleName}) بنجاح.");
+                pendingRole = null;
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete role.");
+            ShowStatus("حدث خطأ أثناء حذف الدور.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task AddWhitelistSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(newWhitelistModel.Email)) return;
+
+        isProcessing = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var email = newWhitelistModel.Email.Trim().ToLower();
+
+            if (!dbContext.AllowedUsers.Any(a => a.Email != null && a.Email == email))
+            {
+                dbContext.AllowedUsers.Add(new AllowedUser
+                {
+                    Email = email,
+                    FullName = newWhitelistModel.FullName,
+                    Notes = newWhitelistModel.Notes,
+                    IsActive = true,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+                await dbContext.SaveChangesAsync();
+                ShowStatus($"تم إضافة البريد ({email}) للقائمة المصرّح لها بنجاح.");
+                CloseModals();
+                await RefreshAllData();
+            }
+            else
+            {
+                ShowStatus("البريد الإلكتروني موجود مسبقاً في القائمة.", isError: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to add email to whitelist.");
+            ShowStatus("حدث خطأ أثناء إضافة البريد للقائمة.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task ToggleWhitelistStatus(AllowedUser w)
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var entry = await dbContext.AllowedUsers.FirstOrDefaultAsync(a => a.Id == w.Id);
+
+            if (entry != null)
+            {
+                entry.IsActive = !entry.IsActive;
+                await dbContext.SaveChangesAsync();
+                ShowStatus($"تم تحديث حالة تصريح البريد ({entry.Email}).");
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to toggle whitelist status.");
+            ShowStatus("تعذّر تحديث حالة التصريح.", isError: true);
+        }
+    }
+
+    private void AskRemoveWhitelist(AllowedUser w) => pendingWhitelist = w;
+
+    private async Task ConfirmRemoveWhitelist()
+    {
+        if (pendingWhitelist is null) return;
+
+        isProcessing = true;
+        var id = pendingWhitelist.Id;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var entry = await dbContext.AllowedUsers.FirstOrDefaultAsync(a => a.Id == id);
+            if (entry != null)
+            {
+                dbContext.AllowedUsers.Remove(entry);
+                await dbContext.SaveChangesAsync();
+                ShowStatus("تم حذف البريد من القائمة المصرّح لها.");
+                pendingWhitelist = null;
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to remove email from whitelist.");
+            ShowStatus("تعذّر حذف البريد من القائمة.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SaveUserEmployeeLink()
+    {
+        if (selectedUserForLinking == null || string.IsNullOrWhiteSpace(inputEmployeeIdToLink)) return;
+
+        isProcessing = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var empId = inputEmployeeIdToLink.Trim();
+
+            var emp = await dbContext.Employees.FirstOrDefaultAsync(e => e.EmployeeID == empId);
+            if (emp == null)
+            {
+                ShowStatus("الرقم الوظيفي غير موجود في قاعدة بيانات الموظفين.", isError: true);
+                return;
+            }
+
+            var userToUpdate = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == selectedUserForLinking.Id);
+            if (userToUpdate != null)
+            {
+                userToUpdate.EmployeeID = empId;
+                await dbContext.SaveChangesAsync();
+                ShowStatus($"تم ربط الحساب ({userToUpdate.UserName}) بالموظف {emp.Name} — الرقم {empId}.");
+                CloseModals();
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to link employee ID to user.");
+            ShowStatus("حدث خطأ أثناء ربط الرقم الوظيفي بالحساب.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task UnlinkUserEmployee()
+    {
+        if (selectedUserForLinking == null) return;
+
+        isProcessing = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var userToUpdate = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == selectedUserForLinking.Id);
+            if (userToUpdate != null)
+            {
+                userToUpdate.EmployeeID = null;
+                await dbContext.SaveChangesAsync();
+                ShowStatus($"تم فك ربط الحساب ({userToUpdate.UserName}) من سجل الموظف.");
+                CloseModals();
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to unlink employee ID from user.");
+            ShowStatus("حدث خطأ أثناء فك الربط.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task ResetPasswordSubmit()
+    {
+        if (selectedUserForPasswordReset == null || string.IsNullOrWhiteSpace(newPasswordInput)) return;
+
+        isProcessing = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+            var user = await userMgr.FindByIdAsync(selectedUserForPasswordReset.Id);
+            if (user != null)
+            {
+                var token = await userMgr.GeneratePasswordResetTokenAsync(user);
+                var res = await userMgr.ResetPasswordAsync(user, token, newPasswordInput.Trim());
+                if (res.Succeeded)
+                {
+                    ShowStatus($"تم تغيير كلمة المرور للمستخدم ({user.UserName}) بنجاح.");
+                    CloseModals();
+                }
+                else
+                {
+                    var errs = string.Join(" | ", res.Errors.Select(e => e.Description));
+                    ShowStatus($"فشل تغيير كلمة السر: {errs}", isError: true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reset password.");
+            ShowStatus("حدث خطأ أثناء إعادة تعيين كلمة المرور.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void AskToggleLockout(UserViewModel userVM) => pendingLockout = userVM;
+
+    private async Task ConfirmToggleLockout()
+    {
+        if (pendingLockout is null) return;
+
+        isProcessing = true;
+        var userVM = pendingLockout;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+            var user = await userMgr.FindByIdAsync(userVM.Id);
+            if (user != null)
+            {
+                if (userVM.IsLockedOut)
+                {
+                    await userMgr.SetLockoutEndDateAsync(user, null);
+                    ShowStatus($"تم إلغاء حظر المستخدم ({user.UserName}).");
+                }
+                else
+                {
+                    await userMgr.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddYears(100));
+                    ShowStatus($"تم حظر حساب المستخدم ({user.UserName}).");
+                }
+
+                pendingLockout = null;
+                await RefreshAllData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to toggle lockout status.");
+            ShowStatus("تعذّر تغيير حالة الحساب.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void ShowStatus(string msg, bool isError = false)
+    {
+        statusMessage = msg;
+        isStatusError = isError;
+    }
+
+    private static string FormatRole(string role) => role switch
+    {
+        "Admin" => "مدير النظام",
+        "HRManager" => "مدير الموارد البشرية",
+        "FormationManager" => "مدير التشكيل",
+        "Supervisor" => "مشرف",
+        "Employee" => "موظف",
+        _ => role
+    };
+}

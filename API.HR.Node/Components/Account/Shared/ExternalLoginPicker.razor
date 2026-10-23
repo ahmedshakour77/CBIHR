@@ -1,0 +1,49 @@
+﻿@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+
+@*
+    External sign-in providers. The empty case used to link to Microsoft's
+    setup documentation — developer guidance shown to whoever happened to
+    open the page. It now states the situation in the operator's terms.
+*@
+
+@if (externalLogins.Length == 0)
+{
+    <div class="hr-alert">
+        <Icon Name="information-circle" Size="sm" />
+        <p>لا توجد خدمات دخول خارجية مُفعّلة على هذا النظام حالياً.</p>
+    </div>
+}
+else
+{
+    <form action="Account/PerformExternalLogin" method="post">
+        <AntiforgeryToken />
+        <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+
+        <div class="hr-chips">
+            @foreach (var provider in externalLogins)
+            {
+                <button type="submit" class="hr-btn hr-btn-secondary" name="provider" value="@provider.Name">
+                    <Icon Name="globe-alt" Size="xs" />
+                    <span>المتابعة عبر @provider.DisplayName</span>
+                </button>
+            }
+        </div>
+    </form>
+}
+
+@code {
+    private AuthenticationScheme[] externalLogins = [];
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        externalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).ToArray();
+    }
+}

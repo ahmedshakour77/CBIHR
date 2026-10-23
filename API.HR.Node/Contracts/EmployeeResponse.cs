@@ -1,0 +1,26 @@
+namespace API.HR.Node.Contracts;
+
+public sealed record EmployeeResponse(
+    string Formation,
+    string EmployeeID,
+    string Name,
+    string JobTitle,
+    string PositionTitle,
+    string Stage,
+    string Grade,
+    string EducationLevel,
+    string Specialization,
+    DateOnly? LastJobTitleDate,
+    DateOnly? HireDate,
+    string Gender,
+    string Religion,
+    string Nationality,
+    string FirstDepartment,
+    DateOnly? BirthDate,
+    string EmployeeStatus,
+    bool HasProfilePhoto = false,
+    int? ProfilePhotoVersion = null,
+    bool IsArchived = false,
+    DateTime? ArchivedAt = null,
+    string? ArchiveReason = null,
+    string? ArchivedBy = null);

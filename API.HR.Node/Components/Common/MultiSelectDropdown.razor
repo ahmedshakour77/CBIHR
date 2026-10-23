@@ -1,0 +1,171 @@
+@*
+    Multi-select filter.
+
+    The trigger reports how many values are active, so a collapsed filter
+    never hides the fact that it is filtering. Selection state is carried
+    by the checkbox, the fill and the weight together — not by colour.
+
+    The Icon parameter used to take an emoji; it now takes a key into the
+    Heroicons catalog, which renders at a fixed size, inherits colour, and
+    is hidden from assistive tech because the title beside it already says
+    what the control filters.
+*@
+
+<div class="hr-ms">
+    <button type="button"
+            class="hr-ms-trigger"
+            @onclick="ToggleDropdown"
+            aria-label="@TriggerLabel"
+            aria-expanded="@(isOpen ? "true" : "false")"
+            aria-controls="@panelId">
+        <span class="hr-ms-trigger-label">
+            <Icon Name="@Icon" Size="sm" />
+            <span class="hr-truncate">@Title</span>
+            @if (SelectedValues.Count > 0)
+            {
+                <span class="hr-badge hr-badge-accent hr-num">@SelectedValues.Count</span>
+            }
+        </span>
+        <Icon Name="chevron-down" Size="sm" Class="@(isOpen ? "hr-ms-caret is-open" : "hr-ms-caret")" />
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="hr-ms-catch" @onclick="CloseDropdown" aria-hidden="true"></div>
+
+        <div class="hr-popover hr-ms-panel" id="@panelId" @onkeydown="OnPanelKeyDown">
+            <div class="hr-ms-search">
+                <label class="hr-sr" for="@searchId">تصفية الخيارات</label>
+                <div class="hr-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input id="@searchId"
+                           type="search"
+                           class="hr-input hr-input-sm"
+                           placeholder="@Placeholder"
+                           value="@searchTerm"
+                           @oninput="OnSearchInput" />
+                </div>
+            </div>
+
+            <div class="hr-ms-bar">
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="SelectAll">
+                    <Icon Name="check" Size="xs" />
+                    <span>تحديد الكل (<span class="hr-num">@FilteredOptions.Count()</span>)</span>
+                </button>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ClearAll" disabled="@(SelectedValues.Count == 0)">
+                    <Icon Name="x-mark" Size="xs" />
+                    <span>مسح</span>
+                </button>
+            </div>
+
+            @* A group of native checkboxes, not a listbox: a listbox may only
+               contain options, and these are labelled checkboxes that already
+               speak and toggle correctly. *@
+            <div class="hr-ms-list hr-scroll" role="group" aria-label="@Title">
+                @if (!FilteredOptions.Any())
+                {
+                    <p class="hr-ms-none">لا توجد خيارات مطابقة</p>
+                }
+                else
+                {
+                    @foreach (var opt in FilteredOptions)
+                    {
+                        var isChecked = SelectedValues.Contains(opt);
+                        <label class="hr-ms-option @(isChecked ? "is-selected" : "")">
+                            <input type="checkbox"
+                                   checked="@isChecked"
+                                   @onchange="() => ToggleOption(opt)" />
+                            <span class="hr-truncate" title="@opt">@opt</span>
+                            @if (OptionCounts != null && OptionCounts.TryGetValue(opt, out var cnt))
+                            {
+                                <span class="hr-badge hr-num" style="margin-inline-start:auto; font-size:var(--fs-caption);">@cnt.ToString("N0")</span>
+                            }
+                        </label>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private readonly string panelId = $"ms-{Guid.NewGuid():N}"[..11];
+
+    // The visible count badge is not part of the button's name once
+    // aria-label is set, so the count is spoken here instead.
+    private string TriggerLabel => SelectedValues.Count > 0
+        ? $"{Title}، {SelectedValues.Count} محدد"
+        : Title;
+
+    [Parameter] public string Title { get; set; } = "اختر…";
+    [Parameter] public string Placeholder { get; set; } = "ابحث…";
+
+    /// <summary>Heroicons catalog key — see Common/Icon.razor.</summary>
+    [Parameter] public string Icon { get; set; } = "funnel";
+
+    [Parameter] public List<string> Options { get; set; } = [];
+    [Parameter] public Dictionary<string, int>? OptionCounts { get; set; }
+    [Parameter] public HashSet<string> SelectedValues { get; set; } = [];
+    [Parameter] public EventCallback<HashSet<string>> SelectedValuesChanged { get; set; }
+    [Parameter] public EventCallback OnChange { get; set; }
+
+    private bool isOpen;
+    private string searchTerm = string.Empty;
+    private readonly string searchId = $"ms-{Guid.NewGuid():N}";
+
+    private IEnumerable<string> FilteredOptions =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? Options
+            : Options.Where(o => o.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+
+    private void ToggleDropdown() => isOpen = !isOpen;
+
+    private void CloseDropdown() => isOpen = false;
+
+    // Escape closes the panel, the expected way out of any popover.
+    private void OnPanelKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            CloseDropdown();
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task ToggleOption(string opt)
+    {
+        if (SelectedValues.Contains(opt))
+        {
+            SelectedValues.Remove(opt);
+        }
+        else
+        {
+            SelectedValues.Add(opt);
+        }
+
+        await SelectedValuesChanged.InvokeAsync(SelectedValues);
+        await OnChange.InvokeAsync();
+    }
+
+    private async Task SelectAll()
+    {
+        foreach (var opt in FilteredOptions)
+        {
+            SelectedValues.Add(opt);
+        }
+
+        await SelectedValuesChanged.InvokeAsync(SelectedValues);
+        await OnChange.InvokeAsync();
+    }
+
+    private async Task ClearAll()
+    {
+        SelectedValues.Clear();
+        await SelectedValuesChanged.InvokeAsync(SelectedValues);
+        await OnChange.InvokeAsync();
+    }
+}

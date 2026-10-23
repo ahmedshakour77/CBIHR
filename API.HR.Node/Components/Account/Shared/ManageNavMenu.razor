@@ -1,0 +1,58 @@
+﻿@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject SignInManager<ApplicationUser> SignInManager
+
+@*
+    Settings navigation. Same item vocabulary as the main rail — icon plus
+    label, current location marked by an edge bar and a weight change — so
+    moving between the app and account settings does not change how
+    navigation behaves.
+*@
+
+<NavLink class="hr-nav-item" href="Account/Manage" Match="NavLinkMatch.All">
+    <Icon Name="user-circle" Size="sm" />
+    <span>الملف الشخصي</span>
+</NavLink>
+
+<NavLink class="hr-nav-item" href="Account/Manage/Email">
+    <Icon Name="envelope" Size="sm" />
+    <span>البريد الإلكتروني</span>
+</NavLink>
+
+<NavLink class="hr-nav-item" href="Account/Manage/ChangePassword">
+    <Icon Name="key" Size="sm" />
+    <span>كلمة المرور</span>
+</NavLink>
+
+@if (hasExternalLogins)
+{
+    <NavLink class="hr-nav-item" href="Account/Manage/ExternalLogins">
+        <Icon Name="globe-alt" Size="sm" />
+        <span>تسجيل الدخول الخارجي</span>
+    </NavLink>
+}
+
+<NavLink class="hr-nav-item" href="Account/Manage/TwoFactorAuthentication">
+    <Icon Name="shield-check" Size="sm" />
+    <span>التحقق بخطوتين</span>
+</NavLink>
+
+<NavLink class="hr-nav-item" href="Account/Manage/Passkeys">
+    <Icon Name="finger-print" Size="sm" />
+    <span>مفاتيح المرور</span>
+</NavLink>
+
+<NavLink class="hr-nav-item" href="Account/Manage/PersonalData">
+    <Icon Name="document-text" Size="sm" />
+    <span>البيانات الشخصية</span>
+</NavLink>
+
+@code {
+    private bool hasExternalLogins;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hasExternalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).Any();
+    }
+}

@@ -1,0 +1,135 @@
+@namespace API.HR.Node.Components.DesignSystem
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@if (IsOpen)
+{
+    <div class="hr-drawer-backdrop" @onclick="Close" aria-hidden="true"></div>
+    <div class="@ComputedClass"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="@titleId"
+         tabindex="-1"
+         @ref="panel"
+         @onclick:stopPropagation="true"
+         @onkeydown="OnKeyDownAsync"
+         @attributes="AdditionalAttributes">
+
+        <header class="hr-drawer-header">
+            <div class="hr-drawer-title-group">
+                <div style="display: flex; align-items: center; gap: var(--s-2);">
+                    @if (!string.IsNullOrEmpty(Icon))
+                    {
+                        <span class="hr-iconplate" aria-hidden="true">
+                            <Icon Name="@Icon" Size="sm" />
+                        </span>
+                    }
+                    <h3 id="@titleId" class="hr-drawer-title">@Title</h3>
+                </div>
+                @if (!string.IsNullOrEmpty(Subtitle))
+                {
+                    <span class="hr-drawer-subtitle">@Subtitle</span>
+                }
+            </div>
+            <div class="hr-drawer-actions">
+                @if (HeaderActions != null)
+                {
+                    @HeaderActions
+                }
+                <button type="button"
+                        class="hr-btn hr-btn-quiet hr-btn-icon"
+                        @onclick="Close"
+                        aria-label="@Lang.T("drawer.close", "إغلاق اللوحة")">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+        </header>
+
+        <div class="hr-drawer-body">
+            @ChildContent
+        </div>
+
+        @if (Footer != null)
+        {
+            <footer class="hr-drawer-footer">
+                @Footer
+            </footer>
+        }
+    </div>
+}
+
+@code {
+    public enum DrawerWidth
+    {
+        Sm,
+        Md,
+        Lg,
+        Xl
+    }
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public DrawerWidth Width { get; set; } = DrawerWidth.Md;
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public RenderFragment? HeaderActions { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private readonly string titleId = $"dr-{Guid.NewGuid():N}";
+    private ElementReference panel;
+    private bool wasOpen;
+
+    private string ComputedClass
+    {
+        get
+        {
+            var widthClass = Width switch
+            {
+                DrawerWidth.Sm => "hr-drawer-sm",
+                DrawerWidth.Lg => "hr-drawer-lg",
+                DrawerWidth.Xl => "hr-drawer-xl",
+                _ => "hr-drawer-md"
+            };
+
+            var classes = new List<string> { "hr-drawer", widthClass };
+            if (!string.IsNullOrEmpty(Class)) classes.Add(Class);
+            return string.Join(" ", classes);
+        }
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await Close();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !wasOpen)
+        {
+            wasOpen = true;
+            try
+            {
+                await panel.FocusAsync();
+            }
+            catch { }
+        }
+        else if (!IsOpen)
+        {
+            wasOpen = false;
+        }
+    }
+
+    private async Task Close()
+    {
+        if (OnClose.HasDelegate)
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+}

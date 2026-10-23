@@ -1,0 +1,35 @@
+﻿@inherits LayoutComponentBase
+@layout API.HR.Node.Components.Layout.MainLayout
+
+@*
+    Account settings shell.
+
+    The scaffolded original was an English h1 over a Bootstrap grid, with no
+    Bootstrap actually loaded — so it rendered as unstyled markup inside an
+    otherwise finished system. This puts the settings pages on the same
+    page header, the same card surfaces and the same rail-style navigation
+    as everything else.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">الحساب</span>
+            <h1 class="hr-h1">إعدادات حسابك</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                بياناتك الشخصية، كلمة المرور، طرق الدخول والتحقق بخطوتين.
+            </p>
+        </div>
+    </header>
+
+    <div class="hr-settings">
+        <nav class="hr-settings-nav" aria-label="أقسام إعدادات الحساب">
+            <ManageNavMenu />
+        </nav>
+
+        <div class="hr-settings-body">
+            @Body
+        </div>
+    </div>
+</div>

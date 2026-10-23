@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="API.HR.Node/API.HR.Node.csproj" />
+  <Project Path="API.HR.Node.Tests/API.HR.Node.Tests.csproj" />
+</Solution>

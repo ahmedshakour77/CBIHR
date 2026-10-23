@@ -1,0 +1,55 @@
+@*
+    Vertical columns for an ordered scale (years, bands). With a dozen
+    columns or fewer every value is printed; past that only the peak is,
+    and each column names its value to assistive tech and on hover.
+*@
+<div class="hr-viz-cols" style="--cols:@Items.Count">
+    @if (Items.Sum(i => i.Count) == 0)
+    {
+        <p class="hr-viz-empty">@Viz.NoData(Lang.IsKurdish)</p>
+    }
+    else
+    {
+        var max = Math.Max(1, Items.Max(i => i.Count));
+        var peak = Items.First(i => i.Count == max);
+        var printAll = Items.Count <= 12;
+        <ol class="hr-viz-cols-plot" aria-label="@Label">
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                var item = Items[i];
+                var on = Selected?.Contains(item.Name) == true;
+                var showLabel = LabelEvery <= 1 || i % LabelEvery == 0 || i == Items.Count - 1;
+                <li @key="item.Name" class="hr-viz-col @(on ? "is-on" : null) @(item == peak ? "is-peak" : null)">
+                    @if (OnPick.HasDelegate)
+                    {
+                        <button type="button" class="hr-viz-col-hit" aria-pressed="@(on ? "true" : "false")"
+                                aria-label="@item.Name: @item.Count.ToString("N0")" title="@item.Name: @item.Count.ToString("N0")"
+                                @onclick="() => OnPick.InvokeAsync(item.Name)">
+                            @Column(item, max, printAll || item == peak)
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="hr-viz-col-hit" role="img" aria-label="@item.Name: @item.Count.ToString("N0")" title="@item.Name: @item.Count.ToString("N0")">
+                            @Column(item, max, printAll || item == peak)
+                        </div>
+                    }
+                    <span class="hr-viz-col-label @(showLabel ? null : "is-quiet")" aria-hidden="true">@item.Name</span>
+                </li>
+            }
+        </ol>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Items { get; set; } = [];
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public int LabelEvery { get; set; } = 1;
+    [Parameter] public string Label { get; set; } = string.Empty;
+
+    private static RenderFragment Column(StatItem item, int max, bool print) => @<text>
+        <span class="hr-viz-col-value hr-num @(print ? null : "is-quiet")">@item.Count.ToString("N0")</span>
+        <span class="hr-viz-col-bar" style="block-size:@Viz.Css(item.Count * 100.0 / max)%"></span>
+    </text>;
+}

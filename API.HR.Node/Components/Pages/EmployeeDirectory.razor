@@ -1,0 +1,2439 @@
+@page "/employees"
+@rendermode InteractiveServer
+@implements IDisposable
+@using System.Globalization
+@using API.HR.Node.Services.ProfilePhotos
+@using API.HR.Node.Services.Employees
+@using API.HR.Node.Data
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@inject IServiceScopeFactory ScopeFactory
+@inject IEmployeeProfilePhotoService PhotoService
+@inject IEmployeeLifecycleService LifecycleService
+@inject IEmployeeVehicleService VehicleService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<EmployeeDirectory> Logger
+
+<PageTitle>سجلات ودليل الموظفين | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Employee directory.
+
+    The dense counterpart to the Employees page: one sortable grid that
+    opens a row into the full record in place, rather than sending the
+    reader out to a dialog and back for every person.
+
+    Rebuilt on the hr-* vocabulary that every other page already speaks.
+    What that migration settled, beyond the paint:
+
+      · The photo-status legend used to sit in the masthead and quietly
+        act as a filter. It now sits with the other filters, under its
+        own legend, and the masthead carries statistics only.
+      · Single-sort headers are announced by aria-sort alone; .hr-th-sort
+        draws its arrow from that attribute, so the seen state and the
+        announced state cannot drift apart.
+      · The identity column is the one header that orders by two fields,
+        because it shows two: the name and the job title. aria-sort still
+        reports the column's active direction, but it cannot say which of
+        the two controls is the one ordering — so each control also states
+        its own direction in its accessible name, and .hr-th-dual draws
+        each arrow from that control's own state rather than the column's.
+        Both channels come from sortKey, so neither can drift.
+      · The hand-rolled sheet and lightbox are one shared Modal, so the
+        escape routes (button, scrim, Escape, focus return) are the ones
+        the rest of the system offers rather than a local approximation.
+      · Deleting a photo goes through the shared ConfirmDialog instead of
+        swapping the row's actions for an inline "sure?" strip.
+      · Search and every filter carry a visible label; the placeholder is
+        an example, not the label.
+*@
+
+@{
+    // ---- shared fragments (declared before first use) ----
+
+    RenderFragment<EmployeeResponse> Face = emp =>
+    @<text>
+        @if (emp.HasProfilePhoto && photoThumbnails.TryGetValue(emp.EmployeeID, out var thumb))
+        {
+            <button type="button" class="hr-avatar hr-avatar-btn"
+                    @onclick="() => OpenRecord(emp)"
+                    aria-label="@($"فتح سجل {emp.Name}")">
+                <img src="@thumb" alt="@($"الصورة الشخصية للموظف {emp.Name}")" loading="lazy" decoding="async"
+                     @onerror="() => photoThumbnails.Remove(emp.EmployeeID)" />
+            </button>
+        }
+        else
+        {
+            <span class="hr-avatar" style="background:@AvatarTone(emp.EmployeeID);color:#fff" aria-hidden="true">
+                @AvatarInitials.FromName(emp.Name)
+            </span>
+        }
+    </text>;
+
+    RenderFragment<EmployeeResponse> UploadControl = emp =>
+    @<label class="hr-btn hr-btn-secondary hr-btn-sm hr-uploadlabel">
+        @if (uploadingId == emp.EmployeeID)
+        {
+            <span class="hr-spinner" aria-hidden="true"></span>
+            <span>جارٍ الرفع…</span>
+        }
+        else
+        {
+            <Icon Name="arrow-up-tray" Size="xs" />
+            <span>@(emp.HasProfilePhoto ? "تغيير" : "رفع")</span>
+        }
+        <span class="hr-sr">صورة الموظف @emp.Name</span>
+        <InputFile accept=".jpg,.jpeg,.png,.webp"
+                   disabled="@(uploadingId is not null)"
+                   OnChange="@(e => UploadPhoto(emp.EmployeeID, e))" />
+    </label>;
+
+    RenderFragment<EmployeeResponse> PhotoBadge = emp =>
+    @<text>
+        @if (emp.HasProfilePhoto)
+        {
+            <span class="hr-badge hr-badge-ok">
+                <Icon Name="check-circle" Size="xs" />
+                <span>موثّقة</span>
+                <span class="hr-num">v@(emp.ProfilePhotoVersion ?? 1)</span>
+            </span>
+        }
+        else
+        {
+            <span class="hr-badge hr-badge-warn">
+                <Icon Name="exclamation-triangle" Size="xs" />
+                <span>بدون صورة</span>
+            </span>
+        }
+    </text>;
+
+    RenderFragment<EmployeeResponse> RecordFields = emp =>
+    @<dl class="hr-deflist">
+        <div class="hr-deflist-row">
+            <dt>العنوان الوظيفي</dt>
+            <dd>@Or(emp.JobTitle)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>المنصب</dt>
+            <dd>@Or(emp.PositionTitle)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>التشكيل الإداري</dt>
+            <dd>@Or(emp.Formation)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>القسم الأول</dt>
+            <dd>@Or(emp.FirstDepartment)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>الدرجة والمرحلة</dt>
+            <dd>
+                <span class="hr-badge">@Or(emp.Grade)</span>
+                <span class="hr-badge">@Or(emp.Stage)</span>
+            </dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>التحصيل الدراسي</dt>
+            <dd>@Or(emp.EducationLevel)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>الاختصاص</dt>
+            <dd>@Or(emp.Specialization)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>تاريخ التعيين</dt>
+            <dd>
+                <span class="hr-num">@D(emp.HireDate)</span>
+                @if (ServiceLength(emp.HireDate) is string svc)
+                {
+                    <span class="hr-meta">@svc في الخدمة</span>
+                }
+            </dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>تاريخ آخر عنوان وظيفي</dt>
+            <dd class="hr-num">@D(emp.LastJobTitleDate)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>تاريخ الميلاد</dt>
+            <dd>
+                <span class="hr-num">@D(emp.BirthDate)</span>
+                @if (DetailedAge(emp.BirthDate) is string age)
+                {
+                    <span class="hr-meta">@age</span>
+                }
+            </dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>الجنس</dt>
+            <dd>@Or(emp.Gender)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>الجنسية</dt>
+            <dd>@Or(emp.Nationality)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>الديانة</dt>
+            <dd>@Or(emp.Religion)</dd>
+        </div>
+        <div class="hr-deflist-row">
+            <dt>الحالة الوظيفية</dt>
+            <dd>@Or(emp.EmployeeStatus, "مستمر")</dd>
+        </div>
+    </dl>;
+}
+
+<div class="hr-stack">
+
+    @* ---------- masthead ---------- *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">مساحة العمل</span>
+            <h1 class="hr-h1">دليل وسجلات الموظفين</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                سجل الموظفين وصورهم الشخصية: بحث وفرز متقدم، استعراض السجل الكامل موضعياً، وإدارة وتوثيق الصور من مكانها.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => LoadEmployees()" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>جارٍ التحديث…</span>
+                }
+                else
+                {
+                    <Icon Name="arrow-path" Size="sm" />
+                    <span>تحديث</span>
+                }
+            </button>
+            <a href="data-import" class="hr-btn hr-btn-secondary" title="استيراد وتحديث الموظفين من ملف Excel">
+                <Icon Name="arrow-up-tray" Size="sm" />
+                <span>استيراد ملف Excel</span>
+            </a>
+        </div>
+    </header>
+
+    @* ---------- coverage ---------- *@
+    <div class="hr-grid-kpi">
+        <div class="hr-card hr-stat hr-stat-a">
+            <div class="hr-stat-label">
+                <span>إجمالي الموظفين</span>
+                <span class="hr-iconplate hr-plate-a" aria-hidden="true"><Icon Name="users" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@N(grandTotal)</strong>
+            <p class="hr-stat-foot">سجل في قاعدة البيانات</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-ok">
+            <div class="hr-stat-label">
+                <span>لديهم صورة</span>
+                <span class="hr-iconplate hr-iconplate-ok" aria-hidden="true"><Icon Name="camera" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@N(withPhotoCount)</strong>
+            <div class="hr-meter" style="margin-block-start:.75rem"
+                 role="progressbar" aria-label="نسبة الموظفين الذين لديهم صورة شخصية"
+                 aria-valuenow="@((int)CoveragePct)" aria-valuemin="0" aria-valuemax="100">
+                <div class="hr-meter-fill is-ok" style="width:@Pct(CoveragePct)"></div>
+            </div>
+            <p class="hr-stat-foot">من إجمالي السجلات</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-warn">
+            <div class="hr-stat-label">
+                <span>بدون صورة</span>
+                <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true"><Icon Name="user-minus" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@N(withoutPhotoCount)</strong>
+            <p class="hr-stat-foot">بحاجة إلى توثيق</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-d">
+            <div class="hr-stat-label">
+                <span>نسبة الاكتمال</span>
+                <span class="hr-iconplate hr-plate-d" aria-hidden="true"><Icon Name="chart-pie" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@CoveragePct.ToString("F1")<span class="hr-stat-unit">%</span></strong>
+            <p class="hr-stat-foot">من ملفات الموظفين موثّقة بصورة</p>
+        </div>
+    </div>
+
+    @* ---------- filters ---------- *@
+    <section class="hr-card">
+        <div class="hr-filterbar">
+            @* الصف الأول: البحث العام والتنظيم الإداري (مطابق لعمود الموظف وعمود التشكيل والمنصب) *@
+            <div class="hr-filterbar-row">
+                <div class="hr-field hr-filter-grow">
+                    <label class="hr-field-label" for="dir-search">بحث</label>
+                    <div class="hr-search">
+                        <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <input id="dir-search" type="search" class="hr-input"
+                               placeholder=" يطابق الاسم أو الرقم الوظيفي."
+                               aria-describedby="dir-search-help"
+                               value="@searchTerm" @oninput="OnSearchInput" />
+                    </div>
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">التشكيل الإداري</span>
+                    <MultiSelectDropdown Title="@FormationFilterTitle" Placeholder="ابحث عن تشكيل…" Icon="building-office-2"
+                                         Options="@formationOptions" @bind-SelectedValues="selectedFormations"
+                                         OnChange="OnFilterChanged" />
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">المنصب</span>
+                    <MultiSelectDropdown Title="@PositionFilterTitle" Placeholder="ابحث عن منصب…" Icon="identification"
+                                         Options="@positionOptions" @bind-SelectedValues="selectedPositions"
+                                         OnChange="OnFilterChanged" />
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">العنوان الوظيفي</span>
+                    <MultiSelectDropdown Title="@JobTitleFilterTitle" Placeholder="ابحث عن عنوان وظيفي…" Icon="briefcase"
+                                         Options="@jobTitleOptions" @bind-SelectedValues="selectedJobTitles"
+                                         OnChange="OnFilterChanged" />
+                </div>
+            </div>
+
+            @* الصف الثاني: فلاتر المؤهلات والتواريخ والحالة (مطابق لعمود الاختصاص والشهادة، المباشرة، التولد) *@
+            <div class="hr-filterbar-row">
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">الشهادة العلمية</span>
+                    <MultiSelectDropdown Title="@EducationFilterTitle" Placeholder="ابحث عن شهادة…" Icon="academic-cap"
+                                         Options="@educationOptions" @bind-SelectedValues="selectedEducations"
+                                         OnChange="OnFilterChanged" />
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">الاختصاص</span>
+                    <MultiSelectDropdown Title="@SpecializationFilterTitle" Placeholder="ابحث عن اختصاص…" Icon="document-text"
+                                         Options="@specializationOptions" @bind-SelectedValues="selectedSpecializations"
+                                         OnChange="OnFilterChanged" />
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">سنة المباشرة</span>
+                    <MultiSelectDropdown Title="@HireYearFilterTitle" Placeholder="ابحث عن سنة مباشرة…" Icon="clock"
+                                         Options="@hireYearOptions" @bind-SelectedValues="selectedHireYears"
+                                         OnChange="OnFilterChanged" />
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">سنة التولد</span>
+                    <MultiSelectDropdown Title="@BirthYearFilterTitle" Placeholder="ابحث عن سنة تولد…" Icon="calendar-days"
+                                         Options="@birthYearOptions" @bind-SelectedValues="selectedBirthYears"
+                                         OnChange="OnFilterChanged" />
+                </div>
+
+                <div class="hr-field hr-filter-item">
+                    <span class="hr-field-label">الحالة الوظيفية</span>
+                    <MultiSelectDropdown Title="@StatusFilterTitle" Placeholder="ابحث عن حالة…" Icon="signal"
+                                         Options="@statusOptions" @bind-SelectedValues="selectedStatuses"
+                                         OnChange="OnFilterChanged" />
+                </div>
+            </div>
+
+            @* الصف الثالث: حالة الصورة ومسح عوامل التصفية *@
+            <div class="hr-filterbar-row">
+                <fieldset class="hr-fieldset hr-filter-grow">
+                    <legend class="hr-field-label">حالة الصورة الشخصية</legend>
+                    <div class="hr-chips">
+                        <button type="button" class="hr-chip" aria-pressed="@((photoFilter == "all") ? "true" : "false")"
+                                @onclick='() => SetPhotoFilter("all")'>
+                            <span class="hr-dot hr-dot-quiet" aria-hidden="true"></span>
+                            <span>الكل</span>
+                            <span class="hr-num">@N(grandTotal)</span>
+                        </button>
+                        <button type="button" class="hr-chip" aria-pressed="@((photoFilter == "withPhoto") ? "true" : "false")"
+                                @onclick='() => SetPhotoFilter("withPhoto")'>
+                            <span class="hr-dot hr-dot-ok" aria-hidden="true"></span>
+                            <span>لديهم صورة</span>
+                            <span class="hr-num">@N(withPhotoCount)</span>
+                        </button>
+                        <button type="button" class="hr-chip" aria-pressed="@((photoFilter == "withoutPhoto") ? "true" : "false")"
+                                @onclick='() => SetPhotoFilter("withoutPhoto")'>
+                            <span class="hr-dot hr-dot-warn" aria-hidden="true"></span>
+                            <span>بدون صورة</span>
+                            <span class="hr-num">@N(withoutPhotoCount)</span>
+                        </button>
+                    </div>
+                </fieldset>
+
+                <div class="hr-field hr-filter-item hr-filter-reset">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-block"
+                            @onclick="ResetFilters" disabled="@(ActiveFilterCount == 0)">
+                        <Icon Name="x-mark" Size="sm" />
+                        <span>مسح عوامل التصفية @(ActiveFilterCount > 0 ? $"({ActiveFilterCount})" : "")</span>
+                    </button>
+                </div>
+            </div>
+
+            @if (ActiveFilterCount > 0)
+            {
+                <div class="hr-filterbar-row" style="align-items:center">
+                    <span class="hr-meta">عوامل التصفية النشطة</span>
+                    <div class="hr-chips">
+                        @foreach (var filter in ActiveFilters())
+                        {
+                            <button type="button" class="hr-chip"
+                                    @onclick="@(() => filter.Remove())"
+                                    aria-label="@($"إزالة عامل التصفية {filter.Key}: {filter.Value}")">
+                                <span class="hr-meta">@filter.Key</span>
+                                <span class="hr-truncate">@filter.Value</span>
+                                <Icon Name="x-mark" Size="xs" />
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </section>
+
+    @* ---------- records ---------- *@
+    <section class="hr-card">
+        <div class="hr-card-head hr-recordhead">
+            <div>
+                <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+                    <h2 class="hr-h2">السجلات</h2>
+                    <div class="hr-segment" role="group" aria-label="عرض السجلات">
+                        <button type="button" class="hr-segment-btn" aria-pressed="@((!isArchivedView) ? "true" : "false")"
+                                @onclick="() => SwitchDirectoryView(false)">
+                            <Icon Name="users" Size="xs" />
+                            <span>السجلات النشطة (@N(grandTotal))</span>
+                        </button>
+                        <button type="button" class="hr-segment-btn" aria-pressed="@(isArchivedView ? "true" : "false")"
+                                @onclick="() => SwitchDirectoryView(true)">
+                            <Icon Name="archive-box" Size="xs" />
+                            <span>الأرشيف / المستبعدون (@N(archivedCount))</span>
+                        </button>
+                    </div>
+                </div>
+                <p class="hr-meta" style="margin-block-start:.25rem" aria-live="polite">
+                    <span class="hr-num">@N(employees.Count)</span> معروضاً من
+                    <span class="hr-num">@N(totalCount)</span> نتيجة
+                    @(isArchivedView ? "في الأرشيف" : "نشطة")
+                </p>
+            </div>
+
+            <div class="hr-recordhead-controls">
+                <div class="hr-segment" role="group" aria-label="نمط العرض">
+                    <button type="button" class="hr-segment-btn" aria-pressed="@((viewMode == "table") ? "true" : "false")"
+                            @onclick='() => SetView("table")'>
+                        <Icon Name="table-cells" Size="sm" />
+                        <span>جدول</span>
+                    </button>
+                    <button type="button" class="hr-segment-btn" aria-pressed="@((viewMode == "cards") ? "true" : "false")"
+                            @onclick='() => SetView("cards")'>
+                        <Icon Name="squares-2x2" Size="sm" />
+                        <span>كروت</span>
+                    </button>
+                </div>
+
+                <div class="hr-inlinefield">
+                    <label class="hr-meta" for="dir-pagesize">لكل صفحة</label>
+                    <select id="dir-pagesize" class="hr-select hr-select-compact" value="@pageSize" @onchange="OnPageSizeChanged">
+                        <option value="12">12</option>
+                        <option value="24">24</option>
+                        <option value="48">48</option>
+                        <option value="96">96</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        @if (loadFailed)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-danger" aria-hidden="true"><Icon Name="exclamation-triangle" Size="lg" /></span>
+                <p class="hr-h3">تعذّر تحميل السجلات</p>
+                <p class="hr-sub hr-measure-sm">لم يستجب مصدر البيانات. تحقّق من الاتصال بقاعدة البيانات ثم أعد المحاولة.</p>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="() => LoadEmployees()">
+                    <Icon Name="arrow-path" Size="xs" />
+                    <span>إعادة المحاولة</span>
+                </button>
+            </div>
+        }
+        else if (isLoading)
+        {
+            <div class="hr-card-body">
+                @if (viewMode == "cards")
+                {
+                    @* Same wrapper, same grid classes and the same count of
+                       placeholders as the loaded state, so the columns do not
+                       change when the data arrives. *@
+                    <div class="hr-cardsview">
+                        <div class="hr-grid-cards hr-grid-cards-quad">
+                            @for (var i = 0; i < 8; i++)
+                            {
+                                <div class="hr-skeleton" style="height:22rem;border-radius:var(--r-lg)" aria-hidden="true"></div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="hr-stack-sm">
+                        @for (var i = 0; i < 8; i++)
+                        {
+                            <div class="hr-skeleton" style="height:3.25rem;border-radius:var(--r)" aria-hidden="true"></div>
+                        }
+                    </div>
+                }
+                <p class="hr-sr">جارٍ تحميل سجلات الموظفين…</p>
+            </div>
+        }
+        else if (employees.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="magnifying-glass" Size="lg" /></span>
+                <p class="hr-h3">@(ActiveFilterCount > 0 ? "لا سجل يطابق هذه المعايير" : "لا توجد سجلات موظفين بعد")</p>
+                <p class="hr-sub hr-measure-sm">
+                    @(ActiveFilterCount > 0
+                        ? "البحث وعوامل التصفية النشطة أعلاه لم تُرجع أي موظف. أزل أحد العوامل أو وسّع عبارة البحث."
+                        : "بعد استيراد الموظفين ستظهر سجلاتهم هنا، ومعها حالة الصورة الشخصية لكل ملف.")
+                </p>
+                @if (ActiveFilterCount > 0)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ResetFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح عوامل التصفية</span>
+                    </button>
+                }
+            </div>
+        }
+        else if (viewMode == "table")
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table hr-table-wide">
+                    <caption class="hr-sr">
+                        سجلات الموظفين وحالة صورهم الشخصية، مرتّبة حسب @SortLabel @(sortDesc ? "تنازلياً" : "تصاعدياً").
+                    </caption>
+                    <thead>
+                        <tr>
+                            @* 1. الصورة والاسم والرقم الوظيفي في خلية واحدة *@
+                            <th scope="col" class="hr-th-dual" aria-sort="@AriaSortAny("name", "id")">
+                                <span class="hr-th-label">الموظف والرقم الوظيفي</span>
+                                <span class="hr-th-sorts">
+                                    <button type="button" class="hr-th-sort"
+                                            data-sort-state="@AriaSort("name")"
+                                            @onclick='() => SortBy("name")'>
+                                        الاسم<span class="hr-sr">@SortStateLabel("name")</span>
+                                    </button>
+                                    <button type="button" class="hr-th-sort"
+                                            data-sort-state="@AriaSort("id")"
+                                            @onclick='() => SortBy("id")'>
+                                        الرقم<span class="hr-sr">@SortStateLabel("id")</span>
+                                    </button>
+                                </span>
+                            </th>
+
+                            @* 2. التشكيل والمنصب بنفس الخلية *@
+                            <th scope="col" class="hr-th-dual" aria-sort="@AriaSortAny("formation", "position")">
+                                <span class="hr-th-label">التشكيل والمنصب</span>
+                                <span class="hr-th-sorts">
+                                    <button type="button" class="hr-th-sort"
+                                            data-sort-state="@AriaSort("formation")"
+                                            @onclick='() => SortBy("formation")'>
+                                        التشكيل<span class="hr-sr">@SortStateLabel("formation")</span>
+                                    </button>
+                                    <button type="button" class="hr-th-sort"
+                                            data-sort-state="@AriaSort("position")"
+                                            @onclick='() => SortBy("position")'>
+                                        المنصب<span class="hr-sr">@SortStateLabel("position")</span>
+                                    </button>
+                                </span>
+                            </th>
+
+                            @* 3. المباشرة / الاستبعاد *@
+                            @if (isArchivedView)
+                            {
+                                <th scope="col">
+                                    <span class="hr-th-label">تاريخ وسبب الاستبعاد</span>
+                                </th>
+                            }
+                            else
+                            {
+                                <th scope="col" aria-sort="@AriaSort("hire")">
+                                    <span class="hr-th-label">المباشرة والخدمة</span>
+                                    <span class="hr-th-sorts">
+                                        <button type="button" class="hr-th-sort" @onclick='() => SortBy("hire")'>
+                                            المباشرة<span class="hr-sr">@SortStateLabel("hire")</span>
+                                        </button>
+                                    </span>
+                                </th>
+                            }
+
+                            @* 4. التولد *@
+                            <th scope="col" aria-sort="@AriaSort("birth")">
+                                <span class="hr-th-label">التولد والعمر</span>
+                                <span class="hr-th-sorts">
+                                    <button type="button" class="hr-th-sort" @onclick='() => SortBy("birth")'>
+                                        التولد<span class="hr-sr">@SortStateLabel("birth")</span>
+                                    </button>
+                                </span>
+                            </th>
+
+                            @* 5. الاختصاص والشهادة *@
+                            <th scope="col" class="hr-th-dual" aria-sort="@AriaSortAny("specialization", "education")">
+                                <span class="hr-th-label">الاختصاص والشهادة</span>
+                                <span class="hr-th-sorts">
+                                    <button type="button" class="hr-th-sort"
+                                            data-sort-state="@AriaSort("specialization")"
+                                            @onclick='() => SortBy("specialization")'>
+                                        الاختصاص<span class="hr-sr">@SortStateLabel("specialization")</span>
+                                    </button>
+                                    <button type="button" class="hr-th-sort"
+                                            data-sort-state="@AriaSort("education")"
+                                            @onclick='() => SortBy("education")'>
+                                        الشهادة<span class="hr-sr">@SortStateLabel("education")</span>
+                                    </button>
+                                </span>
+                            </th>
+
+                            @* 6. الإجراءات *@
+                            <th scope="col"><span class="hr-sr">إجراءات السجل</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var emp in employees)
+                        {
+                            var isOpen = expandedId == emp.EmployeeID;
+                            var detailId = $"dir-detail-{emp.EmployeeID}";
+
+                            <tr @key="emp.EmployeeID" data-selected="@(isOpen ? "true" : null)">
+                                @* 1. خلية الصورة والاسم والرقم الوظيفي *@
+                                <td>
+                                    <div class="hr-identity">
+                                        @Face(emp)
+                                        <div class="hr-identity-text">
+                                            <a href="employees/@emp.EmployeeID"
+                                               class="hr-link hr-cell-strong hr-truncate"
+                                               title="عرض الملف الإلكتروني">@emp.Name</a>
+                                            <div style="display:inline-flex;align-items:center;gap:0.375rem;margin-top:2px;">
+                                                <span class="hr-num hr-badge" style="font-size:var(--fs-caption);padding:0.05rem 0.4rem;font-weight:600;" title="الرقم الوظيفي">
+                                                    @emp.EmployeeID
+                                                </span>
+                                               
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                @* 2. خلية التشكيل والمنصب *@
+                                <td>
+                                    <span class="hr-cell-strong hr-truncate hr-cell-wide" title="@emp.Formation">@Or(emp.Formation)</span>
+                                    <span class="hr-cell-sub hr-truncate hr-cell-wide" title="@(string.IsNullOrEmpty(emp.PositionTitle) ? emp.JobTitle : emp.PositionTitle)">
+                                        @Or(string.IsNullOrEmpty(emp.PositionTitle) ? emp.JobTitle : emp.PositionTitle)
+                                    </span>
+                                </td>
+
+                                @* 3. خلية المباشرة أو الاستبعاد *@
+                                <td>
+                                    @if (isArchivedView)
+                                    {
+                                        <span class="hr-badge hr-badge-warn" style="font-weight:600">@Or(emp.ArchiveReason, "استبعاد مؤقت")</span>
+                                        <span class="hr-cell-sub">
+                                            @(emp.ArchivedAt?.ToLocalTime().ToString("yyyy/MM/dd") ?? "—")
+                                            @if (!string.IsNullOrEmpty(emp.ArchivedBy)) { <span>· @emp.ArchivedBy</span> }
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-num">@D(emp.HireDate)</span>
+                                        @if (ServiceLength(emp.HireDate) is string svc)
+                                        {
+                                            <span class="hr-cell-sub">@svc في الخدمة</span>
+                                        }
+                                    }
+                                </td>
+
+                                @* 4. خلية التولد *@
+                                <td>
+                                    <span class="hr-num">@D(emp.BirthDate)</span>
+                                    @if (DetailedAge(emp.BirthDate) is string age)
+                                    {
+                                        <span class="hr-cell-sub" title="@age">@age</span>
+                                    }
+                                </td>
+
+                                @* 5. خلية الاختصاص والشهادة *@
+                                <td>
+                                    <span class="hr-cell-strong hr-truncate" title="@emp.Specialization">@Or(emp.Specialization)</span>
+                                    <span class="hr-cell-sub hr-truncate" title="@emp.EducationLevel">@Or(emp.EducationLevel)</span>
+                                </td>
+
+                                @* 6. خلية إجراءات السجل *@
+                                <td>
+                                    <div class="hr-rowactions">
+                                        <a class="hr-btn hr-btn-primary hr-btn-sm hr-btn-icon"
+                                           href="employees/@emp.EmployeeID"
+                                           aria-label="@($"الملف الإلكتروني للموظف {emp.Name}")"
+                                           title="الملف الإلكتروني الشامل">
+                                            <Icon Name="user-circle" Size="xs" />
+                                        </a>
+
+                                        @if (isArchivedView)
+                                        {
+                                            @if (canManageLifecycle)
+                                            {
+                                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                        @onclick="() => PromptRestore(emp)"
+                                                        title="استرجاع إلى النظام والتقارير"
+                                                        aria-label="@($"استرجاع {emp.Name} إلى النظام والتقارير")">
+                                                    <Icon Name="arrow-uturn-left" Size="xs" />
+                                                    <span>استرجاع</span>
+                                                </button>
+
+                                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => PromptHardDelete(emp)"
+                                                        title="حذف نهائي لا رجعة فيه"
+                                                        aria-label="@($"حذف نهائي للموظف {emp.Name}")">
+                                                    <Icon Name="trash" Size="xs" />
+                                                </button>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <a class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                               href="employee-contacts/@emp.EmployeeID"
+                                               aria-label="@($"وسائل التواصل للموظف {emp.Name}")"
+                                               title="وسائل التواصل">
+                                                <Icon Name="phone" Size="xs" />
+                                            </a>
+
+                                            <a class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                               href="employee-vehicles/@emp.EmployeeID"
+                                               aria-label="@($"مركبات وتصاريح دخول الموظف {emp.Name}")"
+                                               title="مركبات وتصاريح دخول الموظف">
+                                                <Icon Name="truck" Size="xs" />
+                                            </a>
+
+                                            @UploadControl(emp)
+
+                                            @if (emp.HasProfilePhoto)
+                                            {
+                                                <span class="hr-rowactions-sep" aria-hidden="true"></span>
+                                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => pendingDelete = emp"
+                                                        aria-label="@($"حذف صورة {emp.Name}")" title="حذف الصورة">
+                                                    <Icon Name="trash" Size="xs" />
+                                                </button>
+                                            }
+
+                                            @if (canManageLifecycle)
+                                            {
+                                                <span class="hr-rowactions-sep" aria-hidden="true"></span>
+                                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => PromptArchive(emp)"
+                                                        title="استبعاد مؤقت من النظام والتقارير"
+                                                        aria-label="@($"استبعاد مؤقت للموظف {emp.Name}")">
+                                                    <Icon Name="archive-box" Size="xs" />
+                                                </button>
+
+                                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                        @onclick="() => PromptHardDelete(emp)"
+                                                        title="حذف نهائي لا رجعة فيه"
+                                                        aria-label="@($"حذف نهائي للموظف {emp.Name}")">
+                                                    <Icon Name="trash" Size="xs" />
+                                                </button>
+                                            }
+
+                                            <span class="hr-rowactions-sep" aria-hidden="true"></span>
+
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                    aria-expanded="@(isOpen ? "true" : "false")" aria-controls="@detailId"
+                                                    @onclick="() => ToggleDetail(emp.EmployeeID)"
+                                                    aria-label="@($"{(isOpen ? "طيّ" : "عرض")} تفاصيل سجل {emp.Name}")"
+                                                    title="@(isOpen ? "طيّ التفاصيل" : "عرض التفاصيل")">
+                                                <Icon Name="@(isOpen ? "chevron-up" : "chevron-down")" Size="xs" />
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+
+                            if (isOpen)
+                            {
+                                <tr class="hr-detailrow" id="@detailId" @key="@("d-" + emp.EmployeeID)">
+                                    <td colspan="6" style="padding:0;background:var(--surface-sunken);">
+                                        <div style="padding:1.25rem 1.5rem;display:flex;flex-direction:column;gap:1.25rem;border-top:2px solid var(--accent);border-bottom:1px solid var(--line-soft);">
+
+                                            @* 1. Header Bar: Profile details + Action Shortcuts *@
+                                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;padding-bottom:1rem;border-bottom:1px solid var(--line-soft);">
+                                                <div style="display:flex;align-items:center;gap:0.85rem;">
+                                                    <div style="width:3.2rem;height:3.2rem;flex-shrink:0;">
+                                                        @Face(emp)
+                                                    </div>
+                                                    <div>
+                                                        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                                            <h3 style="margin:0;font-size:1.2rem;font-weight:700;color:var(--text);">
+                                                                @emp.Name
+                                                            </h3>
+                                                            <span class="hr-badge hr-num" style="font-weight:700;">#@emp.EmployeeID</span>
+                                                            @if (!string.IsNullOrWhiteSpace(emp.JobTitle))
+                                                            {
+                                                                <span class="hr-badge hr-badge-accent">@emp.JobTitle</span>
+                                                            }
+                                                            <span class="hr-badge @(emp.IsArchived ? "hr-badge-warn" : "hr-badge-ok")">
+                                                                @(emp.IsArchived ? "مستبعد مؤقتاً" : (string.IsNullOrWhiteSpace(emp.EmployeeStatus) ? "مستمر بالخدمة" : emp.EmployeeStatus))
+                                                            </span>
+                                                        </div>
+                                                        <p class="hr-meta" style="margin:0.25rem 0 0 0;font-size:0.85rem;">
+                                                            التشكيل: <strong>@Or(emp.Formation)</strong>
+                                                            @if (!string.IsNullOrWhiteSpace(emp.FirstDepartment))
+                                                            {
+                                                                <span> · القسم: <strong>@emp.FirstDepartment</strong></span>
+                                                            }
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                                    <a href="employee-vehicles/@emp.EmployeeID" class="hr-btn hr-btn-primary hr-btn-sm" title="إدارة المركبات وتصاريح الدخول">
+                                                        <Icon Name="truck" Size="xs" />
+                                                        <span>المركبات والتصاريح</span>
+                                                        @if (employeeVehiclesMap.TryGetValue(emp.EmployeeID, out var userVList) && userVList.Count > 0)
+                                                        {
+                                                            <span class="hr-badge hr-badge-ok" style="padding:1px 6px;margin-right:4px;">@userVList.Count</span>
+                                                        }
+                                                    </a>
+
+                                                    <a href="employee-profile/@emp.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm" title="فتح الملف الإلكتروني الشامل">
+                                                        <Icon Name="user-circle" Size="xs" />
+                                                        <span>الملف الإلكتروني</span>
+                                                    </a>
+
+                                                    <a href="employee-contacts/@emp.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm" title="وسائل التواصل">
+                                                        <Icon Name="phone" Size="xs" />
+                                                        <span>التواصل</span>
+                                                    </a>
+
+                                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => OpenRecord(emp)">
+                                                        <Icon Name="eye" Size="xs" />
+                                                        <span>@(emp.HasProfilePhoto ? "معاينة الصورة" : "البطاقة")</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            @* 2. Core Information Cards in a Responsive 3-Column Grid *@
+                                            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:1rem;">
+
+                                                @* Card A: التكليف والموقع الوظيفي *@
+                                                <div class="hr-card" style="margin:0;padding:1rem;background:var(--surface);box-shadow:none;border:1px solid var(--line-soft);border-radius:var(--r-md);">
+                                                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.5rem;border-bottom:1px solid var(--line-soft);font-weight:700;color:var(--accent);">
+                                                        <Icon Name="briefcase" Size="xs" />
+                                                        <span>التكليف والموقع الإداري</span>
+                                                    </div>
+                                                    <div class="hr-info-grid">
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">العنوان الوظيفي</span>
+                                                            <span class="hr-info-v">@Or(emp.JobTitle)</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">المنصب</span>
+                                                            <span class="hr-info-v">@Or(emp.PositionTitle)</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">التشكيل الإداري</span>
+                                                            <span class="hr-info-v">@Or(emp.Formation)</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">القسم / الشعبة</span>
+                                                            <span class="hr-info-v">@Or(emp.FirstDepartment)</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">الدرجة والمرحلة</span>
+                                                            <span class="hr-info-v">
+                                                                <span class="hr-badge hr-badge-accent">@Or(emp.Grade)</span>
+                                                                <span class="hr-badge">@Or(emp.Stage)</span>
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                @* Card B: الخدمة والمسار المهني *@
+                                                <div class="hr-card" style="margin:0;padding:1rem;background:var(--surface);box-shadow:none;border:1px solid var(--line-soft);border-radius:var(--r-md);">
+                                                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.5rem;border-bottom:1px solid var(--line-soft);font-weight:700;color:var(--accent);">
+                                                        <Icon Name="clock" Size="xs" />
+                                                        <span>الخدمة والمسار المهني</span>
+                                                    </div>
+                                                    <div class="hr-info-grid">
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">تاريخ التعيين</span>
+                                                            <span class="hr-info-v">
+                                                                <strong class="hr-num">@D(emp.HireDate)</strong>
+                                                                @if (ServiceLength(emp.HireDate) is string empServiceLength)
+                                                                {
+                                                                    <span class="hr-badge hr-badge-ok" style="margin-right:0.35rem;">@empServiceLength في الخدمة</span>
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">تاريخ آخر عنوان وظيفي</span>
+                                                            <span class="hr-info-v hr-num">@D(emp.LastJobTitleDate)</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">الحالة الوظيفية</span>
+                                                            <span class="hr-info-v">@Or(emp.EmployeeStatus, "مستمر بالخدمة")</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">توثيق الصورة</span>
+                                                            <span class="hr-info-v">@PhotoBadge(emp)</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                @* Card C: المؤهل العلمي والبيانات الشخصية *@
+                                                <div class="hr-card" style="margin:0;padding:1rem;background:var(--surface);box-shadow:none;border:1px solid var(--line-soft);border-radius:var(--r-md);">
+                                                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.5rem;border-bottom:1px solid var(--line-soft);font-weight:700;color:var(--accent);">
+                                                        <Icon Name="academic-cap" Size="xs" />
+                                                        <span>المؤهل العلمي والبيانات الشخصية</span>
+                                                    </div>
+                                                    <div class="hr-info-grid">
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">التحصيل الدراسي</span>
+                                                            <span class="hr-info-v"><strong>@Or(emp.EducationLevel)</strong></span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">الاختصاص</span>
+                                                            <span class="hr-info-v">@Or(emp.Specialization)</span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">تاريخ الميلاد والعمر</span>
+                                                            <span class="hr-info-v">
+                                                                <span class="hr-num">@D(emp.BirthDate)</span>
+                                                                @if (DetailedAge(emp.BirthDate) is string empAgeDetailed)
+                                                                {
+                                                                    <span class="hr-meta" style="font-size:0.8rem;margin-right:0.35rem;">(@empAgeDetailed)</span>
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                        <div class="hr-info-item">
+                                                            <span class="hr-info-k">الجنس والجنسية</span>
+                                                            <span class="hr-info-v">@Or(emp.Gender) · @Or(emp.Nationality) · @Or(emp.Religion)</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                            </div>
+
+                                            @* 3. Card D: Vehicles & Gate Access Permits *@
+                                            <div class="hr-card" style="margin:0;padding:1rem;background:var(--surface);box-shadow:none;border:1px solid var(--line-soft);border-radius:var(--r-md);">
+                                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.85rem;padding-bottom:0.5rem;border-bottom:1px solid var(--line-soft);">
+                                                    <div style="display:flex;align-items:center;gap:0.5rem;font-weight:700;color:var(--accent);">
+                                                        <span class="hr-iconplate hr-plate-a" style="width:2rem;height:2rem;"><Icon Name="truck" Size="xs" /></span>
+                                                        <span>مركبات الموظف وتصاريح دخول البوابات والمقرات</span>
+                                                    </div>
+
+                                                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                                                        <a href="employee-vehicles/@emp.EmployeeID" class="hr-btn hr-btn-primary hr-btn-sm">
+                                                            <Icon Name="plus" Size="xs" />
+                                                            <span>إضافة مركبة / إدارة التصاريح</span>
+                                                        </a>
+                                                    </div>
+                                                </div>
+
+                                                @if (isLoadingVehicles && !employeeVehiclesMap.ContainsKey(emp.EmployeeID))
+                                                {
+                                                    <div style="padding:1.5rem;text-align:center;">
+                                                        <span class="hr-spinner" aria-hidden="true"></span>
+                                                        <span class="hr-meta" style="margin-right:0.5rem;">جارٍ فحص وتحميل سجل المركبات للموظف…</span>
+                                                    </div>
+                                                }
+                                                else if (employeeVehiclesMap.TryGetValue(emp.EmployeeID, out var empVehicles) && empVehicles.Count > 0)
+                                                {
+                                                    <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:0.85rem;">
+                                                        @foreach (var v in empVehicles)
+                                                        {
+                                                            <div style="background:var(--surface-sunken);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:0.85rem;display:flex;flex-direction:column;gap:0.6rem;">
+                                                                <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
+                                                                    <div class="iq-license-plate" title="لوحة التسجيل: @v.Governorate @v.PlateLetter @v.PlateNumber">
+                                                                        <span class="iq-plate-gov">@v.Governorate</span>
+                                                                        @if (!string.IsNullOrWhiteSpace(v.PlateLetter))
+                                                                        {
+                                                                            <span class="iq-plate-letter">@v.PlateLetter</span>
+                                                                        }
+                                                                        <span class="iq-plate-num">@v.PlateNumber</span>
+                                                                    </div>
+
+                                                                    @if (v.IsAuthorized)
+                                                                    {
+                                                                        <span class="hr-badge hr-badge-ok">
+                                                                            <Icon Name="check-circle" Size="xs" />
+                                                                            <span>مخولة بالدخول</span>
+                                                                        </span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="hr-badge hr-badge-danger">
+                                                                            <Icon Name="no-symbol" Size="xs" />
+                                                                            <span>غير مخولة</span>
+                                                                        </span>
+                                                                    }
+                                                                </div>
+
+                                                                <div style="display:flex;align-items:baseline;justify-content:space-between;padding-bottom:0.35rem;border-bottom:1px solid var(--line-soft);">
+                                                                    <strong style="font-size:1.02rem;">@v.Brand @v.Model</strong>
+                                                                    <div style="display:flex;gap:0.35rem;">
+                                                                        @if (!string.IsNullOrWhiteSpace(v.Color))
+                                                                        {
+                                                                            <span class="hr-meta" style="font-size:0.8rem;">اللون: @v.Color</span>
+                                                                        }
+                                                                        @if (v.ManufacturingYear.HasValue)
+                                                                        {
+                                                                            <span class="hr-meta" style="font-size:0.8rem;">موديل: @v.ManufacturingYear</span>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+
+                                                                @if (!string.IsNullOrWhiteSpace(v.Vin))
+                                                                {
+                                                                    <div style="font-size:0.78rem;background:var(--surface);padding:0.25rem 0.5rem;border-radius:var(--r-sm);border:1px solid var(--line-soft);display:flex;justify-content:space-between;">
+                                                                        <span class="hr-meta">رقم الشاصي:</span>
+                                                                        <code dir="ltr" style="font-family:monospace;font-weight:600;color:var(--accent);">@v.Vin</code>
+                                                                    </div>
+                                                                }
+
+                                                                <div>
+                                                                    <span class="hr-meta" style="font-size:0.75rem;display:block;margin-bottom:0.3rem;">المقرات المصرح بدخولها:</span>
+                                                                    <div style="display:flex;gap:0.3rem;flex-wrap:wrap;">
+                                                                        <span class="hr-gate-pill @(v.AllowMainBuilding ? "is-allowed" : "is-blocked")" title="1- المبنى الرئيسي">1- الرئيسي</span>
+                                                                        <span class="hr-gate-pill @(v.AllowJadriya ? "is-allowed" : "is-blocked")" title="2- الجادرية">2- الجادرية</span>
+                                                                        <span class="hr-gate-pill @(v.AllowErbil ? "is-allowed" : "is-blocked")" title="3- أربيل">3- أربيل</span>
+                                                                        <span class="hr-gate-pill @(v.AllowMosul ? "is-allowed" : "is-blocked")" title="4- الموصل">4- الموصل</span>
+                                                                        <span class="hr-gate-pill @(v.AllowBasra ? "is-allowed" : "is-blocked")" title="5- البصرة">5- البصرة</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div style="padding:1rem 1.25rem;background:var(--surface-sunken);border-radius:var(--r-md);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
+                                                        <div style="display:flex;align-items:center;gap:0.6rem;">
+                                                            <span class="hr-iconplate hr-plate-d" style="width:2rem;height:2rem;"><Icon Name="truck" Size="xs" /></span>
+                                                            <div>
+                                                                <strong style="font-size:0.92rem;display:block;">لا توجد مركبات مسجلة لهذا الموظف حالياً</strong>
+                                                                <span class="hr-meta" style="font-size:0.8rem;">يمكنك تسجيل سيارة جديدة وإصدار تصاريح الدخول للمقرات الخمسة بسهولة.</span>
+                                                            </div>
+                                                        </div>
+                                                        <a href="employee-vehicles/@emp.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
+                                                            <Icon Name="plus" Size="xs" />
+                                                            <span>تسجيل مركبة الآن</span>
+                                                        </a>
+                                                    </div>
+                                                }
+                                            </div>
+
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="hr-card-body">
+              <div class="hr-cardsview">
+                <ul class="hr-grid-cards hr-grid-cards-quad hr-plainlist">
+                    @foreach (var emp in employees)
+                    {
+                        <li @key="@("c-" + emp.EmployeeID)">
+                            <article class="hr-empcard">
+                                <div class="hr-empcard-top">
+                                    <span class="hr-badge hr-num">@emp.EmployeeID</span>
+                                    @PhotoBadge(emp)
+                                </div>
+
+                                <div class="hr-empcard-face">
+                                    @if (emp.HasProfilePhoto && photoThumbnails.TryGetValue(emp.EmployeeID, out var cardThumb))
+                                    {
+                                        <button type="button" class="hr-facebtn"
+                                                @onclick="() => OpenRecord(emp)"
+                                                aria-label="@($"فتح سجل {emp.Name}")">
+                                            <img src="@cardThumb" alt="@($"الصورة الشخصية للموظف {emp.Name}")" loading="lazy" decoding="async"
+                                                 @onerror="() => photoThumbnails.Remove(emp.EmployeeID)" />
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-facebtn hr-facebtn-none"
+                                              style="background:@AvatarTone(emp.EmployeeID)" aria-hidden="true">
+                                            @AvatarInitials.FromName(emp.Name)
+                                        </span>
+                                    }
+                                </div>
+
+                                <div class="hr-empcard-body">
+                                    <h3 class="hr-h3 hr-balance">
+                                        <a href="employees/@emp.EmployeeID" class="hr-link" title="عرض الملف الإلكتروني">
+                                            @emp.Name
+                                        </a>
+                                    </h3>
+                                    <p class="hr-meta hr-clamp-2" style="margin-block-start:.25rem">@Or(emp.JobTitle)</p>
+
+                                    <div class="hr-chips" style="justify-content:center;margin-block-start:.75rem">
+                                        @if (!string.IsNullOrWhiteSpace(emp.Formation))
+                                        {
+                                            <span class="hr-badge" title="التشكيل الإداري">
+                                                <Icon Name="building-office-2" Size="xs" />
+                                                <span class="hr-truncate">@emp.Formation</span>
+                                            </span>
+                                        }
+                                        <span class="hr-badge" title="الدرجة الوظيفية">
+                                            <Icon Name="academic-cap" Size="xs" />
+                                            <span>@Or(emp.Grade)</span>
+                                        </span>
+                                        <span class="hr-badge" title="المرحلة الوظيفية">
+                                            <Icon Name="square-3-stack-3d" Size="xs" />
+                                            <span>@Or(emp.Stage)</span>
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="hr-empcard-foot">
+                                    <a class="hr-btn hr-btn-primary hr-btn-sm"
+                                       href="employees/@emp.EmployeeID"
+                                       aria-label="@($"الملف الإلكتروني للموظف {emp.Name}")"
+                                       title="عرض الملف الإلكتروني الشامل">
+                                        <Icon Name="user-circle" Size="xs" />
+                                        <span>الملف الإلكتروني</span>
+                                    </a>
+
+                                    @if (isArchivedView)
+                                    {
+                                        @if (canManageLifecycle)
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                    @onclick="() => PromptRestore(emp)"
+                                                    title="استرجاع الموظف إلى النظام والتقارير"
+                                                    aria-label="@($"استرجاع {emp.Name} إلى النظام والتقارير")">
+                                                <Icon Name="arrow-uturn-left" Size="xs" />
+                                                <span>استرجاع</span>
+                                            </button>
+
+                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => PromptHardDelete(emp)"
+                                                    title="حذف نهائي لا رجعة فيه"
+                                                    aria-label="@($"حذف نهائي للموظف {emp.Name}")">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                @onclick="() => OpenRecord(emp)"
+                                                aria-label="@($"معاينة سريعة لسجل {emp.Name}")" title="معاينة سريعة">
+                                            <Icon Name="clipboard-document-list" Size="xs" />
+                                        </button>
+
+                                        <a class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                           href="employee-contacts/@emp.EmployeeID"
+                                           aria-label="@($"وسائل التواصل للموظف {emp.Name}")"
+                                           title="وسائل التواصل">
+                                            <Icon Name="phone" Size="xs" />
+                                        </a>
+
+                                        <a class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                           href="employee-vehicles/@emp.EmployeeID"
+                                           aria-label="@($"مركبات وتصاريح دخول الموظف {emp.Name}")"
+                                           title="مركبات وتصاريح دخول الموظف">
+                                            <Icon Name="truck" Size="xs" />
+                                        </a>
+
+                                        @UploadControl(emp)
+
+                                        @if (emp.HasProfilePhoto)
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => pendingDelete = emp"
+                                                    aria-label="@($"حذف صورة {emp.Name}")" title="حذف الصورة">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        }
+
+                                        @if (canManageLifecycle)
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => PromptArchive(emp)"
+                                                    title="استبعاد مؤقت من النظام والتقارير"
+                                                    aria-label="@($"استبعاد مؤقت للموظف {emp.Name}")">
+                                                <Icon Name="archive-box" Size="xs" />
+                                            </button>
+
+                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                    @onclick="() => PromptHardDelete(emp)"
+                                                    title="حذف نهائي لا رجعة فيه"
+                                                    aria-label="@($"حذف نهائي للموظف {emp.Name}")">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        }
+                                    }
+                                </div>
+                            </article>
+                        </li>
+                    }
+                </ul>
+              </div>
+            </div>
+        }
+
+        @if (!isLoading && !loadFailed && employees.Count > 0)
+        {
+            <div class="hr-card-foot">
+                <div class="hr-pager">
+                    <p class="hr-meta">
+                        عرض <span class="hr-num">@N(RangeStart)</span>
+                        إلى <span class="hr-num">@N(RangeEnd)</span>
+                        من <span class="hr-num">@N(totalCount)</span>
+                    </p>
+
+                    <div class="hr-pager-controls">
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(1)"
+                                disabled="@(currentPage == 1)" aria-label="الصفحة الأولى">
+                            <Icon Name="chevron-double-right" Size="xs" />
+                        </button>
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(currentPage - 1)"
+                                disabled="@(currentPage == 1)" aria-label="الصفحة السابقة">
+                            <Icon Name="chevron-right" Size="xs" />
+                        </button>
+
+                        <span class="hr-meta hr-pager-status" aria-live="polite">
+                            صفحة <span class="hr-num">@currentPage</span> من <span class="hr-num">@totalPages</span>
+                        </span>
+
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(currentPage + 1)"
+                                disabled="@(currentPage >= totalPages)" aria-label="الصفحة التالية">
+                            <Icon Name="chevron-left" Size="xs" />
+                        </button>
+                        <button type="button" class="hr-pager-btn" @onclick="() => ChangePage(totalPages)"
+                                disabled="@(currentPage >= totalPages)" aria-label="الصفحة الأخيرة">
+                            <Icon Name="chevron-double-left" Size="xs" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </section>
+</div>
+
+@* ---------- full record ---------- *@
+<Modal IsOpen="@(recordEmployee is not null)"
+       Title="@(recordEmployee?.Name ?? "سجل الموظف")"
+       Subtitle="@(recordEmployee is null ? null : $"الرقم الوظيفي {recordEmployee.EmployeeID} · {Or(recordEmployee.JobTitle)}")"
+       Icon="identification"
+       Size="xl"
+       OnClose="CloseRecord">
+    <Body>
+        @if (recordEmployee is not null)
+        {
+            <div class="hr-preview">
+                <div class="hr-preview-media">
+                    @if (!string.IsNullOrEmpty(recordPhotoUrl))
+                    {
+                        <img src="@recordPhotoUrl" alt="@($"الصورة الشخصية للموظف {recordEmployee.Name}")"
+                             hidden="@isRecordPhotoLoading"
+                             @onload="OnRecordPhotoLoaded"
+                             @onerror="OnRecordPhotoFailed" />
+                    }
+                    @if (isRecordPhotoLoading)
+                    {
+                        <div class="hr-skeleton" style="width:100%;aspect-ratio:3/4;border-radius:var(--r)" aria-hidden="true"></div>
+                        <p class="hr-sr">جارٍ تحميل الصورة الأصلية…</p>
+                    }
+                    else if (string.IsNullOrEmpty(recordPhotoUrl))
+                    {
+                        <div class="hr-preview-none">
+                            <Icon Name="photo" Size="xl" />
+                            <p class="hr-meta" style="margin-block-start:.5rem">لا توجد صورة شخصية</p>
+                        </div>
+                    }
+                </div>
+
+                <div>
+                    <div class="hr-chips" style="margin-block-end:.75rem">
+                        @PhotoBadge(recordEmployee)
+                        <span class="hr-badge">@Or(recordEmployee.EmployeeStatus, "مستمر")</span>
+                        @if (recordEmployee.HasProfilePhoto)
+                        {
+                            <span class="hr-badge">تخزين خاص ومُدقَّق</span>
+                        }
+                    </div>
+
+                    @RecordFields(recordEmployee)
+                </div>
+            </div>
+        }
+    </Body>
+    <Footer>
+        @if (!string.IsNullOrEmpty(recordPhotoUrl) && !isRecordPhotoLoading && recordEmployee is not null)
+        {
+            <a class="hr-btn hr-btn-secondary"
+               href="@recordPhotoUrl"
+               download="@($"Employee_{recordEmployee.EmployeeID}_Profile.jpg")">
+                <Icon Name="arrow-down-tray" Size="xs" />
+                <span>تحميل الصورة</span>
+            </a>
+        }
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="CloseRecord">إغلاق</button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog IsOpen="@(pendingDelete is not null)"
+               Title="حذف الصورة الشخصية"
+               Subject="@(pendingDelete is null ? null : $"{pendingDelete.Name} · {pendingDelete.EmployeeID}")"
+               Message="سيُلغى تفعيل الصورة الحالية ولن تظهر في سجلات الموظف. يمكن رفع صورة جديدة لاحقاً."
+               ConfirmText="حذف الصورة"
+               IsBusy="@isDeletingPhoto"
+               OnConfirm="ConfirmDeletePhoto"
+               OnCancel="() => pendingDelete = null" />
+
+@* ---------- Archive Employee Modal ---------- *@
+<Modal IsOpen="@(employeeToArchive is not null)"
+       Title="استبعاد الموظف مؤقتاً (أرشفة)"
+       Subtitle="@(employeeToArchive is null ? null : $"الموظف: {employeeToArchive.Name} · الرقم الوظيفي: {employeeToArchive.EmployeeID}")"
+       Icon="archive-box"
+       Size="md"
+       OnClose="() => employeeToArchive = null">
+    <Body>
+        @if (employeeToArchive is not null)
+        {
+            <div class="hr-stack-sm">
+                <div class="hr-alert hr-alert-warn">
+                    <p style="margin:0">
+                        <strong>تنبيه:</strong> سيتم استبعاد هذا الموظف مؤقتاً من كافة التقارير ولوحات التحكم وقوائم الموظفين النشطة.
+                        سيتم الاحتفاظ بكامل بياناته وسجلاته في الأرشيف ويمكن استرجاعه بنشاط كامل في أي وقت.
+                    </p>
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="archive-reason">سبب الاستبعاد المؤقت</label>
+                    <input id="archive-reason" type="text" class="hr-input" @bind="archiveReasonInput"
+                           placeholder="مثال: إجازة طويلة بدون راتب، إعارة، تحقيق إداري، استبعاد بقرار إدارة..." />
+                </div>
+
+                <div class="hr-chips" style="margin-block-start:.25rem">
+                    <span class="hr-meta">أسباب شائعة:</span>
+                    <button type="button" class="hr-chip" @onclick='() => archiveReasonInput = "إجازة طويلة بدون راتب"'>إجازة بدون راتب</button>
+                    <button type="button" class="hr-chip" @onclick='() => archiveReasonInput = "إعارة إلى جهة أخرى"'>إعارة</button>
+                    <button type="button" class="hr-chip" @onclick='() => archiveReasonInput = "إجراء إداري / تدقيق"'>تدقيق إداري</button>
+                    <button type="button" class="hr-chip" @onclick='() => archiveReasonInput = "استبعاد بقرار الإدارة"'>قرار إدارة</button>
+                </div>
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => employeeToArchive = null" disabled="@isPerformingAction">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="ConfirmArchive" disabled="@isPerformingAction">
+            @if (isPerformingAction)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ الحفظ…</span>
+            }
+            else
+            {
+                <Icon Name="archive-box" Size="xs" />
+                <span>تأكيد الاستبعاد المؤقت</span>
+            }
+        </button>
+    </Footer>
+</Modal>
+
+@* ---------- Restore Employee Modal ---------- *@
+<ConfirmDialog IsOpen="@(employeeToRestore is not null)"
+               Title="استرجاع الموظف إلى النظام"
+               Subject="@(employeeToRestore is null ? null : $"{employeeToRestore.Name} · {employeeToRestore.EmployeeID}")"
+               Message="سيتم إلغاء الاستبعاد المؤقت وإعادة الموظف للظهور في كافة التقارير والقوائم والإحصائيات بنشاط كامل."
+               ConfirmText="استرجاع الموظف"
+               IsBusy="@isPerformingAction"
+               OnConfirm="ConfirmRestore"
+               OnCancel="() => employeeToRestore = null" />
+
+@* ---------- Hard Delete Employee Modal ---------- *@
+<ConfirmDialog IsOpen="@(employeeToDelete is not null)"
+               Title="حذف الموظف نهائياً (Hard Delete)"
+               Subject="@(employeeToDelete is null ? null : $"تحذير: {employeeToDelete.Name} · {employeeToDelete.EmployeeID}")"
+               Message="تحذير شديد: سيتم حذف هذا الموظف نهائياً من قاعدة البيانات مع كافة السجلات المرتبطة به (الملفات، الإجازات، العقوبات، الشهادات، الحركات، الحسابات المالية). لا يمكن التراجع عن هذا الإجراء إطلاقاً!"
+               ConfirmText="حذف نهائي لا رجعة فيه"
+               IsBusy="@isPerformingAction"
+               OnConfirm="ConfirmHardDelete"
+               OnCancel="() => employeeToDelete = null" />
+
+@* ---------- operation feedback ---------- *@
+@* The region is always in the document so an announcement is not competing
+   with the node that carries it being inserted at the same moment. *@
+<div class="hr-toasts" role="status" aria-live="polite">
+    @if (!string.IsNullOrEmpty(toastMessage))
+    {
+        <div class="hr-toast">
+            <span class="hr-iconplate @(toastIsSuccess ? "hr-iconplate-ok" : "hr-iconplate-danger")" aria-hidden="true">
+                <Icon Name="@(toastIsSuccess ? "check-circle" : "exclamation-triangle")" Size="sm" />
+            </span>
+            <p class="hr-alert-grow hr-wrap-any">@toastMessage</p>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                    @onclick="DismissToast" aria-label="إخفاء الرسالة">
+                <Icon Name="x-mark" Size="sm" />
+            </button>
+        </div>
+    }
+</div>
+
+<style>
+    .hr-info-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+    .hr-info-item {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+        font-size: 0.88rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px dashed var(--line-soft);
+    }
+    .hr-info-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+    .hr-info-k {
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .hr-info-v {
+        color: var(--text);
+        font-weight: 500;
+        text-align: left;
+    }
+
+    .iq-license-plate {
+        display: inline-flex;
+        align-items: stretch;
+        direction: rtl;
+        background: #ffffff;
+        color: #111827;
+        border: 2px solid #1f2937;
+        border-radius: 6px;
+        font-weight: 700;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        overflow: hidden;
+        user-select: none;
+        height: 28px;
+        font-family: inherit;
+    }
+    .iq-plate-gov {
+        background: #1e3a8a;
+        color: #ffffff;
+        padding: 0 8px;
+        font-size: 0.72rem;
+        display: flex;
+        align-items: center;
+        border-left: 2px solid #1f2937;
+        white-space: nowrap;
+    }
+    .iq-plate-letter {
+        padding: 0 7px;
+        font-size: 0.92rem;
+        display: flex;
+        align-items: center;
+        border-left: 1px dashed #9ca3af;
+        color: #1e3a8a;
+    }
+    .iq-plate-num {
+        padding: 0 9px;
+        font-size: 0.98rem;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        font-family: var(--font-numeric);
+    }
+</style>
+
+@code {
+    // ---------- data ----------
+    private List<EmployeeResponse> employees = [];
+    // Thumbnail URL per employee on the current page; a failed load drops its
+    // entry so the face falls back to initials.
+    private readonly Dictionary<string, string> photoThumbnails = new();
+    private List<string> statusOptions = [];
+    private List<string> formationOptions = [];
+    private List<string> jobTitleOptions = [];
+    private List<string> positionOptions = [];
+    private List<string> educationOptions = [];
+    private List<string> specializationOptions = [];
+    private List<string> hireYearOptions = [];
+    private List<string> birthYearOptions = [];
+
+    // ---------- query state ----------
+    private string? searchTerm;
+    private string photoFilter = "all";
+    private HashSet<string> selectedStatuses = new();
+    private HashSet<string> selectedFormations = new();
+    private HashSet<string> selectedJobTitles = new();
+    private HashSet<string> selectedPositions = new();
+    private HashSet<string> selectedEducations = new();
+    private HashSet<string> selectedSpecializations = new();
+    private HashSet<string> selectedHireYears = new();
+    private HashSet<string> selectedBirthYears = new();
+    private string sortKey = "id";
+    private bool sortDesc;
+    private int currentPage = 1;
+    private int pageSize = 12;
+
+    // ---------- counts ----------
+    private int totalCount;
+    private int grandTotal;
+    private int withPhotoCount;
+    private int withoutPhotoCount;
+    private int totalPages = 1;
+
+    // ---------- lifecycle state ----------
+    private bool isArchivedView;
+    private int archivedCount;
+    private int activeTotalCount;
+    private bool canManageLifecycle;
+    private string currentUserName = "User";
+
+    private EmployeeResponse? employeeToArchive;
+    private string archiveReasonInput = "استبعاد إداري مؤقت";
+    private EmployeeResponse? employeeToRestore;
+    private EmployeeResponse? employeeToDelete;
+    private bool isPerformingAction;
+
+    // ---------- ui state ----------
+    private string viewMode = "table";
+    private bool isLoading = true;
+    private bool loadFailed;
+    private string? expandedId;
+    private string? uploadingId;
+
+    private EmployeeResponse? recordEmployee;
+    private string? recordPhotoUrl;
+    private bool isRecordPhotoLoading;
+
+    private EmployeeResponse? pendingDelete;
+    private bool isDeletingPhoto;
+
+    private string? toastMessage;
+    private bool toastIsSuccess = true;
+    private CancellationTokenSource? toastCts;
+    private CancellationTokenSource? searchCts;
+
+    // ---------- derived ----------
+
+    private string FormationFilterTitle => selectedFormations.Count > 0 ? $"التشكيلات ({selectedFormations.Count})" : "كل التشكيلات";
+    private string PositionFilterTitle => selectedPositions.Count > 0 ? $"المناصب ({selectedPositions.Count})" : "كل المناصب";
+    private string JobTitleFilterTitle => selectedJobTitles.Count > 0 ? $"العناوين الوظيفية ({selectedJobTitles.Count})" : "كل العناوين الوظيفية";
+    private string EducationFilterTitle => selectedEducations.Count > 0 ? $"الشهادات ({selectedEducations.Count})" : "كل الشهادات";
+    private string SpecializationFilterTitle => selectedSpecializations.Count > 0 ? $"الاختصاصات ({selectedSpecializations.Count})" : "كل الاختصاصات";
+    private string HireYearFilterTitle => selectedHireYears.Count > 0 ? $"سنة المباشرة ({selectedHireYears.Count})" : "كل سنوات المباشرة";
+    private string BirthYearFilterTitle => selectedBirthYears.Count > 0 ? $"سنة التولد ({selectedBirthYears.Count})" : "كل سنوات التولد";
+    private string StatusFilterTitle => selectedStatuses.Count > 0 ? $"الحالات ({selectedStatuses.Count})" : "كل الحالات";
+
+    private double CoveragePct => grandTotal > 0 ? withPhotoCount * 100.0 / grandTotal : 0;
+
+    private int RangeStart => totalCount == 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
+    private int RangeEnd => Math.Min(currentPage * pageSize, totalCount);
+
+    private string SortLabel => sortKey switch
+    {
+        "name" => "الاسم",
+        "formation" => "التشكيل",
+        "position" => "المنصب",
+        "job" => "العنوان الوظيفي",
+        "hire" => "تاريخ المباشرة",
+        "birth" => "تاريخ التولد",
+        "specialization" => "الاختصاص",
+        "education" => "الشهادة",
+        _ => "الرقم الوظيفي"
+    };
+
+    private int ActiveFilterCount =>
+        (string.IsNullOrWhiteSpace(searchTerm) ? 0 : 1)
+        + (photoFilter == "all" ? 0 : 1)
+        + selectedFormations.Count
+        + selectedPositions.Count
+        + selectedJobTitles.Count
+        + selectedEducations.Count
+        + selectedSpecializations.Count
+        + selectedHireYears.Count
+        + selectedBirthYears.Count
+        + selectedStatuses.Count;
+
+    // Every active filter is one removable control, so a reader can undo
+    // exactly the one they meant instead of resetting the whole query.
+    private sealed record ActiveFilter(string Key, string Value, Func<Task> Remove);
+
+    private IEnumerable<ActiveFilter> ActiveFilters()
+    {
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            yield return new ActiveFilter("بحث", searchTerm!, ClearSearch);
+        }
+
+        if (photoFilter != "all")
+        {
+            yield return new ActiveFilter(
+                "حالة الصورة",
+                photoFilter == "withPhoto" ? "لديهم صورة" : "بدون صورة",
+                () => SetPhotoFilter("all"));
+        }
+
+        foreach (var formation in selectedFormations.ToList())
+        {
+            yield return new ActiveFilter("التشكيل", formation, () => RemoveFormation(formation));
+        }
+
+        foreach (var position in selectedPositions.ToList())
+        {
+            yield return new ActiveFilter("المنصب", position, () => RemovePosition(position));
+        }
+
+        foreach (var job in selectedJobTitles.ToList())
+        {
+            yield return new ActiveFilter("العنوان الوظيفي", job, () => RemoveJobTitle(job));
+        }
+
+        foreach (var edu in selectedEducations.ToList())
+        {
+            yield return new ActiveFilter("الشهادة", edu, () => RemoveEducation(edu));
+        }
+
+        foreach (var spec in selectedSpecializations.ToList())
+        {
+            yield return new ActiveFilter("الاختصاص", spec, () => RemoveSpecialization(spec));
+        }
+
+        foreach (var year in selectedHireYears.ToList())
+        {
+            yield return new ActiveFilter("سنة المباشرة", year, () => RemoveHireYear(year));
+        }
+
+        foreach (var year in selectedBirthYears.ToList())
+        {
+            yield return new ActiveFilter("سنة التولد", year, () => RemoveBirthYear(year));
+        }
+
+        foreach (var status in selectedStatuses.ToList())
+        {
+            yield return new ActiveFilter("الحالة", status, () => RemoveStatus(status));
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        canManageLifecycle = user.IsInRole("Admin") || user.IsInRole("HRManager");
+        currentUserName = user.Identity?.Name ?? "User";
+
+        await LoadFilterOptions();
+        await LoadEmployees();
+    }
+
+    // ---------- loading ----------
+
+    private async Task LoadFilterOptions()
+    {
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            statusOptions = await db.EmployeeStatuses.AsNoTracking()
+                .Select(s => s.Name).Where(s => !string.IsNullOrEmpty(s))
+                .Distinct().OrderBy(s => s).ToListAsync();
+
+            formationOptions = await db.Formations.AsNoTracking()
+                .Select(f => f.Name).Where(f => !string.IsNullOrEmpty(f))
+                .Distinct().OrderBy(f => f).ToListAsync();
+
+            positionOptions = await db.PositionTitles.AsNoTracking()
+                .Select(p => p.Name).Where(p => !string.IsNullOrEmpty(p))
+                .Distinct().OrderBy(p => p).ToListAsync();
+
+            jobTitleOptions = await db.JobTitles.AsNoTracking()
+                .Select(j => j.Name).Where(j => !string.IsNullOrEmpty(j))
+                .Distinct().OrderBy(j => j).ToListAsync();
+
+            educationOptions = await db.EducationLevels.AsNoTracking()
+                .Select(e => e.Name).Where(e => !string.IsNullOrEmpty(e))
+                .Distinct().OrderBy(e => e).ToListAsync();
+
+            specializationOptions = await db.Specializations.AsNoTracking()
+                .Select(s => s.Name).Where(s => !string.IsNullOrEmpty(s))
+                .Distinct().OrderBy(s => s).ToListAsync();
+
+            var hireYears = await db.Employees.AsNoTracking()
+                .Where(e => e.HireDate != null)
+                .Select(e => e.HireDate!.Value.Year)
+                .Distinct().OrderByDescending(y => y).ToListAsync();
+            hireYearOptions = hireYears.Select(y => y.ToString()).ToList();
+
+            var birthYears = await db.Employees.AsNoTracking()
+                .Where(e => e.BirthDate != null)
+                .Select(e => e.BirthDate!.Value.Year)
+                .Distinct().OrderByDescending(y => y).ToListAsync();
+            birthYearOptions = birthYears.Select(y => y.ToString()).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load filter options.");
+        }
+    }
+
+    private async Task LoadEmployees()
+    {
+        isLoading = true;
+        loadFailed = false;
+        StateHasChanged();
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            withPhotoCount = await db.EmployeeProfilePhotos.AsNoTracking()
+                .Where(p => p.IsActive).Select(p => p.EmployeeID).Distinct().CountAsync();
+
+            archivedCount = await LifecycleService.GetArchivedCountAsync();
+            grandTotal = await db.Employees.AsNoTracking().CountAsync();
+            activeTotalCount = grandTotal;
+            withoutPhotoCount = Math.Max(0, grandTotal - withPhotoCount);
+
+            IQueryable<Employee> query = isArchivedView
+                ? db.Employees.IgnoreQueryFilters().Where(e => e.IsArchived).AsNoTracking()
+                : db.Employees.AsNoTracking();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                var term = searchTerm.Trim();
+                query = query.Where(e => e.EmployeeID.Contains(term) || e.Name.Contains(term));
+            }
+
+            if (selectedStatuses.Count > 0)
+            {
+                query = query.Where(e => e.EmployeeStatus != null && selectedStatuses.Contains(e.EmployeeStatus.Name));
+            }
+
+            if (selectedFormations.Count > 0)
+            {
+                query = query.Where(e => e.Formation != null && selectedFormations.Contains(e.Formation.Name));
+            }
+
+            if (selectedPositions.Count > 0)
+            {
+                query = query.Where(e => e.PositionTitle != null && selectedPositions.Contains(e.PositionTitle.Name));
+            }
+
+            if (selectedJobTitles.Count > 0)
+            {
+                query = query.Where(e => e.JobTitle != null && selectedJobTitles.Contains(e.JobTitle.Name));
+            }
+
+            if (selectedEducations.Count > 0)
+            {
+                query = query.Where(e => e.EducationLevel != null && selectedEducations.Contains(e.EducationLevel.Name));
+            }
+
+            if (selectedSpecializations.Count > 0)
+            {
+                query = query.Where(e => e.Specialization != null && selectedSpecializations.Contains(e.Specialization.Name));
+            }
+
+            if (selectedHireYears.Count > 0)
+            {
+                var years = selectedHireYears.Where(y => int.TryParse(y, out _)).Select(int.Parse).ToList();
+                if (years.Count > 0)
+                {
+                    query = query.Where(e => e.HireDate != null && years.Contains(e.HireDate.Value.Year));
+                }
+            }
+
+            if (selectedBirthYears.Count > 0)
+            {
+                var years = selectedBirthYears.Where(y => int.TryParse(y, out _)).Select(int.Parse).ToList();
+                if (years.Count > 0)
+                {
+                    query = query.Where(e => e.BirthDate != null && years.Contains(e.BirthDate.Value.Year));
+                }
+            }
+
+            if (photoFilter == "withPhoto")
+            {
+                query = query.Where(e => db.EmployeeProfilePhotos.Any(p => p.EmployeeID == e.EmployeeID && p.IsActive));
+            }
+            else if (photoFilter == "withoutPhoto")
+            {
+                query = query.Where(e => !db.EmployeeProfilePhotos.Any(p => p.EmployeeID == e.EmployeeID && p.IsActive));
+            }
+
+            totalCount = await query.CountAsync();
+            totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+            if (currentPage > totalPages) currentPage = 1;
+
+            query = sortKey switch
+            {
+                "id" => sortDesc ? query.OrderByDescending(e => e.EmployeeID) : query.OrderBy(e => e.EmployeeID),
+                "name" => sortDesc ? query.OrderByDescending(e => e.Name) : query.OrderBy(e => e.Name),
+                "formation" => sortDesc 
+                    ? query.OrderByDescending(e => e.Formation == null ? string.Empty : e.Formation.Name) 
+                    : query.OrderBy(e => e.Formation == null ? string.Empty : e.Formation.Name),
+                "position" => sortDesc 
+                    ? query.OrderByDescending(e => e.PositionTitle != null ? e.PositionTitle.Name : (e.JobTitle != null ? e.JobTitle.Name : string.Empty)) 
+                    : query.OrderBy(e => e.PositionTitle != null ? e.PositionTitle.Name : (e.JobTitle != null ? e.JobTitle.Name : string.Empty)),
+                "job" => sortDesc
+                    ? query.OrderByDescending(e => e.JobTitle == null ? string.Empty : e.JobTitle.Name)
+                    : query.OrderBy(e => e.JobTitle == null ? string.Empty : e.JobTitle.Name),
+                "hire" => sortDesc ? query.OrderByDescending(e => e.HireDate) : query.OrderBy(e => e.HireDate),
+                "birth" => sortDesc ? query.OrderByDescending(e => e.BirthDate) : query.OrderBy(e => e.BirthDate),
+                "education" => sortDesc 
+                    ? query.OrderByDescending(e => e.EducationLevel == null ? string.Empty : e.EducationLevel.Name) 
+                    : query.OrderBy(e => e.EducationLevel == null ? string.Empty : e.EducationLevel.Name),
+                "specialization" => sortDesc 
+                    ? query.OrderByDescending(e => e.Specialization == null ? string.Empty : e.Specialization.Name) 
+                    : query.OrderBy(e => e.Specialization == null ? string.Empty : e.Specialization.Name),
+                _ => sortDesc ? query.OrderByDescending(e => e.EmployeeID) : query.OrderBy(e => e.EmployeeID)
+            };
+
+            employees = await query
+                .Skip((currentPage - 1) * pageSize)
+                .Take(pageSize)
+                .Select(e => new EmployeeResponse(
+                    e.Formation == null ? string.Empty : e.Formation.Name,
+                    e.EmployeeID,
+                    e.Name,
+                    e.JobTitle == null ? string.Empty : e.JobTitle.Name,
+                    e.PositionTitle == null ? string.Empty : e.PositionTitle.Name,
+                    e.Stage == null ? string.Empty : e.Stage.Name,
+                    e.Grade == null ? string.Empty : e.Grade.Name,
+                    e.EducationLevel == null ? string.Empty : e.EducationLevel.Name,
+                    e.Specialization == null ? string.Empty : e.Specialization.Name,
+                    e.LastJobTitleDate,
+                    e.HireDate,
+                    e.Gender == null ? string.Empty : e.Gender.Name,
+                    e.Religion == null ? string.Empty : e.Religion.Name,
+                    e.Nationality == null ? string.Empty : e.Nationality.Name,
+                    e.FirstDepartment ?? string.Empty,
+                    e.BirthDate,
+                    e.EmployeeStatus == null ? string.Empty : e.EmployeeStatus.Name,
+                    db.EmployeeProfilePhotos.Any(p => p.EmployeeID == e.EmployeeID && p.IsActive),
+                    db.EmployeeProfilePhotos.Where(p => p.EmployeeID == e.EmployeeID && p.IsActive)
+                        .Select(p => (int?)p.Version).FirstOrDefault(),
+                    e.IsArchived,
+                    e.ArchivedAt,
+                    e.ArchiveReason,
+                    e.ArchivedBy))
+                .ToListAsync();
+
+            BuildThumbnailUrls();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load employees list.");
+            loadFailed = true;
+            employees = [];
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void PromptArchive(EmployeeResponse emp)
+    {
+        employeeToArchive = emp;
+        archiveReasonInput = "استبعاد إداري مؤقت";
+    }
+
+    private void PromptRestore(EmployeeResponse emp)
+    {
+        employeeToRestore = emp;
+    }
+
+    private void PromptHardDelete(EmployeeResponse emp)
+    {
+        employeeToDelete = emp;
+    }
+
+    private async Task SwitchDirectoryView(bool archived)
+    {
+        if (isArchivedView == archived) return;
+        isArchivedView = archived;
+        currentPage = 1;
+        await LoadEmployees();
+    }
+
+    private async Task ConfirmArchive()
+    {
+        if (employeeToArchive is null) return;
+        isPerformingAction = true;
+        try
+        {
+            var result = await LifecycleService.ArchiveEmployeeAsync(
+                employeeToArchive.EmployeeID,
+                archiveReasonInput,
+                currentUserName);
+
+            ShowToast(result.Message, result.Succeeded);
+            if (result.Succeeded)
+            {
+                employeeToArchive = null;
+                await LoadEmployees();
+            }
+        }
+        finally
+        {
+            isPerformingAction = false;
+        }
+    }
+
+    private async Task ConfirmRestore()
+    {
+        if (employeeToRestore is null) return;
+        isPerformingAction = true;
+        try
+        {
+            var result = await LifecycleService.RestoreEmployeeAsync(
+                employeeToRestore.EmployeeID,
+                currentUserName);
+
+            ShowToast(result.Message, result.Succeeded);
+            if (result.Succeeded)
+            {
+                employeeToRestore = null;
+                await LoadEmployees();
+            }
+        }
+        finally
+        {
+            isPerformingAction = false;
+        }
+    }
+
+    private async Task ConfirmHardDelete()
+    {
+        if (employeeToDelete is null) return;
+        isPerformingAction = true;
+        try
+        {
+            var result = await LifecycleService.DeletePermanentlyAsync(
+                employeeToDelete.EmployeeID,
+                currentUserName);
+
+            ShowToast(result.Message, result.Succeeded);
+            if (result.Succeeded)
+            {
+                employeeToDelete = null;
+                await LoadEmployees();
+            }
+        }
+        finally
+        {
+            isPerformingAction = false;
+        }
+    }
+
+    // Faces load from the photo endpoint, not through the circuit. The version
+    // in the URL changes when a photo is replaced, so the image swaps; the
+    // browser's ETag revalidation makes paging back to a seen page cost 304s.
+    private void BuildThumbnailUrls()
+    {
+        photoThumbnails.Clear();
+
+        foreach (var emp in employees.Where(e => e.HasProfilePhoto))
+        {
+            photoThumbnails[emp.EmployeeID] = ProfilePhotoUrls.Thumbnail(emp.EmployeeID, emp.ProfilePhotoVersion);
+        }
+    }
+
+    // ---------- query handlers ----------
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString();
+
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+        searchCts = new CancellationTokenSource();
+        var token = searchCts.Token;
+
+        try { await Task.Delay(300, token); }
+        catch (TaskCanceledException) { return; }
+
+        if (token.IsCancellationRequested) return;
+
+        currentPage = 1;
+        expandedId = null;
+        await LoadEmployees();
+    }
+
+    private async Task ClearSearch()
+    {
+        searchCts?.Cancel();
+        searchTerm = null;
+        currentPage = 1;
+        await LoadEmployees();
+    }
+
+    private async Task SetPhotoFilter(string value)
+    {
+        if (photoFilter == value) return;
+
+        photoFilter = value;
+        currentPage = 1;
+        expandedId = null;
+        await LoadEmployees();
+    }
+
+    private async Task OnFilterChanged()
+    {
+        currentPage = 1;
+        expandedId = null;
+        await LoadEmployees();
+    }
+
+    private async Task RemoveFormation(string name)
+    {
+        selectedFormations.Remove(name);
+        await OnFilterChanged();
+    }
+
+    private async Task RemovePosition(string name)
+    {
+        selectedPositions.Remove(name);
+        await OnFilterChanged();
+    }
+
+    private async Task RemoveJobTitle(string name)
+    {
+        selectedJobTitles.Remove(name);
+        await OnFilterChanged();
+    }
+
+    private async Task RemoveEducation(string name)
+    {
+        selectedEducations.Remove(name);
+        await OnFilterChanged();
+    }
+
+    private async Task RemoveSpecialization(string name)
+    {
+        selectedSpecializations.Remove(name);
+        await OnFilterChanged();
+    }
+
+    private async Task RemoveHireYear(string year)
+    {
+        selectedHireYears.Remove(year);
+        await OnFilterChanged();
+    }
+
+    private async Task RemoveBirthYear(string year)
+    {
+        selectedBirthYears.Remove(year);
+        await OnFilterChanged();
+    }
+
+    private async Task RemoveStatus(string name)
+    {
+        selectedStatuses.Remove(name);
+        await OnFilterChanged();
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var size)) return;
+
+        pageSize = size;
+        currentPage = 1;
+        await LoadEmployees();
+    }
+
+    private async Task ResetFilters()
+    {
+        searchCts?.Cancel();
+        searchTerm = null;
+        photoFilter = "all";
+        selectedStatuses.Clear();
+        selectedFormations.Clear();
+        selectedPositions.Clear();
+        selectedJobTitles.Clear();
+        selectedEducations.Clear();
+        selectedSpecializations.Clear();
+        selectedHireYears.Clear();
+        selectedBirthYears.Clear();
+        currentPage = 1;
+        expandedId = null;
+        await LoadEmployees();
+    }
+
+    private async Task SortBy(string key)
+    {
+        if (sortKey == key)
+        {
+            sortDesc = !sortDesc;
+        }
+        else
+        {
+            sortKey = key;
+            sortDesc = false;
+        }
+
+        expandedId = null;
+        await LoadEmployees();
+    }
+
+    private string AriaSort(string key) => sortKey != key ? "none" : sortDesc ? "descending" : "ascending";
+
+    // A header that offers more than one sort still describes a single column,
+    // so aria-sort reports whichever of its keys is the active one.
+    private string AriaSortAny(params string[] keys) =>
+        keys.Contains(sortKey) ? (sortDesc ? "descending" : "ascending") : "none";
+
+    // aria-sort belongs to the column, so with two controls under one header it
+    // cannot say which of them is doing the ordering. Each control carries its
+    // own state in its accessible name instead, which is what a screen reader
+    // reads when it lands on the button.
+    private string SortStateLabel(string key) =>
+        sortKey != key ? string.Empty
+            : sortDesc ? " — مرتّب تنازلياً"
+            : " — مرتّب تصاعدياً";
+
+    private async Task ChangePage(int page)
+    {
+        if (page < 1 || page > totalPages || page == currentPage) return;
+
+        currentPage = page;
+        expandedId = null;
+        await LoadEmployees();
+    }
+
+    private void SetView(string mode)
+    {
+        viewMode = mode;
+        expandedId = null;
+    }
+
+    // ---------- record interactions ----------
+
+    private Dictionary<string, List<EmployeeVehicle>> employeeVehiclesMap = new();
+    private bool isLoadingVehicles = false;
+
+    private async Task ToggleDetail(string employeeId)
+    {
+        if (expandedId == employeeId)
+        {
+            expandedId = null;
+            return;
+        }
+
+        expandedId = employeeId;
+        if (!employeeVehiclesMap.ContainsKey(employeeId))
+        {
+            isLoadingVehicles = true;
+            try
+            {
+                var vList = await VehicleService.GetVehiclesByEmployeeCodeAsync(employeeId);
+                employeeVehiclesMap[employeeId] = vList;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to load vehicles for employee {EmployeeId}", employeeId);
+                employeeVehiclesMap[employeeId] = [];
+            }
+            finally
+            {
+                isLoadingVehicles = false;
+            }
+        }
+    }
+
+    // One dialog carries the whole record: the original photo, every field,
+    // and the download. The old page split that across a sheet and a
+    // lightbox, which could end up stacked on top of each other.
+    private void OpenRecord(EmployeeResponse emp)
+    {
+        recordEmployee = emp;
+        isRecordPhotoLoading = emp.HasProfilePhoto;
+        recordPhotoUrl = emp.HasProfilePhoto
+            ? ProfilePhotoUrls.Original(emp.EmployeeID, emp.ProfilePhotoVersion)
+            : null;
+    }
+
+    // The original decodes in the browser; the skeleton stays up until it has.
+    private void OnRecordPhotoLoaded() => isRecordPhotoLoading = false;
+
+    private void OnRecordPhotoFailed()
+    {
+        Logger.LogWarning("Full photo failed to load for employee {EmployeeID}", recordEmployee?.EmployeeID);
+        recordPhotoUrl = null;
+        isRecordPhotoLoading = false;
+        ShowToast("تعذّر فتح الصورة الأصلية. حدّث السجل ثم أعد المحاولة.", false);
+    }
+
+    private void CloseRecord()
+    {
+        recordEmployee = null;
+        recordPhotoUrl = null;
+        isRecordPhotoLoading = false;
+    }
+
+    private async Task UploadPhoto(string employeeId, InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) return;
+
+        uploadingId = employeeId;
+        StateHasChanged();
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var wrapper = new FormFileWrapper(ms, file.Name, file.ContentType, file.Size);
+
+            var result = await PhotoService.UploadOrReplacePhotoAsync(
+                employeeId, wrapper, authState.User, "127.0.0.1", "BlazorClient");
+
+            switch (result)
+            {
+                case PhotoServiceResult.Success<ProfilePhotoResponse>:
+                    ShowToast($"تم حفظ الصورة الشخصية للموظف {employeeId}.", true);
+                    await ReloadAfterPhotoChange(employeeId);
+                    break;
+                case PhotoServiceResult.ValidationError ve:
+                    ShowToast($"الملف مرفوض: {ve.Message} — اختر صورة JPEG أو PNG أو WebP بحجم أقل من 10 ميغابايت.", false);
+                    break;
+                case PhotoServiceResult.NotFound nf:
+                    ShowToast(nf.Message, false);
+                    break;
+                default:
+                    ShowToast("تعذّر رفع الصورة. تأكد أن الملف صورة صالحة (JPEG أو PNG أو WebP).", false);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error uploading photo for employee {EmployeeID}", employeeId);
+            ShowToast($"فشل رفع الصورة للموظف {employeeId}. حاول مرة أخرى.", false);
+        }
+        finally
+        {
+            uploadingId = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConfirmDeletePhoto()
+    {
+        if (pendingDelete is null) return;
+
+        var employeeId = pendingDelete.EmployeeID;
+        isDeletingPhoto = true;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var result = await PhotoService.DeletePhotoAsync(employeeId, authState.User, "127.0.0.1", "BlazorClient");
+
+            if (result is PhotoServiceResult.Success<bool>)
+            {
+                ShowToast($"تم حذف الصورة الشخصية للموظف {employeeId}.", true);
+                await ReloadAfterPhotoChange(employeeId);
+            }
+            else
+            {
+                ShowToast("تعذّر حذف الصورة. حدّث السجل ثم أعد المحاولة.", false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting photo for employee {EmployeeID}", employeeId);
+            ShowToast("تعذّر حذف الصورة بسبب خطأ في النظام.", false);
+        }
+        finally
+        {
+            isDeletingPhoto = false;
+            pendingDelete = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReloadAfterPhotoChange(string employeeId)
+    {
+        var openRow = expandedId;
+        var openRecordId = recordEmployee?.EmployeeID;
+
+        await LoadEmployees();
+
+        expandedId = openRow;
+
+        // An open dialog has to follow the record it was showing, or it
+        // keeps reporting a photo state that no longer exists.
+        if (openRecordId is not null)
+        {
+            var refreshed = employees.FirstOrDefault(x => x.EmployeeID == openRecordId);
+
+            if (refreshed is null)
+            {
+                CloseRecord();
+            }
+            else
+            {
+                OpenRecord(refreshed);
+            }
+        }
+    }
+
+    // ---------- toast ----------
+
+    private void ShowToast(string message, bool success)
+    {
+        toastMessage = message;
+        toastIsSuccess = success;
+
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+        toastCts = new CancellationTokenSource();
+        var token = toastCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(6000, token);
+                if (token.IsCancellationRequested) return;
+
+                toastMessage = null;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (TaskCanceledException) { /* replaced by a newer toast */ }
+            catch (ObjectDisposedException) { /* circuit gone */ }
+        });
+
+        StateHasChanged();
+    }
+
+    private void DismissToast()
+    {
+        toastCts?.Cancel();
+        toastMessage = null;
+    }
+
+    // ---------- formatting helpers ----------
+
+    private static string N(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static string Or(string? value, string fallback = "—") =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    private static string D(DateOnly? date) => date?.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture) ?? "—";
+
+    private static string Pct(double value) =>
+        Math.Clamp(value, 0, 100).ToString("F2", CultureInfo.InvariantCulture) + "%";
+
+    private static string? ServiceLength(DateOnly? hireDate)
+    {
+        if (!hireDate.HasValue) return null;
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (hireDate.Value > today) return null;
+
+        var years = today.Year - hireDate.Value.Year;
+        if (today.Month < hireDate.Value.Month ||
+            (today.Month == hireDate.Value.Month && today.Day < hireDate.Value.Day))
+        {
+            years--;
+        }
+
+        return years <= 0 ? "أقل من سنة" : $"{years.ToString(CultureInfo.InvariantCulture)} سنة";
+    }
+
+    private static string? DetailedAge(DateOnly? birthDate)
+    {
+        if (!birthDate.HasValue) return null;
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var birth = birthDate.Value;
+        if (birth > today) return null;
+
+        var years = today.Year - birth.Year;
+        var months = today.Month - birth.Month;
+        var days = today.Day - birth.Day;
+
+        if (days < 0)
+        {
+            months--;
+            var prev = today.AddMonths(-1);
+            days += DateTime.DaysInMonth(prev.Year, prev.Month);
+        }
+
+        if (months < 0)
+        {
+            years--;
+            months += 12;
+        }
+
+        var parts = new List<string>();
+        if (years > 0) parts.Add($"{years.ToString(CultureInfo.InvariantCulture)} سنة");
+        if (months > 0) parts.Add($"{months.ToString(CultureInfo.InvariantCulture)} شهر");
+        if (days > 0 || parts.Count == 0) parts.Add($"{days.ToString(CultureInfo.InvariantCulture)} يوم");
+
+        return string.Join(" و ", parts);
+    }
+
+    // Deterministic across restarts: string.GetHashCode is randomized per
+    // process, which would repaint every placeholder on each app start.
+    // Tones are steps on the brand ramp — enough separation to tell two
+    // adjacent placeholders apart, without introducing hues the rest of
+    // the system never uses.
+    private static string AvatarTone(string? employeeId)
+    {
+        var tones = new[] { "var(--b-800)", "var(--b-700)", "var(--b-600)", "var(--b-500)" };
+
+        var sum = 0;
+        foreach (var ch in employeeId ?? string.Empty)
+        {
+            sum = (sum * 31 + ch) & 0x7fffffff;
+        }
+
+        return tones[sum % tones.Length];
+    }
+
+    public void Dispose()
+    {
+        toastCts?.Cancel();
+        toastCts?.Dispose();
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+    }
+
+    private sealed class FormFileWrapper(Stream stream, string fileName, string contentType, long length) : IFormFile
+    {
+        public string ContentType => contentType;
+        public string ContentDisposition => $"inline; filename=\"{fileName}\"";
+        public IHeaderDictionary Headers => new HeaderDictionary();
+        public long Length => length;
+        public string Name => "file";
+        public string FileName => fileName;
+        public Stream OpenReadStream() => stream;
+        public void CopyTo(Stream target) => stream.CopyTo(target);
+        public Task CopyToAsync(Stream target, CancellationToken cancellationToken = default) => stream.CopyToAsync(target, cancellationToken);
+    }
+}

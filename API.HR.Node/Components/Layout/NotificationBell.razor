@@ -1,0 +1,386 @@
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using API.HR.Node.Data.Notifications
+@using API.HR.Node.Services.Notifications
+@using System.Security.Claims
+
+@inject INotificationService NotificationService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@if (isAdmin)
+{
+<div class="hr-notif-wrapper" @onclick:stopPropagation>
+    <button type="button"
+            class="hr-btn hr-btn-quiet hr-btn-icon hr-notif-bell-btn @(unreadCount > 0 ? "has-unread" : "")"
+            @onclick="ToggleDropdownAsync"
+            aria-label="@BellLabel"
+            title="@BellLabel"
+            aria-expanded="@(isOpen ? "true" : "false")"
+            aria-haspopup="true">
+        <Icon Name="bell" Size="sm" />
+        @if (unreadCount > 0)
+        {
+            <span class="hr-notif-badge hr-num" aria-hidden="true">
+                @(unreadCount > 99 ? "+99" : unreadCount.ToString())
+            </span>
+        }
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="hr-notif-backdrop" @onclick="CloseDropdown"></div>
+        <div class="hr-notif-dropdown" role="dialog" aria-label="@(Lang.IsKurdish ? "لیستی ئاگادارکردنەوەکان" : "قائمة الإشعارات")">
+            <!-- Header -->
+            <div class="hr-notif-header">
+                <div class="hr-notif-header-main">
+                    <div class="hr-notif-title-row">
+                        <span class="hr-notif-title">@(Lang.IsKurdish ? "ئاگادارکردنەوەکان" : "مركز الإشعارات")</span>
+                        @if (unreadCount > 0)
+                        {
+                            <span class="hr-notif-pill-badge hr-num">
+                                @(Lang.IsKurdish ? $"{unreadCount} نوێ" : $"{unreadCount} جديدة")
+                            </span>
+                        }
+                    </div>
+
+                    @if (unreadCount > 0)
+                    {
+                        <button type="button"
+                                class="hr-notif-markall-btn"
+                                @onclick="MarkAllAsReadAsync"
+                                title="@(Lang.IsKurdish ? "هەمووی وەک خوێندراوە نیشان بدە" : "تحديد الكل كمقروء")">
+                            <Icon Name="check" Size="xs" />
+                            <span>@(Lang.IsKurdish ? "خوێندراوە" : "تحديد الكل كمقروء")</span>
+                        </button>
+                    }
+                </div>
+
+                <!-- Tabs Filter (All vs Unread) -->
+                <div class="hr-notif-tabs" role="tablist">
+                    <button type="button"
+                            role="tab"
+                            class="hr-notif-tab @(!showOnlyUnread ? "is-active" : "")"
+                            @onclick="() => SetTab(false)">
+                        <span>@(Lang.IsKurdish ? "هەمووی" : "الكل")</span>
+                        <span class="hr-notif-tab-num hr-num">@notifications.Count</span>
+                    </button>
+                    <button type="button"
+                            role="tab"
+                            class="hr-notif-tab @(showOnlyUnread ? "is-active" : "")"
+                            @onclick="() => SetTab(true)">
+                        <span>@(Lang.IsKurdish ? "نەخوێندراوە" : "غير المقروءة")</span>
+                        @if (unreadCount > 0)
+                        {
+                            <span class="hr-notif-tab-num hr-notif-tab-unread hr-num">@unreadCount</span>
+                        }
+                    </button>
+                </div>
+            </div>
+
+            <!-- Content Body -->
+            <div class="hr-notif-body">
+                @if (isLoading)
+                {
+                    <div class="hr-notif-state-box">
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <p class="hr-meta">@(Lang.IsKurdish ? "بارکردن…" : "جارٍ تحميل الإشعارات…")</p>
+                    </div>
+                }
+                else if (FilteredNotifications.Count == 0)
+                {
+                    <div class="hr-notif-state-box hr-notif-empty-state">
+                        <div class="hr-notif-empty-art" aria-hidden="true">
+                            <Icon Name="bell" Size="lg" />
+                        </div>
+                        <h4 class="hr-notif-empty-title">
+                            @(showOnlyUnread 
+                                ? (Lang.IsKurdish ? "هیچ ئاگادارکردنەوەیەکی نەخوێندراوە نییە" : "لا توجد إشعارات غير مقروءة") 
+                                : (Lang.IsKurdish ? "هیچ ئاگادارکردنەوەیەک نییە" : "لا توجد أي إشعارات حالياً"))
+                        </h4>
+                        <p class="hr-notif-empty-sub">
+                            @(Lang.IsKurdish ? "سەبەتەی ئاگادارکردنەوەکانت پاک و ڕێکخراوە." : "سجل إشعارات حسابك محدث بالكامل وكل مهامك مكتملة.")
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <ul class="hr-notif-list">
+                        @foreach (var notif in FilteredNotifications)
+                        {
+                            <li class="hr-notif-card @(!notif.IsRead ? "is-unread" : "")" @key="notif.Id">
+                                <!-- Type Icon Plate -->
+                                <div class="hr-notif-icon-plate @GetIconClass(notif.Type)">
+                                    <Icon Name="@GetIconName(notif.Type)" Size="xs" />
+                                </div>
+
+                                <!-- Card Details. The whole block opens the notification,
+                                     so it is a real control: focusable, announced, and
+                                     activated by Enter or Space like any button. -->
+                                <div class="hr-notif-card-main"
+                                     role="button"
+                                     tabindex="0"
+                                     aria-label="@($"{Lang.T("notif.open", "فتح الإشعار:")} {notif.Title}")"
+                                     @onclick="() => OnNotificationClickedAsync(notif)"
+                                     @onkeydown="e => ActivateOnKey(e, () => OnNotificationClickedAsync(notif))">
+                                    <div class="hr-notif-card-header">
+                                        <div class="hr-notif-card-title-group">
+                                            <span class="hr-notif-tag @GetIconClass(notif.Type)">@GetCategoryLabel(notif.Type)</span>
+                                            <h5 class="hr-notif-card-title">@notif.Title</h5>
+                                        </div>
+                                        <div class="hr-notif-time-badge">
+                                            <time class="hr-num" dir="ltr">@FormatRelativeTime(notif.CreatedAt)</time>
+                                            @if (!notif.IsRead)
+                                            {
+                                                <span class="hr-notif-unread-dot" title="@Lang.T("notif.unread", "غير مقروء")"><span class="hr-sr">@Lang.T("notif.unread", "غير مقروء")</span></span>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <p class="hr-notif-card-message">@notif.Message</p>
+                                </div>
+
+                                <!-- Quick Actions -->
+                                <div class="hr-notif-card-actions">
+                                    @if (!notif.IsRead)
+                                    {
+                                        <button type="button"
+                                                class="hr-notif-action-btn hr-notif-read-btn"
+                                                @onclick="() => MarkAsReadAsync(notif.Id)"
+                                                title="@Lang.T("notif.mark_read", "تحديد كمقروء")"
+                                                aria-label="@($"{Lang.T("notif.mark_read", "تحديد كمقروء")}: {notif.Title}")">
+                                            <Icon Name="check" Size="xs" />
+                                        </button>
+                                    }
+                                    <button type="button"
+                                            class="hr-notif-action-btn hr-notif-delete-btn"
+                                            @onclick="() => DeleteNotificationAsync(notif.Id)"
+                                            title="@Lang.T("notif.delete", "حذف الإشعار")"
+                                            aria-label="@($"{Lang.T("notif.delete", "حذف الإشعار")}: {notif.Title}")">
+                                        <Icon Name="x-mark" Size="xs" />
+                                    </button>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+
+            <!-- Footer -->
+            <div class="hr-notif-footer">
+                <a class="hr-notif-footer-link" href="workflows" @onclick="CloseDropdown">
+                    <Icon Name="square-3-stack-3d" Size="xs" />
+                    <span>@(Lang.IsKurdish ? "چوون بۆ ڕێڕەوە کارگێڕییەکان و ئەرکەکان" : "الانتقال إلى المسارات الإدارية والمهام المعلقة")</span>
+                    <Icon Name="arrow-left" Size="xs" />
+                </a>
+            </div>
+        </div>
+    }
+</div>
+}
+
+@code {
+    // The badge is hidden from assistive tech, so the count rides in the name.
+    private string BellLabel => unreadCount > 0
+        ? (Lang.IsKurdish ? $"ئاگادارکردنەوەکان، {unreadCount} نەخوێندراوە" : $"الإشعارات، {unreadCount} غير مقروء")
+        : (Lang.IsKurdish ? "ئاگادارکردنەوەکان" : "الإشعارات");
+
+    /// <summary>
+    /// Enter and Space activate a control. The card carries role="button" rather
+    /// than being one, so the behaviour a native button gives free is supplied here.
+    /// </summary>
+    private static Task ActivateOnKey(KeyboardEventArgs e, Func<Task> activate)
+        => e.Key is "Enter" or " " ? activate() : Task.CompletedTask;
+
+    private bool isAdmin = false;
+    private bool isOpen = false;
+    private bool showOnlyUnread = false;
+    private int unreadCount = 0;
+    private List<UserNotificationDto> notifications = [];
+    private bool isLoading = false;
+    private string? currentUserId;
+
+    private List<UserNotificationDto> FilteredNotifications => showOnlyUnread
+        ? notifications.Where(n => !n.IsRead).ToList()
+        : notifications;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated == true && user.IsInRole("Admin"))
+            {
+                isAdmin = true;
+                currentUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                             ?? user.FindFirst(ClaimTypes.Name)?.Value
+                             ?? user.Identity.Name;
+
+                if (!string.IsNullOrWhiteSpace(currentUserId))
+                {
+                    unreadCount = await NotificationService.GetUnreadCountAsync(currentUserId);
+                }
+
+                NotificationService.OnNotificationChanged += HandleNotificationChanged;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Transient error in notification counter must not prevent page rendering
+            Console.WriteLine($"[NotificationBell] Failed to load unread count: {ex.Message}");
+        }
+    }
+
+    private void HandleNotificationChanged(string userId)
+    {
+        if (currentUserId == null || string.Equals(userId, currentUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(currentUserId))
+                    {
+                        unreadCount = await NotificationService.GetUnreadCountAsync(currentUserId);
+                        if (isOpen)
+                        {
+                            notifications = await NotificationService.GetNotificationsAsync(currentUserId, take: 30);
+                        }
+                        StateHasChanged();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[NotificationBell] Error updating notifications: {ex.Message}");
+                }
+            });
+        }
+    }
+
+    private async Task ToggleDropdownAsync()
+    {
+        isOpen = !isOpen;
+        if (isOpen && !string.IsNullOrWhiteSpace(currentUserId))
+        {
+            isLoading = true;
+            try
+            {
+                notifications = await NotificationService.GetNotificationsAsync(currentUserId, take: 30);
+                unreadCount = await NotificationService.GetUnreadCountAsync(currentUserId);
+            }
+            finally
+            {
+                isLoading = false;
+            }
+        }
+    }
+
+    private void SetTab(bool unreadOnly)
+    {
+        showOnlyUnread = unreadOnly;
+    }
+
+    private void CloseDropdown()
+    {
+        isOpen = false;
+    }
+
+    private async Task MarkAsReadAsync(long id)
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await NotificationService.MarkAsReadAsync(id, currentUserId);
+        var item = notifications.FirstOrDefault(n => n.Id == id);
+        if (item != null)
+        {
+            notifications = notifications.Select(n => n.Id == id ? n with { IsRead = true } : n).ToList();
+            unreadCount = Math.Max(0, unreadCount - 1);
+        }
+    }
+
+    private async Task MarkAllAsReadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await NotificationService.MarkAllAsReadAsync(currentUserId);
+        notifications = notifications.Select(n => n with { IsRead = true }).ToList();
+        unreadCount = 0;
+    }
+
+    private async Task DeleteNotificationAsync(long id)
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        var item = notifications.FirstOrDefault(n => n.Id == id);
+        await NotificationService.DeleteNotificationAsync(id, currentUserId);
+        notifications.RemoveAll(n => n.Id == id);
+        if (item != null && !item.IsRead)
+        {
+            unreadCount = Math.Max(0, unreadCount - 1);
+        }
+    }
+
+    private async Task OnNotificationClickedAsync(UserNotificationDto notif)
+    {
+        if (!notif.IsRead && !string.IsNullOrWhiteSpace(currentUserId))
+        {
+            await MarkAsReadAsync(notif.Id);
+        }
+
+        CloseDropdown();
+
+        if (!string.IsNullOrWhiteSpace(notif.LinkUrl))
+        {
+            Nav.NavigateTo(notif.LinkUrl);
+        }
+    }
+
+    private string GetIconName(NotificationType type) => type switch
+    {
+        NotificationType.Workflow => "square-3-stack-3d",
+        NotificationType.Success => "check-circle",
+        NotificationType.Warning => "exclamation-triangle",
+        NotificationType.Error => "no-symbol",
+        NotificationType.Security => "shield-check",
+        _ => "bell"
+    };
+
+    private string GetCategoryLabel(NotificationType type) => type switch
+    {
+        NotificationType.Workflow => Lang.IsKurdish ? "ڕێڕەوی کارگێڕی" : "مسار إداري",
+        NotificationType.Success => Lang.IsKurdish ? "پەسەندکراو" : "اعتماد وموافقة",
+        NotificationType.Warning => Lang.IsKurdish ? "ئاگاداری" : "تنبيه إداري",
+        NotificationType.Error => Lang.IsKurdish ? "ڕەتکراوە" : "رفض المعاملة",
+        NotificationType.Security => Lang.IsKurdish ? "ئاسایش" : "أمان الحساب",
+        _ => Lang.IsKurdish ? "گشتی" : "إشعار عام"
+    };
+
+    private string GetIconClass(NotificationType type) => type switch
+    {
+        NotificationType.Workflow => "type-workflow",
+        NotificationType.Success => "type-success",
+        NotificationType.Warning => "type-warning",
+        NotificationType.Error => "type-error",
+        NotificationType.Security => "type-security",
+        _ => "type-info"
+    };
+
+    private string FormatRelativeTime(DateTimeOffset timestamp)
+    {
+        var span = DateTimeOffset.UtcNow - timestamp;
+        if (span.TotalSeconds < 60) return Lang.IsKurdish ? "ئێستا" : "الآن";
+        if (span.TotalMinutes < 60) return Lang.IsKurdish ? $"پێش {(int)span.TotalMinutes} خ" : $"منذ {(int)span.TotalMinutes} دقيقة";
+        if (span.TotalHours < 24) return Lang.IsKurdish ? $"پێش {(int)span.TotalHours} ک" : $"منذ {(int)span.TotalHours} ساعة";
+        if (span.TotalDays < 7) return Lang.IsKurdish ? $"پێش {(int)span.TotalDays} ڕۆژ" : $"منذ {(int)span.TotalDays} يوم";
+        return timestamp.ToLocalTime().ToString("MM/dd HH:mm");
+    }
+
+    public void Dispose()
+    {
+        if (isAdmin)
+        {
+            NotificationService.OnNotificationChanged -= HandleNotificationChanged;
+        }
+    }
+}

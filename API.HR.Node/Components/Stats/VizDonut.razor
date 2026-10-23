@@ -1,0 +1,55 @@
+@*
+    Donut for a field with a handful of values (gender, marital status).
+    Past five values the tail folds into one "other" arc so no slice is a
+    sliver; a picked value is never folded away. The legend carries the
+    numbers and is the control.
+*@
+<div class="hr-viz-donut">
+    @if (Total == 0)
+    {
+        <p class="hr-viz-empty">@Viz.NoData(Lang.IsKurdish)</p>
+    }
+    else
+    {
+        <svg viewBox="0 0 120 120" class="hr-viz-donut-ring" role="img" aria-label="@Summary">
+            <circle cx="60" cy="60" r="@R" class="hr-viz-donut-track" />
+            @{ double offset = 0; }
+            @for (var i = 0; i < Slices.Count; i++)
+            {
+                var s = Slices[i];
+                var len = Circ * s.Count / Total;
+                var on = Selected?.Contains(s.Name) == true;
+                <circle @key="s.Name" cx="60" cy="60" r="@R" class="hr-viz-donut-arc @Tone(s.Name, i) @(on ? "is-on" : null)"
+                        stroke-dasharray="@Viz.Css(Math.Max(0, len - Gap)) @Viz.Css(Circ)"
+                        stroke-dashoffset="@Viz.Css(-offset)" transform="rotate(-90 60 60)" />
+                offset += len;
+            }
+            <text x="60" y="58" class="hr-viz-donut-value">@CenterValue</text>
+            <text x="60" y="74" class="hr-viz-donut-label">@CenterLabel</text>
+        </svg>
+        <VizLegend Slices="Slices" Total="Total" Selected="Selected" OnPick="OnPick" Label="@Label" SeriesOf="SeriesOf" />
+    }
+</div>
+
+@code {
+    /// <summary>Pins a value to a series index, so a field keeps its colours across charts.</summary>
+    [Parameter] public Func<string, int?>? SeriesOf { get; set; }
+    private string Tone(string name, int i) => Viz.Series(SeriesOf?.Invoke(name) ?? i);
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Items { get; set; } = [];
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public string CenterValue { get; set; } = string.Empty;
+    [Parameter] public string CenterLabel { get; set; } = string.Empty;
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public int MaxSlices { get; set; } = 5;
+
+    private const double R = 46;
+    private const double Gap = 1.2;
+    private static readonly double Circ = 2 * Math.PI * R;
+
+    private int Total => Items.Sum(i => i.Count);
+    private List<StatItem> Slices = [];
+    private string Summary => string.Join("، ", Slices.Select(s => $"{Viz.Display(s.Name, Lang.IsKurdish)} {Viz.Pct(s.Count, Total)}"));
+
+    protected override void OnParametersSet() => Slices = Viz.Fold(Items, MaxSlices, Selected);
+}

@@ -1,0 +1,14 @@
+@inherits LayoutComponentBase
+
+@*
+    Sign-in shell.
+
+    No dir and no colour of its own: App.razor already resolves the
+    language and writes dir/lang on <html>, and the palette now comes from
+    the same tokens as the rest of the system. hr-app is what opts this
+    page into the shared focus treatment and Blazor's validation styling.
+*@
+
+<div class="hr-app">
+    @Body
+</div>

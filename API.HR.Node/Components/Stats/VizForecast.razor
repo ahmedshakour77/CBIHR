@@ -1,0 +1,51 @@
+@*
+    Ten-year retirement forecast at the statutory age. Each year is a column of
+    retirees with the supervisory share drawn inside it; beneath it, the share
+    of today's scope gone by the end of that year. A column opens that year's
+    list. The first year also carries anyone already past the age.
+*@
+<div class="hr-viz-fc @(Compact ? "is-compact" : null)">
+    @if (Years.Count == 0 || Years.Sum(y => y.Retirees) == 0)
+    {
+        <p class="hr-viz-empty">@(Lang.IsKurdish ? "لە چوارچێوەی ئێستادا کەس لە دە ساڵی داهاتوودا ناگاتە تەمەنی خانەنشینی." : "لا أحد يبلغ سن التقاعد خلال السنوات العشر القادمة ضمن النطاق الحالي.")</p>
+    }
+    else
+    {
+        var max = Math.Max(1, Years.Max(y => y.Retirees));
+        <ol class="hr-viz-fc-plot" aria-label="@(Label ?? (Lang.IsKurdish ? "خانەنشینە چاوەڕوانکراوەکان لە هەر ساڵێکدا" : "المتقاعدون المتوقعون في كل سنة"))">
+            @foreach (var y in Years)
+            {
+                <li @key="y.Year" class="hr-viz-fc-year">
+                    <button type="button" class="hr-viz-col-hit" @onclick="() => OnYear.InvokeAsync(y.Year)" disabled="@(y.Retirees == 0)"
+                            aria-label="@(Lang.IsKurdish ? $"{y.Year}: {y.Retirees:N0} خانەنشین، {y.Supervisory:N0} لەوانە خاوەن پۆستن. پیشاندانی لیست" : $"{y.Year}: {y.Retirees:N0} متقاعداً، منهم {y.Supervisory:N0} من شاغلي المناصب. عرض القائمة")">
+                        <span class="hr-viz-col-value hr-num">@y.Retirees.ToString("N0")</span>
+                        <span class="hr-viz-col-bar" style="block-size:@Viz.Css(y.Retirees * 100.0 / max)%">
+                            <span class="hr-viz-fc-lead" style="block-size:@Viz.Css(y.Retirees > 0 ? y.Supervisory * 100.0 / y.Retirees : 0)%"></span>
+                        </span>
+                    </button>
+                    <span class="hr-viz-col-label hr-num" aria-hidden="true">@y.Year</span>
+                    @if (!Compact)
+                    {
+                        <span class="hr-viz-fc-cum hr-num" aria-hidden="true">@Viz.Pct(y.Cumulative, BaseTotal)</span>
+                    }
+                </li>
+            }
+        </ol>
+        <p class="hr-viz-fc-key">
+            <span><span class="hr-viz-swatch is-accent" aria-hidden="true"></span> @(Lang.IsKurdish ? "خانەنشینەکانی ساڵ" : "المتقاعدون في السنة")</span>
+            <span><span class="hr-viz-swatch is-lead" aria-hidden="true"></span> @(Lang.IsKurdish ? "لەوانە خاوەن پۆست" : "منهم شاغلو مناصب")</span>
+            @if (!Compact)
+            {
+                <span>@(Lang.IsKurdish ? "ژمارەی ژێر ساڵ: ڕێژەی کۆبووەوە لە چوارچێوەی ئێستا" : "الرقم أسفل السنة: النسبة التراكمية من النطاق الحالي")</span>
+            }
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ForecastYear> Years { get; set; } = [];
+    [Parameter] public int BaseTotal { get; set; }
+    [Parameter] public EventCallback<int> OnYear { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public string? Label { get; set; }
+}

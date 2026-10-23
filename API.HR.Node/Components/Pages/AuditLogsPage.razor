@@ -1,0 +1,264 @@
+@page "/audit"
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = AuthorizationPolicies.ViewAuditLogs)]
+@rendermode InteractiveServer
+
+@inject ApplicationDbContext DbContext
+@inject ILogger<AuditLogsPage> Logger
+
+<PageTitle>سجل التدقيق | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Audit trail.
+
+    A log is read by scanning, so the timestamp column is tabular and the
+    outcome column is a single fixed-width mark. Outcome is spelled out in
+    words with an icon — the emoji it replaces rendered differently on every
+    platform and carried no accessible name at all.
+
+    Filtering happens client-side over the most recent 200 entries; that
+    ceiling is stated in the footer rather than left for someone to discover
+    when a record they expected is missing.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">الحسابات والأمان</span>
+            <h1 class="hr-h1">سجل التدقيق الأمني</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                أثر محاولات الدخول وتسجيل المفاتيح والتعديلات على بيانات الموظفين.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <span class="hr-badge hr-badge-ok">
+                <Icon Name="check-circle" Size="xs" />
+                <span>ناجحة <span class="hr-num">@successCount</span></span>
+            </span>
+            <span class="hr-badge hr-badge-danger">
+                <Icon Name="exclamation-circle" Size="xs" />
+                <span>فاشلة <span class="hr-num">@failureCount</span></span>
+            </span>
+        </div>
+    </header>
+
+    @if (loadFailed)
+    {
+        <div class="hr-alert hr-alert-danger" role="alert">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <div>
+                <p class="hr-alert-title">تعذّر تحميل السجل</p>
+                <p style="margin-block-start:.25rem">حدث خطأ أثناء قراءة سجل التدقيق.</p>
+            </div>
+        </div>
+    }
+
+    <section class="hr-card">
+        <div class="hr-toolbar">
+            <div class="hr-toolbar-search">
+                <label class="hr-field-label" for="audit-search">بحث في السجل</label>
+                <div class="hr-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input id="audit-search"
+                           type="search"
+                           class="hr-input"
+                           placeholder="الرقم الوظيفي، نوع الإجراء أو سبب الفشل"
+                           @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilters" />
+                </div>
+            </div>
+
+            <div class="hr-toolbar-field">
+                <label class="hr-field-label" for="audit-outcome">النتيجة</label>
+                <select id="audit-outcome" class="hr-select" @bind="outcomeFilter" @bind:after="ApplyFilters">
+                    <option value="all">كل النتائج</option>
+                    <option value="success">الناجحة فقط</option>
+                    <option value="failure">الفاشلة فقط</option>
+                </select>
+            </div>
+
+            <div class="hr-toolbar-actions">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadLogsAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ التحديث…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="arrow-path" Size="sm" />
+                        <span>تحديث</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="hr-card-body">
+                @for (var i = 0; i < 6; i++)
+                {
+                    <div class="hr-skeleton" style="height:2.75rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                }
+            </div>
+        }
+        else if (filteredLogs.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="clipboard-document-list" Size="lg" /></span>
+                <p class="hr-h3">@(allLogs.Count == 0 ? "لا توجد سجلات" : "لا نتائج مطابقة")</p>
+                <p class="hr-sub hr-measure-sm">
+                    @(allLogs.Count == 0
+                        ? "لم تُسجَّل أي عملية في سجل التدقيق حتى الآن."
+                        : "جرّب تعديل نص البحث أو اختيار نتيجة أخرى.")
+                </p>
+                @if (allLogs.Count > 0)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح عوامل التصفية</span>
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table hr-table-tight">
+                    <caption class="hr-sr">سجل عمليات التدقيق الأمني</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">التوقيت</th>
+                            <th scope="col">الموظف</th>
+                            <th scope="col">الإجراء</th>
+                            <th scope="col">النتيجة</th>
+                            <th scope="col">المصدر</th>
+                            <th scope="col">سبب الفشل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in filteredLogs)
+                        {
+                            <tr @key="log.Id">
+                                <td class="hr-num">@log.Timestamp.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss")</td>
+                                <td>
+                                    <span class="hr-cell-strong @(string.IsNullOrWhiteSpace(log.EmployeeID) ? "" : "hr-num")">
+                                        @(string.IsNullOrWhiteSpace(log.EmployeeID) ? "النظام" : log.EmployeeID)
+                                    </span>
+                                </td>
+                                <td><span class="hr-cell-strong">@log.Action</span></td>
+                                <td>
+                                    @if (log.Success)
+                                    {
+                                        <span class="hr-badge hr-badge-ok">
+                                            <Icon Name="check-circle" Size="xs" />
+                                            <span>ناجح</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-danger">
+                                            <Icon Name="exclamation-circle" Size="xs" />
+                                            <span>فاشل</span>
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="hr-cell-strong hr-num">@Display(log.IpAddress, "—")</span>
+                                    <span class="hr-cell-sub hr-truncate hr-cell-agent" title="@log.UserAgent">@Display(log.UserAgent, "—")</span>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(log.FailureReason))
+                                    {
+                                        <span class="hr-badge hr-badge-danger hr-badge-wrap">@log.FailureReason</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="hr-card-foot">
+                <p class="hr-meta">
+                    عرض <span class="hr-num">@filteredLogs.Count</span>
+                    من <span class="hr-num">@allLogs.Count</span> سجل —
+                    يقتصر العرض على أحدث <span class="hr-num">200</span> عملية.
+                </p>
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private List<AuditLog> allLogs = new();
+    private List<AuditLog> filteredLogs = new();
+    private bool isLoading = true;
+    private bool loadFailed;
+    private string searchQuery = string.Empty;
+    private string outcomeFilter = "all";
+
+    private int successCount => allLogs.Count(l => l.Success);
+    private int failureCount => allLogs.Count(l => !l.Success);
+
+    private static string Display(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    protected override async Task OnInitializedAsync() => await LoadLogsAsync();
+
+    private async Task LoadLogsAsync()
+    {
+        isLoading = true;
+        loadFailed = false;
+
+        try
+        {
+            allLogs = await DbContext.AuditLogs
+                .OrderByDescending(l => l.Timestamp)
+                .Take(200)
+                .ToListAsync();
+
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            loadFailed = true;
+            Logger.LogError(ex, "Error loading audit logs");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = string.Empty;
+        outcomeFilter = "all";
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        IEnumerable<AuditLog> query = allLogs;
+
+        if (outcomeFilter == "success") query = query.Where(l => l.Success);
+        else if (outcomeFilter == "failure") query = query.Where(l => !l.Success);
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            query = query.Where(l =>
+                (l.EmployeeID != null && l.EmployeeID.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                l.Action.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (l.FailureReason != null && l.FailureReason.Contains(q, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        filteredLogs = query.ToList();
+    }
+}

@@ -1,0 +1,100 @@
+﻿@page "/Account/ResendEmailConfirmation"
+@layout API.HR.Node.Components.Layout.FocusLayout
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>إعادة إرسال رسالة التأكيد | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="envelope" Size="sm" /></span>
+                <div class="hr-idcell-text">
+                    <h1 class="hr-h2">إعادة إرسال رسالة التأكيد</h1>
+                    <p class="hr-meta" style="margin-block-start:.25rem">لتفعيل بريدك الإلكتروني في النظام</p>
+                </div>
+            </div>
+        </div>
+
+        <EditForm Model="Input" FormName="resend-email-confirmation" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <DataAnnotationsValidator />
+
+            <div class="hr-card-body">
+                <StatusMessage Message="@message" />
+                <ValidationSummary class="hr-error-summary" role="alert" />
+
+                <div class="hr-field">
+                    <label class="hr-field-label" for="Input.Email">
+                        البريد الإلكتروني <span class="hr-req" aria-hidden="true">*</span><span class="hr-sr">(حقل مطلوب)</span>
+                    </label>
+                    <InputText @bind-Value="Input.Email" id="Input.Email" class="hr-input" dir="ltr"
+                               autocomplete="username" aria-required="true" placeholder="name@cbi.iq" />
+                    <ValidationMessage For="() => Input.Email" class="hr-error" />
+                </div>
+            </div>
+
+            <div class="hr-card-foot" style="display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;">
+                <a class="hr-btn hr-btn-quiet" href="Account/Login">
+                    <Icon Name="arrow-right" Size="xs" />
+                    <span>عودة</span>
+                </a>
+                <button type="submit" class="hr-btn hr-btn-primary">
+                    <Icon Name="envelope" Size="xs" />
+                    <span>إعادة الإرسال</span>
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private string? message;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        Input ??= new();
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        var user = await UserManager.FindByEmailAsync(Input.Email!);
+        if (user is null)
+        {
+            // Same wording either way, so the form cannot be used to
+            // discover which addresses are registered.
+            message = "إن كان البريد مسجّلاً لدينا فقد أُرسلت رسالة التأكيد إليه. تفقّد صندوق الوارد.";
+            return;
+        }
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+            NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code });
+        await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+
+        message = "إن كان البريد مسجّلاً لدينا فقد أُرسلت رسالة التأكيد إليه. تفقّد صندوق الوارد.";
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "أدخل البريد الإلكتروني.")]
+        [EmailAddress(ErrorMessage = "صيغة البريد الإلكتروني غير صحيحة.")]
+        public string Email { get; set; } = "";
+    }
+}

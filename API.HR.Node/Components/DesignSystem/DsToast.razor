@@ -1,0 +1,86 @@
+@namespace API.HR.Node.Components.DesignSystem
+@rendermode InteractiveServer
+@using API.HR.Node.Services.DesignSystem
+@implements IDisposable
+@inject IToastService ToastService
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+
+@* The container is always in the DOM. Screen readers only announce changes
+   inside a region that already existed, so creating it together with the
+   first toast meant the first message was often never read. Each toast
+   carries its own role: errors interrupt (alert), the rest wait (status). *@
+<div class="hr-toast-container" aria-live="polite" aria-atomic="false">
+    @foreach (var toast in toasts)
+    {
+            <div @key="toast.Id" class="hr-toast @GetToastClass(toast.Type)"
+                 role="@(toast.Type == ToastType.Danger ? "alert" : "status")">
+                <div class="hr-toast-icon" aria-hidden="true">
+                    <Icon Name="@GetToastIcon(toast.Type)" Size="sm" />
+                </div>
+                <div class="hr-toast-content">
+                    @if (!string.IsNullOrEmpty(toast.Title))
+                    {
+                        <div class="hr-toast-title">@toast.Title</div>
+                    }
+                    <div class="hr-toast-message">@toast.Message</div>
+                </div>
+                @if (!string.IsNullOrEmpty(toast.ActionLabel) && toast.OnAction != null)
+                {
+                    <button type="button" class="hr-toast-action" @onclick="toast.OnAction">
+                        @toast.ActionLabel
+                    </button>
+                }
+                <button type="button"
+                        class="hr-toast-close"
+                        @onclick="() => Dismiss(toast.Id)"
+                        aria-label="@Lang.T("toast.close", "إغلاق التنبيه")">
+                    <Icon Name="x-mark" Size="xs" />
+                </button>
+            </div>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<ToastItem> toasts = Array.Empty<ToastItem>();
+
+    protected override void OnInitialized()
+    {
+        ToastService.OnToastsChanged += HandleToastsChanged;
+        toasts = ToastService.Toasts;
+    }
+
+    private void HandleToastsChanged()
+    {
+        InvokeAsync(() =>
+        {
+            toasts = ToastService.Toasts;
+            StateHasChanged();
+        });
+    }
+
+    private void Dismiss(string id)
+    {
+        ToastService.Dismiss(id);
+    }
+
+    private string GetToastClass(ToastType type) => type switch
+    {
+        ToastType.Success => "hr-toast-success",
+        ToastType.Warning => "hr-toast-warning",
+        ToastType.Danger => "hr-toast-danger",
+        _ => "hr-toast-info"
+    };
+
+    private string GetToastIcon(ToastType type) => type switch
+    {
+        ToastType.Success => "check-circle",
+        ToastType.Warning => "exclamation-triangle",
+        ToastType.Danger => "x-circle",
+        _ => "information-circle"
+    };
+
+    public void Dispose()
+    {
+        ToastService.OnToastsChanged -= HandleToastsChanged;
+    }
+}

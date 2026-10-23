@@ -1,0 +1,332 @@
+@page "/user-devices"
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = AuthorizationPolicies.ManageDevices)]
+@rendermode InteractiveServer
+
+@inject ApplicationDbContext DbContext
+@inject ILogger<UserDevices> Logger
+
+<PageTitle>الأجهزة المقترنة | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Paired devices.
+
+    The filter bar carries a real label for every control, the status filter
+    reports how many rows survived it, and both states — paired and revoked —
+    are marked with a word and an icon, never with colour on its own.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">الحسابات والأمان</span>
+            <h1 class="hr-h1">الأجهزة المقترنة بالحسابات</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                الأجهزة المعتمدة لدخول الموظفين. سحب الاعتماد يمنع الدخول من الجهاز حتى إعادة اقترانه.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <span class="hr-badge">
+                <span>الإجمالي <span class="hr-num">@allDevices.Count</span></span>
+            </span>
+            <span class="hr-badge hr-badge-ok">
+                <Icon Name="check-circle" Size="xs" />
+                <span>نشطة <span class="hr-num">@activeDevicesCount</span></span>
+            </span>
+        </div>
+    </header>
+
+    <div class="hr-sr" role="status" aria-live="polite">@statusMessage</div>
+
+    @if (loadFailed)
+    {
+        <div class="hr-alert hr-alert-danger" role="alert">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <div>
+                <p class="hr-alert-title">تعذّر تحميل الأجهزة</p>
+                <p style="margin-block-start:.25rem">حدث خطأ أثناء قراءة بيانات الأجهزة.</p>
+            </div>
+        </div>
+    }
+
+    <section class="hr-card">
+        <div class="hr-toolbar">
+            <div class="hr-toolbar-search">
+                <label class="hr-field-label" for="dev-search">بحث</label>
+                <div class="hr-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input id="dev-search"
+                           type="search"
+                           class="hr-input"
+                           placeholder="الرقم الوظيفي، معرّف الجهاز أو الموديل"
+                           aria-describedby="dev-search-help"
+                           @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilters" />
+                </div>
+                <p id="dev-search-help" class="hr-help">يُطابق الرقم الوظيفي ومعرّف الجهاز وموديله.</p>
+            </div>
+
+            <div class="hr-toolbar-field">
+                <label class="hr-field-label" for="dev-status">الحالة</label>
+                <select id="dev-status" class="hr-select" @bind="selectedStatusFilter" @bind:after="ApplyFilters">
+                    <option value="all">كافة الأجهزة</option>
+                    <option value="active">المقترنة النشطة</option>
+                    <option value="inactive">المسحوب اعتمادها</option>
+                </select>
+            </div>
+
+            <div class="hr-toolbar-actions">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadDevicesAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ التحديث…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="arrow-path" Size="sm" />
+                        <span>تحديث</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="hr-card-body">
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div class="hr-skeleton" style="height:3rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                }
+            </div>
+        }
+        else if (filteredDevices.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="device-phone-mobile" Size="lg" /></span>
+                <p class="hr-h3">@(allDevices.Count == 0 ? "لا توجد أجهزة مقترنة" : "لا نتائج مطابقة")</p>
+                <p class="hr-sub hr-measure-sm">
+                    @(allDevices.Count == 0
+                        ? "لم يقترن أي جهاز بحساب موظف حتى الآن."
+                        : "جرّب تعديل نص البحث أو اختيار حالة أخرى.")
+                </p>
+                @if (allDevices.Count > 0)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح عوامل التصفية</span>
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table">
+                    <caption class="hr-sr">الأجهزة المقترنة بحسابات الموظفين</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">الموظف</th>
+                            <th scope="col">الجهاز</th>
+                            <th scope="col">معرّف الجهاز</th>
+                            <th scope="col">آخر دخول</th>
+                            <th scope="col">الحالة</th>
+                            <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var dev in filteredDevices)
+                        {
+                            <tr @key="dev.Id">
+                                <td><span class="hr-cell-strong hr-num">@dev.EmployeeID</span></td>
+                                <td>
+                                    <span class="hr-cell-strong">@Display(dev.DeviceModel, "جهاز غير معرّف")</span>
+                                    <span class="hr-cell-sub">@Display(dev.Platform, "منصة غير معروفة")</span>
+                                </td>
+                                <td><span class="hr-num hr-wrap-any hr-cell-id">@dev.DeviceId</span></td>
+                                <td class="hr-num">@dev.LastLoginAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                <td>
+                                    @if (dev.IsActive)
+                                    {
+                                        <span class="hr-badge hr-badge-ok">
+                                            <Icon Name="check-circle" Size="xs" />
+                                            <span>مقترن</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-danger">
+                                            <Icon Name="no-symbol" Size="xs" />
+                                            <span>مسحوب</span>
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (dev.IsActive)
+                                    {
+                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm"
+                                                @onclick="() => AskRevoke(dev)">
+                                            <Icon Name="no-symbol" Size="xs" />
+                                            <span>سحب الاعتماد</span>
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                @onclick="() => RebindDeviceAsync(dev)">
+                                            <Icon Name="link" Size="xs" />
+                                            <span>إعادة الاقتران</span>
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="hr-card-foot">
+                <p class="hr-meta">
+                    عرض <span class="hr-num">@filteredDevices.Count</span>
+                    من <span class="hr-num">@allDevices.Count</span> جهاز
+                </p>
+            </div>
+        }
+    </section>
+</div>
+
+<ConfirmDialog IsOpen="@(pendingDevice is not null)"
+               Title="سحب اعتماد الجهاز"
+               Subject="@PendingLabel"
+               Message="سينتهي دخول هذا الجهاز فوراً، ولن يتمكن الموظف من استخدامه حتى إعادة الاقتران."
+               ConfirmText="سحب الاعتماد"
+               Destructive="true"
+               IsBusy="@isRevoking"
+               OnConfirm="ConfirmRevokeAsync"
+               OnCancel="CancelRevoke" />
+
+@code {
+    private List<UserDevice> allDevices = new();
+    private List<UserDevice> filteredDevices = new();
+    private bool isLoading = true;
+    private bool loadFailed;
+    private bool isRevoking;
+    private string? statusMessage;
+
+    private string searchQuery = string.Empty;
+    private string selectedStatusFilter = "all";
+
+    private UserDevice? pendingDevice;
+
+    private int activeDevicesCount => allDevices.Count(d => d.IsActive);
+
+    private string PendingLabel =>
+        pendingDevice is null
+            ? string.Empty
+            : $"الموظف {pendingDevice.EmployeeID} · {Display(pendingDevice.DeviceModel, "جهاز غير معرّف")}";
+
+    private static string Display(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    protected override async Task OnInitializedAsync() => await LoadDevicesAsync();
+
+    private async Task LoadDevicesAsync()
+    {
+        isLoading = true;
+        loadFailed = false;
+
+        try
+        {
+            allDevices = await DbContext.UserDevices
+                .OrderByDescending(d => d.LastLoginAt)
+                .ToListAsync();
+
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            loadFailed = true;
+            Logger.LogError(ex, "Error loading user devices");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = string.Empty;
+        selectedStatusFilter = "all";
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        IEnumerable<UserDevice> query = allDevices;
+
+        if (selectedStatusFilter == "active") query = query.Where(d => d.IsActive);
+        else if (selectedStatusFilter == "inactive") query = query.Where(d => !d.IsActive);
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            query = query.Where(d =>
+                d.EmployeeID.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                d.DeviceId.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (d.DeviceModel != null && d.DeviceModel.Contains(q, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        filteredDevices = query.ToList();
+    }
+
+    private void AskRevoke(UserDevice dev) => pendingDevice = dev;
+
+    private void CancelRevoke() => pendingDevice = null;
+
+    private async Task ConfirmRevokeAsync()
+    {
+        if (pendingDevice is null)
+        {
+            return;
+        }
+
+        isRevoking = true;
+        var label = pendingDevice.EmployeeID;
+
+        try
+        {
+            pendingDevice.IsActive = false;
+            await DbContext.SaveChangesAsync();
+            statusMessage = $"تم سحب اعتماد جهاز الموظف {label}.";
+            pendingDevice = null;
+            await LoadDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = "تعذّر سحب الاعتماد. حاول مرة أخرى.";
+            Logger.LogError(ex, "Error revoking device for {EmployeeId}", label);
+        }
+        finally
+        {
+            isRevoking = false;
+        }
+    }
+
+    private async Task RebindDeviceAsync(UserDevice dev)
+    {
+        try
+        {
+            dev.IsActive = true;
+            await DbContext.SaveChangesAsync();
+            statusMessage = $"تمت إعادة اقتران جهاز الموظف {dev.EmployeeID}.";
+            await LoadDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = "تعذّرت إعادة الاقتران. حاول مرة أخرى.";
+            Logger.LogError(ex, "Error rebinding device for {EmployeeId}", dev.EmployeeID);
+        }
+    }
+}

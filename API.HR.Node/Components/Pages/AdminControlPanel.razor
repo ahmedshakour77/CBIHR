@@ -1,0 +1,380 @@
+@page "/admin/features"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+@using System.Security.Claims
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Features
+@using API.HR.Node.Services.Localization
+@inject ISystemFeatureService FeatureService
+@inject ILanguageService Lang
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+
+<PageTitle>لوحة التحكم بالمميزات | إدارة النظام</PageTitle>
+
+<div class="hr-stack">
+    <!-- Breadcrumbs & Pagehead -->
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>الرئيسية</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <a href="employee-feedbacks" class="hr-crumb">
+                    <Icon Name="chat-bubble-left-right" Size="xs" />
+                    <span>مشاركات الموظفين</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">التحكم بالمميزات</span>
+            </nav>
+            <h1 class="hr-h1" style="margin-block-start: var(--s-2)">لوحة التحكم بمميزات المنظومة والمشاركات</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start: var(--s-1)">
+                تحكم فوري وشامل في تفعيل أو إيقاف أقسام المنظومة، وتحديد أنواع المشاركات المسموحة للموظفين (مثل إيقاف تلقي الأفكار أو الشكاوى مؤقتاً)، وتخصيص رسائل الإدارة التوضيحية.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button"
+                    class="hr-btn hr-btn-secondary"
+                    @onclick="LoadSettingsAsync"
+                    disabled="@isSaving">
+                <Icon Name="arrow-path" Size="xs" />
+                <span>إعادة تحميل</span>
+            </button>
+            <button type="button"
+                    class="hr-btn hr-btn-primary"
+                    @onclick="SaveSettingsAsync"
+                    disabled="@isSaving">
+                <Icon Name="check" Size="xs" />
+                <span>@(isSaving ? "جاري الحفظ..." : "حفظ التعديلات")</span>
+            </button>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrEmpty(saveFeedback))
+    {
+        <div class="hr-alert hr-alert-ok" role="status" style="align-items: center;">
+            <Icon Name="check-circle" Size="sm" />
+            <div style="font-weight: 600;">@saveFeedback</div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="hr-alert hr-alert-danger" role="alert" style="align-items: center;">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <div style="font-weight: 600;">@errorMessage</div>
+        </div>
+    }
+
+    <!-- Main Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--s-4);">
+
+        <!-- Section 1: General Submissions Feature Toggles -->
+        <section class="hr-card" style="padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-3);">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: var(--s-2);flex-wrap:wrap;gap:var(--s-2);">
+                <div style="display: flex; align-items: center; gap: var(--s-2);">
+                    <span class="hr-iconplate hr-plate-a" style="display: inline-flex; padding: var(--s-1); border-radius: var(--radius-sm); background: var(--accent-tint);">
+                        <Icon Name="chat-bubble-left-right" Size="sm" />
+                    </span>
+                    <h2 class="hr-h3" style="margin: 0; font-size: var(--fs-title);">ميزة مشاركات الموظفين (العامة)</h2>
+                </div>
+                <span class="hr-badge @(settings.EnableMyFeedback ? "hr-badge-ok" : "hr-badge-danger")">
+                    @(settings.EnableMyFeedback ? "مفعّلة كلياً" : "معطلة")
+                </span>
+            </div>
+
+            <p class="hr-sub" style="margin: 0; font-size: var(--fs-control);">
+                التحكم العام في ظهور تبويب "مشاركاتي" في كافة القوائم (العلوية والجانبية والعائمة) وملف الموظف، مع زر المشاركة السريع.
+            </p>
+
+            <div class="hr-feature-toggle-list">
+                <!-- Master Toggle: EnableMyFeedback -->
+                <label class="hr-feature-toggle-row">
+                    <div class="hr-feature-toggle-info">
+                        <span class="hr-feature-toggle-title">تفعيل تبويب وميزة "مشاركاتي"</span>
+                        <span class="hr-feature-toggle-desc">
+                            إظهار تبويب مشاركاتي في القوائم العلوية والجانبية وملف الموظف، والسماح للموظفين بتقديم ومتابعة مشاركاتهم.
+                        </span>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.EnableMyFeedback" />
+                </label>
+
+                <!-- Toggle: EnableFeedbackFab -->
+                <label class="hr-feature-toggle-row">
+                    <div class="hr-feature-toggle-info">
+                        <span class="hr-feature-toggle-title">إظهار زر المشاركة العائم (FAB)</span>
+                        <span class="hr-feature-toggle-desc">
+                            زر عائم سريع أسفل الشاشة يتيح للموظف إرسال فكرة أو استفسار بنقرة واحدة من أي صفحة.
+                        </span>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.EnableFeedbackFab" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+
+                <!-- Toggle: AllowAttachments -->
+                <label class="hr-feature-toggle-row">
+                    <div class="hr-feature-toggle-info">
+                        <span class="hr-feature-toggle-title">السماح برفع المرفقات مع المشاركات</span>
+                        <span class="hr-feature-toggle-desc">
+                            تمكين الموظف من إرفاق مستندات توضيحية أو صور مع فكرته أو ملاحظته أو استفساره.
+                        </span>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.AllowAttachments" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+            </div>
+        </section>
+
+        <!-- Section 2: Specific Categories Control -->
+        <section class="hr-card" style="padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-3);">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: var(--s-2);flex-wrap:wrap;gap:var(--s-2);">
+                <div style="display: flex; align-items: center; gap: var(--s-2);">
+                    <span class="hr-iconplate hr-plate-b" style="display: inline-flex; padding: var(--s-1); border-radius: var(--radius-sm); background: var(--accent-tint);">
+                        <Icon Name="adjustments-horizontal" Size="sm" />
+                    </span>
+                    <h2 class="hr-h3" style="margin: 0; font-size: var(--fs-title);">أنواع المشاركات المسموح بتلقيها</h2>
+                </div>
+                <span class="hr-badge hr-badge-accent">
+                    تخصيص الفئات
+                </span>
+            </div>
+
+            <p class="hr-sub" style="margin: 0; font-size: var(--fs-control);">
+                يمكن للإدارة في أي وقت إيقاف استقبال نوع معين من المشاركات (مثل إيقاف تلقي الأفكار مؤقتاً)، وسيختفي الخيار فوراً من نموذج الإرسال لدى الموظفين.
+            </p>
+
+            <div class="hr-feature-toggle-list hr-feature-toggle-list--tight">
+                <!-- AllowIdeas (تلقي الأفكار) -->
+                <label class="hr-feature-toggle-row">
+                    <div style="display: flex; align-items: center; gap: var(--s-2);">
+                        <span style="color: var(--series-4); display: inline-flex;" aria-hidden="true"><Icon Name="light-bulb" Size="sm" /></span>
+                        <div class="hr-feature-toggle-info">
+                            <span class="hr-feature-toggle-title">تلقي الأفكار والمقترحات التطويرية</span>
+                            <span class="hr-feature-toggle-desc">أفكار ومبادرات لتحسين بيئة العمل وتطوير المنظومة.</span>
+                        </div>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.AllowIdeas" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+
+                <!-- AllowNotes (تلقي الملاحظات) -->
+                <label class="hr-feature-toggle-row">
+                    <div style="display: flex; align-items: center; gap: var(--s-2);">
+                        <span style="color: var(--series-2); display: inline-flex;" aria-hidden="true"><Icon Name="document-text" Size="sm" /></span>
+                        <div class="hr-feature-toggle-info">
+                            <span class="hr-feature-toggle-title">تلقي ملاحظات العمل</span>
+                            <span class="hr-feature-toggle-desc">ملاحظات ومرئيات عامة حول إجراءات العمل.</span>
+                        </div>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.AllowNotes" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+
+                <!-- AllowInquiries (تلقي الاستفسارات) -->
+                <label class="hr-feature-toggle-row">
+                    <div style="display: flex; align-items: center; gap: var(--s-2);">
+                        <span style="color: var(--series-3); display: inline-flex;" aria-hidden="true"><Icon Name="question-mark-circle" Size="sm" /></span>
+                        <div class="hr-feature-toggle-info">
+                            <span class="hr-feature-toggle-title">تلقي الاستفسارات المهنية والإدارية</span>
+                            <span class="hr-feature-toggle-desc">أسئلة الموظفين الموجهة لإدارة الموارد البشرية.</span>
+                        </div>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.AllowInquiries" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+
+                <!-- AllowComplaints (تلقي الشكاوى) -->
+                <label class="hr-feature-toggle-row">
+                    <div style="display: flex; align-items: center; gap: var(--s-2);">
+                        <span style="color: var(--series-5); display: inline-flex;" aria-hidden="true"><Icon Name="exclamation-triangle" Size="sm" /></span>
+                        <div class="hr-feature-toggle-info">
+                            <span class="hr-feature-toggle-title">تلقي الشكاوى الإدارية</span>
+                            <span class="hr-feature-toggle-desc">شكاوى وتظلمات الموظفين الرسمية.</span>
+                        </div>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.AllowComplaints" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+
+                <!-- AllowOthers (أخرى) -->
+                <label class="hr-feature-toggle-row">
+                    <div style="display: flex; align-items: center; gap: var(--s-2);">
+                        <span style="color: var(--series-1); display: inline-flex;" aria-hidden="true"><Icon Name="chat-bubble-left-right" Size="sm" /></span>
+                        <div class="hr-feature-toggle-info">
+                            <span class="hr-feature-toggle-title">تلقي مشاركات عامة متنوعة (أخرى)</span>
+                            <span class="hr-feature-toggle-desc">المشاركات التي لا تندرج تحت الفئات السابقة.</span>
+                        </div>
+                    </div>
+                    <input type="checkbox" class="hr-switch-input" @bind="settings.AllowOthers" disabled="@(!settings.EnableMyFeedback)" />
+                </label>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Section 3: Administrative Guidance Message -->
+    <section class="hr-card" style="padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-3);">
+        <div style="display: flex; align-items: center; gap: var(--s-2); border-bottom: 1px solid var(--line); padding-bottom: var(--s-2);">
+            <span class="hr-iconplate" style="display: inline-flex; padding: var(--s-1); border-radius: var(--radius-sm); background: var(--accent-tint);">
+                <Icon Name="information-circle" Size="sm" />
+            </span>
+            <div>
+                <h2 class="hr-h3" style="margin: 0; font-size: var(--fs-title);">رسالة التوجيه الإداري للموظفين</h2>
+                <p class="hr-sub" style="margin: 0; font-size: var(--fs-label);">
+                    نص التنبيه الإداري الذي يظهر للموظف في صفحة مشاركاتي والنافذة التفاعلية عند إيقاف تلقي المشاركات أو عند وجود توجيه عام.
+                </p>
+            </div>
+        </div>
+
+        <div class="hr-field">
+            <label class="hr-label" for="disabled-msg-input">نص الرسالة أو التوجيه الإداري:</label>
+            <textarea id="disabled-msg-input"
+                      class="hr-input"
+                      rows="3"
+                      style="width: 100%; resize: vertical;"
+                      placeholder="مثال: تم إيقاف استقبال المقترحات مؤقتاً لحين الانتهاء من دراسة الدفعة السابقة من قبل اللجان المختصة."
+                      @bind="settings.DisabledMessage"></textarea>
+            <span class="hr-help">اترك الحقل فارغاً لاستخدام الرسالة القياسية التلقائية في النظام.</span>
+        </div>
+
+        @if (settings.UpdatedAtUtc != default)
+        {
+            <div style="font-size: var(--fs-label); color: var(--text-muted); display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2);">
+                <Icon Name="clock" Size="xs" />
+                <span>آخر تحديث للإعدادات: @settings.UpdatedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") @(!string.IsNullOrEmpty(settings.UpdatedBy) ? $"بواسطة ({settings.UpdatedBy})" : "")</span>
+            </div>
+        }
+
+        <div style="display: flex; justify-content: flex-end; gap: var(--s-2); margin-top: var(--s-3);">
+            <button type="button"
+                    class="hr-btn hr-btn-secondary"
+                    @onclick="ResetDefaults">
+                <span>استعادة الخيارات الافتراضية</span>
+            </button>
+            <button type="button"
+                    class="hr-btn hr-btn-primary"
+                    @onclick="SaveSettingsAsync"
+                    disabled="@isSaving">
+                <Icon Name="check" Size="xs" />
+                <span>@(isSaving ? "جاري الحفظ..." : "حفظ التعديلات وتطبيقها فوراً")</span>
+            </button>
+        </div>
+    </section>
+</div>
+
+<style>
+    .hr-feature-toggle-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-3);
+        margin-block-start: var(--s-2);
+    }
+
+    .hr-feature-toggle-list--tight { gap: var(--s-2); }
+
+    .hr-feature-toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s-3);
+        padding: 0.75rem 1rem;
+        background: color-mix(in srgb, var(--surface) 90%, var(--accent-tint) 10%);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .hr-feature-toggle-row:hover {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--surface) 80%, var(--accent-tint) 20%);
+    }
+
+    .hr-feature-toggle-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .hr-feature-toggle-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+        color: var(--text);
+    }
+
+    .hr-feature-toggle-desc {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        line-height: 1.35;
+    }
+
+    .hr-switch-input {
+        width: 1.5rem;
+        height: 1.5rem;
+        accent-color: var(--accent);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+</style>
+
+@code {
+    private SystemFeatureSettings settings = new();
+    private bool isSaving;
+    private string? saveFeedback;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsAsync();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        try
+        {
+            saveFeedback = null;
+            errorMessage = null;
+            settings = await FeatureService.GetSettingsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"فشل تحميل الإعدادات: {ex.Message}";
+        }
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        isSaving = true;
+        saveFeedback = null;
+        errorMessage = null;
+
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var adminUser = auth.User.Identity?.Name ?? "Admin";
+
+            await FeatureService.UpdateSettingsAsync(settings, adminUser);
+            saveFeedback = "تم حفظ إعدادات وتخصيصات النظام بنجاح وتطبيقها في كامل المنظومة فوراً.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"حدث خطأ أثناء حفظ الإعدادات: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ResetDefaults()
+    {
+        settings.EnableMyFeedback = true;
+        settings.EnableFeedbackFab = true;
+        settings.AllowIdeas = true;
+        settings.AllowNotes = true;
+        settings.AllowInquiries = true;
+        settings.AllowComplaints = true;
+        settings.AllowOthers = true;
+        settings.AllowAttachments = true;
+        settings.DisabledMessage = null;
+        saveFeedback = "تمت استعادة القيم الافتراضية. انقر على 'حفظ التعديلات' للاعتماد.";
+    }
+}

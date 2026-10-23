@@ -1,0 +1,428 @@
+@namespace API.HR.Node.Components.DesignSystem
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using API.HR.Node.Data
+@using API.HR.Node.Components.Layout
+@using API.HR.Node.Services.Localization
+@using Microsoft.EntityFrameworkCore
+@implements IDisposable
+@inject NavigationManager Nav
+@inject ILanguageService Lang
+@inject IServiceScopeFactory ScopeFactory
+@inject IJSRuntime JSRuntime
+@inject AuthenticationStateProvider AuthState
+@inject API.HR.Node.Services.Features.ISystemFeatureService FeatureService
+
+@*
+    Quick search (Ctrl+K). Pages come from NavCatalog, the same source as the
+    rail, the drawer, the dock and the top bar, filtered by the same role and
+    feature rules, so the palette can never offer a page the rail would not.
+    Employee search is offered only to roles that may open the directory.
+
+    Keyboard model: focus stays in the search field (a combobox); arrows move
+    the highlighted option via aria-activedescendant, Enter opens it, Escape
+    closes. Options are not tab stops.
+*@
+
+@if (isAdmin)
+{
+<button type="button"
+        class="hr-btn hr-btn-quiet hr-btn-sm hr-search-trigger"
+        @onclick="Open"
+        data-cmd-palette-trigger
+        aria-haspopup="dialog"
+        aria-expanded="@(IsOpen ? "true" : "false")"
+        aria-label="@Lang.T("cmd.trigger.label", "البحث السريع (Ctrl + K)")"
+        title="@Lang.T("cmd.trigger.label", "البحث السريع (Ctrl + K)")">
+    <Icon Name="magnifying-glass" Size="xs" />
+    <span class="hr-label-wide">@Lang.T("cmd.trigger", "بحث سريع…")</span>
+    <span class="hr-cmd-kbd" aria-hidden="true">Ctrl K</span>
+</button>
+
+@if (IsOpen)
+{
+    <div class="hr-cmd-backdrop" @onclick="Close" aria-hidden="true"></div>
+    <div class="hr-cmd-modal"
+         role="dialog"
+         aria-modal="true"
+         aria-label="@Lang.T("cmd.dialog", "البحث السريع وشريط الأوامر")"
+         @onkeydown="HandleKeyDown">
+
+        <div class="hr-cmd-searchbox">
+            <Icon Name="magnifying-glass" Size="sm" />
+            <input @ref="inputElement"
+                   type="search"
+                   role="combobox"
+                   aria-expanded="true"
+                   aria-controls="@listId"
+                   aria-autocomplete="list"
+                   aria-activedescendant="@ActiveOptionId"
+                   aria-label="@Placeholder"
+                   placeholder="@Placeholder"
+                   autocomplete="off"
+                   spellcheck="false"
+                   value="@searchTerm"
+                   @oninput="OnSearchInput" />
+            <span class="hr-cmd-kbd" aria-hidden="true">ESC</span>
+        </div>
+
+        <p class="hr-sr" role="status">@StatusText</p>
+
+        <div class="hr-cmd-results" id="@listId" role="listbox" aria-label="@Lang.T("cmd.dialog", "البحث السريع وشريط الأوامر")">
+            @if (isSearching && filteredItems.Count == 0)
+            {
+                <div class="hr-cmd-note">
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>@Lang.T("cmd.searching", "جارٍ البحث…")</span>
+                </div>
+            }
+            else if (filteredItems.Count == 0)
+            {
+                <div class="hr-cmd-note">@Lang.T("cmd.empty", "لا توجد نتائج مطابقة")</div>
+            }
+            else
+            {
+                var flatIndex = 0;
+                var groupIndex = 0;
+                foreach (var group in filteredItems.GroupBy(i => i.Group))
+                {
+                    var groupId = $"{listId}-g{groupIndex++}";
+                    <div role="group" aria-labelledby="@groupId">
+                        <div class="hr-cmd-group-title" id="@groupId">@group.Key</div>
+                        @foreach (var item in group)
+                        {
+                            var currentIndex = flatIndex++;
+                            var isSelected = currentIndex == selectedIndex;
+                            <div id="@OptionId(currentIndex)"
+                                 role="option"
+                                 aria-selected="@(isSelected ? "true" : "false")"
+                                 class="hr-cmd-item @(isSelected ? "is-selected" : null)"
+                                 @onclick="() => ExecuteItem(item)">
+                                <div class="hr-cmd-item-icon" aria-hidden="true">
+                                    <Icon Name="@item.Icon" Size="sm" />
+                                </div>
+                                <div class="hr-cmd-item-content">
+                                    <div class="hr-cmd-item-title">@item.Title</div>
+                                    @if (!string.IsNullOrEmpty(item.Subtitle))
+                                    {
+                                        <div class="hr-cmd-item-desc">@item.Subtitle</div>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrEmpty(item.Shortcut))
+                                {
+                                    <span class="hr-cmd-kbd" aria-hidden="true">@item.Shortcut</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+        <footer class="hr-cmd-footer" aria-hidden="true">
+            <div class="hr-cmd-hints">
+                <span><kbd class="hr-cmd-kbd">↑</kbd> <kbd class="hr-cmd-kbd">↓</kbd> @Lang.T("cmd.hint.navigate", "للتنقل")</span>
+                <span><kbd class="hr-cmd-kbd">↵</kbd> @Lang.T("cmd.hint.select", "للاختيار")</span>
+                <span><kbd class="hr-cmd-kbd">ESC</kbd> @Lang.T("cmd.hint.close", "للإغلاق")</span>
+            </div>
+            <span>@Lang.T("app.title", "منظومة الموارد البشرية")</span>
+        </footer>
+    </div>
+}
+}
+
+@code {
+    public sealed record PaletteItem(
+        string Id,
+        string Title,
+        string? Subtitle,
+        string Icon,
+        string Group,
+        string? Shortcut = null,
+        string? TargetUrl = null,
+        Func<Task>? AsyncAction = null,
+        Func<string, bool>? Matches = null);
+
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+
+    private readonly string listId = $"cmd-{Guid.NewGuid():N}"[..12];
+    private ElementReference inputElement;
+    private string searchTerm = "";
+    private int selectedIndex;
+    private bool isSearching;
+    private bool focusPending;
+    private bool scrollPending;
+    private List<PaletteItem> filteredItems = new();
+    private List<PaletteItem> staticItems = new();
+    private CancellationTokenSource? searchCts;
+
+    // Only roles that may open the employee directory may search employees;
+    // anyone else would otherwise read names, titles and formations of the
+    // whole workforce through this box.
+    private bool canSearchEmployees;
+
+    private string Placeholder => canSearchEmployees
+        ? Lang.T("cmd.placeholder.staff", "ابحث عن صفحة، موظف، أو إجراء…")
+        : Lang.T("cmd.placeholder", "ابحث عن صفحة أو إجراء…");
+
+    private string? ActiveOptionId => filteredItems.Count > 0 ? OptionId(selectedIndex) : null;
+    private string OptionId(int index) => $"{listId}-o{index}";
+
+    private string StatusText => isSearching
+        ? Lang.T("cmd.searching", "جارٍ البحث…")
+        : string.Format(Lang.T("cmd.count", "{0} نتيجة"), filteredItems.Count);
+
+    private bool isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        isAdmin = user.IsInRole("Admin");
+        if (!isAdmin) return;
+
+        var features = await FeatureService.GetSettingsAsync();
+        staticItems = BuildItems(user, features);
+        canSearchEmployees = NavCatalog.Entries.Any(e => e.Href == "employees" && e.IsAllowedFor(user));
+        ResetResults();
+    }
+
+    private static bool IsStaff(ClaimsPrincipal user) =>
+        user.IsInRole("Admin") || user.IsInRole("HRManager") ||
+        user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
+
+    private List<PaletteItem> BuildItems(ClaimsPrincipal user, SystemFeatureSettings features)
+    {
+        var items = new List<PaletteItem>();
+        var ku = Lang.IsKurdish;
+
+        // Pages: exactly what the rail shows this user.
+        foreach (var group in IsStaff(user) ? NavCatalog.All : NavCatalog.EmployeeCatalog)
+        {
+            if (!group.IsAllowedFor(user)) continue;
+            foreach (var entry in group.Items)
+            {
+                if (!entry.IsAllowedFor(user)) continue;
+                if (entry.Href == "my-feedback" && !features.EnableMyFeedback) continue;
+                var e = entry;
+                items.Add(new PaletteItem(
+                    $"nav-{e.Href}", e.GetLabel(ku), e.GetHint(ku), e.Icon, group.GetTitle(ku),
+                    TargetUrl: string.IsNullOrEmpty(e.Href) ? "./" : e.Href,
+                    Matches: q => NavCatalog.Matches(e, q)));
+            }
+        }
+
+        if (user.IsInRole("Admin"))
+        {
+            var tools = Lang.T("nav.group.tools", "أدوات");
+            items.Add(new PaletteItem("nav-admin-features", Lang.T("nav.features", "لوحة التحكم وإدارة الميزات"),
+                Lang.T("nav.features.hint", "لوحة التحكم بالميزات والإعدادات"), "cog-6-tooth", tools, TargetUrl: "admin/features"));
+        }
+
+        // Actions. Each one goes through the same code path as its control
+        // in the shell, so it behaves identically.
+        var actions = Lang.T("cmd.group.actions", "إجراءات سريعة");
+        items.Add(new PaletteItem("act-prefs", Lang.T("nav.prefs", "إعدادات العرض والمظهر"),
+            Lang.T("cmd.act.prefs.sub", "الخط والحجم والسمة وكثافة الجداول"), "adjustments-horizontal", actions,
+            AsyncAction: () => JSRuntime.InvokeVoidAsync("hrOpenPreferences").AsTask()));
+        items.Add(new PaletteItem("act-theme", Lang.T("cmd.act.theme", "تبديل المظهر (فاتح / داكن)"),
+            null, "moon", actions,
+            AsyncAction: () => JSRuntime.InvokeVoidAsync("hrTheme.toggle").AsTask()));
+
+        // Offer the other language, written in that language so its reader finds it.
+        items.Add(ku
+            ? new PaletteItem("act-lang-ar", "التحويل إلى العربية", "العربية", "language", actions, "عربي",
+                AsyncAction: () => JSRuntime.InvokeVoidAsync("hrLang.set", LanguageService.Arabic, true).AsTask())
+            : new PaletteItem("act-lang-ku", "گۆڕین بۆ کوردی", "کوردی سۆرانی", "language", actions, "کوردی",
+                AsyncAction: () => JSRuntime.InvokeVoidAsync("hrLang.set", LanguageService.Kurdish, true).AsTask()));
+
+        // Logout is a POST with an antiforgery token; navigating to the URL
+        // did nothing. Submit the shell's own logout form instead.
+        items.Add(new PaletteItem("act-logout", Lang.T("auth.logout", "تسجيل الخروج"),
+            Lang.T("cmd.act.logout.sub", "إنهاء الجلسة الحالية بأمان"), "arrow-right-on-rectangle", actions,
+            AsyncAction: () => JSRuntime.InvokeVoidAsync("hrCmd.logout").AsTask()));
+
+        return items;
+    }
+
+    public void Open()
+    {
+        if (!isAdmin) return;
+        IsOpen = true;
+        searchTerm = "";
+        ResetResults();
+        focusPending = true;
+        IsOpenChanged.InvokeAsync(true);
+    }
+
+    public void Close()
+    {
+        searchCts?.Cancel();
+        isSearching = false;
+        IsOpen = false;
+        IsOpenChanged.InvokeAsync(false);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsOpen) return;
+
+        if (focusPending)
+        {
+            focusPending = false;
+            try { await inputElement.FocusAsync(); } catch (JSException) { }
+        }
+
+        if (scrollPending && ActiveOptionId is { } id)
+        {
+            scrollPending = false;
+            try { await JSRuntime.InvokeVoidAsync("hrCmd.reveal", id); } catch (JSException) { }
+        }
+    }
+
+    private void ResetResults()
+    {
+        filteredItems = staticItems.ToList();
+        selectedIndex = 0;
+    }
+
+    private IEnumerable<PaletteItem> MatchStatic(string q) =>
+        staticItems.Where(i => i.Matches is { } m
+            ? m(q)
+            : i.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+              || (i.Subtitle?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    // Keep the list in display order (grouped), so the highlighted index and
+    // Enter always refer to the same row.
+    private static List<PaletteItem> InDisplayOrder(IEnumerable<PaletteItem> items) =>
+        items.GroupBy(i => i.Group).SelectMany(g => g).ToList();
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? "";
+        selectedIndex = 0;
+
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+        searchCts = new CancellationTokenSource();
+        var token = searchCts.Token;
+
+        var term = searchTerm.Trim();
+        if (term.Length == 0)
+        {
+            isSearching = false;
+            ResetResults();
+            return;
+        }
+
+        var matchedStatic = MatchStatic(term).ToList();
+        filteredItems = InDisplayOrder(matchedStatic);
+
+        if (!canSearchEmployees || term.Length < 2)
+        {
+            isSearching = false;
+            return;
+        }
+
+        isSearching = true;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(200, token); // debounce
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var employees = await db.Employees
+                .AsNoTracking()
+                .Where(emp => emp.Name.Contains(term) || emp.EmployeeID.Contains(term) || (emp.JobTitle != null && emp.JobTitle.Name.Contains(term)))
+                .OrderBy(emp => emp.Name)
+                .Take(5)
+                .Select(emp => new
+                {
+                    emp.EmployeeID,
+                    emp.Name,
+                    JobTitle = emp.JobTitle != null ? emp.JobTitle.Name : null,
+                    Formation = emp.Formation != null ? emp.Formation.Name : null
+                })
+                .ToListAsync(token);
+
+            if (token.IsCancellationRequested) return;
+
+            var group = Lang.T("cmd.group.employees", "الموظفون");
+            var idLabel = Lang.T("cmd.employee.id", "الرقم:");
+            var employeeItems = employees.Select(emp => new PaletteItem(
+                $"emp-{emp.EmployeeID}",
+                emp.Name,
+                string.Join(" • ", new[] { emp.JobTitle, emp.Formation ?? $"{idLabel} {emp.EmployeeID}" }.Where(s => !string.IsNullOrWhiteSpace(s))),
+                "user",
+                group,
+                $"#{emp.EmployeeID}",
+                $"employees/{Uri.EscapeDataString(emp.EmployeeID)}"));
+
+            filteredItems = InDisplayOrder(employeeItems.Concat(matchedStatic));
+            selectedIndex = 0;
+        }
+        catch (OperationCanceledException)
+        {
+            return; // a newer keystroke owns the results now
+        }
+        catch (Exception)
+        {
+            // Pages and actions still work if the employee lookup fails.
+            filteredItems = InDisplayOrder(matchedStatic);
+        }
+
+        isSearching = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                Close();
+                return;
+            case "ArrowDown" when filteredItems.Count > 0:
+                selectedIndex = (selectedIndex + 1) % filteredItems.Count;
+                scrollPending = true;
+                break;
+            case "ArrowUp" when filteredItems.Count > 0:
+                selectedIndex = (selectedIndex - 1 + filteredItems.Count) % filteredItems.Count;
+                scrollPending = true;
+                break;
+            case "Home" when filteredItems.Count > 0 && string.IsNullOrEmpty(searchTerm):
+                selectedIndex = 0;
+                scrollPending = true;
+                break;
+            case "End" when filteredItems.Count > 0 && string.IsNullOrEmpty(searchTerm):
+                selectedIndex = filteredItems.Count - 1;
+                scrollPending = true;
+                break;
+            case "Enter" when selectedIndex >= 0 && selectedIndex < filteredItems.Count:
+                await ExecuteItem(filteredItems[selectedIndex]);
+                break;
+        }
+    }
+
+    private async Task ExecuteItem(PaletteItem item)
+    {
+        Close();
+
+        if (item.AsyncAction != null)
+        {
+            try { await item.AsyncAction(); } catch (JSException) { }
+        }
+        else if (!string.IsNullOrEmpty(item.TargetUrl))
+        {
+            Nav.NavigateTo(item.TargetUrl);
+        }
+    }
+
+    public void Dispose()
+    {
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+    }
+}

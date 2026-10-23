@@ -1,0 +1,473 @@
+@page "/passkeys"
+@attribute [Authorize(Roles = "Admin,HRManager")]
+@rendermode InteractiveServer
+
+@using Microsoft.AspNetCore.Identity
+
+@inject ApplicationDbContext DbContext
+@inject IPasskeyService PasskeyService
+@inject IJSRuntime JSRuntime
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavigationManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject UserManager<ApplicationUser> UserManager
+@inject ILogger<UserPasskeysPage> Logger
+
+<PageTitle>مفاتيح المرور | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Passkeys.
+
+    Three actions of escalating consequence live on each row — freeze,
+    reactivate, delete — so they are ordered by weight and the permanent
+    one is separated and carries the danger role. Each goes through the
+    system's confirmation, which names the employee it will affect.
+
+    Enrolment triggers the browser's WebAuthn prompt; the button reports
+    its own progress rather than leaving the page looking inert while the
+    platform dialog is open.
+*@
+
+<div class="hr-stack">
+
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <span class="hr-eyebrow">الحسابات والأمان</span>
+            <h1 class="hr-h1">مفاتيح المرور والبصمة</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                مفاتيح FIDO2 / WebAuthn المسجّلة لحسابات الموظفين. التجميد يوقف الاستخدام مؤقتاً، والحذف نهائي.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <span class="hr-badge hr-badge-ok">
+                <Icon Name="check-circle" Size="xs" />
+                <span>فعّالة <span class="hr-num">@activePasskeysCount</span></span>
+            </span>
+            <button type="button" class="hr-btn hr-btn-primary"
+                    @onclick="RegisterCurrentBrowserPasskeyAsync" disabled="@isEnrolling">
+                @if (isEnrolling)
+                {
+                    <span class="hr-spinner" aria-hidden="true"></span>
+                    <span>بانتظار المتصفح…</span>
+                }
+                else
+                {
+                    <Icon Name="finger-print" Size="sm" />
+                    <span>تسجيل بصمة هذا الجهاز</span>
+                }
+            </button>
+        </div>
+    </header>
+
+    @if (statusMessage is not null)
+    {
+        <div class="hr-alert @(isError ? "hr-alert-danger" : "hr-alert-ok")" role="alert">
+            <Icon Name="@(isError ? "exclamation-triangle" : "check-circle")" Size="sm" />
+            <div class="hr-alert-grow">
+                <p class="hr-alert-title">@(isError ? "تعذّر إتمام العملية" : "تمت العملية")</p>
+                <p class="hr-wrap-any" style="margin-block-start:.25rem">@statusMessage</p>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                    @onclick="() => statusMessage = null" aria-label="إخفاء الرسالة">
+                <Icon Name="x-mark" Size="sm" />
+            </button>
+        </div>
+    }
+
+    <section class="hr-card">
+        <div class="hr-toolbar">
+            <div class="hr-toolbar-search">
+                <label class="hr-field-label" for="pk-search">بحث</label>
+                <div class="hr-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input id="pk-search"
+                           type="search"
+                           class="hr-input"
+                           placeholder="الرقم الوظيفي أو اسم الجهاز"
+                           @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilters" />
+                </div>
+            </div>
+
+            <div class="hr-toolbar-field">
+                <label class="hr-field-label" for="pk-status">الحالة</label>
+                <select id="pk-status" class="hr-select" @bind="selectedStatusFilter" @bind:after="ApplyFilters">
+                    <option value="active">الفعّالة</option>
+                    <option value="inactive">المجمّدة</option>
+                    <option value="all">الكل</option>
+                </select>
+            </div>
+
+            <div class="hr-toolbar-actions">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadPasskeysAsync" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ التحديث…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="arrow-path" Size="sm" />
+                        <span>تحديث</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="hr-card-body">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="hr-skeleton" style="height:3rem;margin-block-end:.5rem" aria-hidden="true"></div>
+                }
+            </div>
+        }
+        else if (filteredPasskeys.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="finger-print" Size="lg" /></span>
+                <p class="hr-h3">@(allPasskeys.Count == 0 ? "لا توجد مفاتيح مسجّلة" : "لا نتائج مطابقة")</p>
+                <p class="hr-sub hr-measure-sm">
+                    @(allPasskeys.Count == 0
+                        ? "لم يسجّل أي موظف مفتاح مرور حتى الآن. يمكنك البدء بتسجيل بصمة هذا الجهاز."
+                        : "جرّب تعديل نص البحث أو اختيار حالة أخرى.")
+                </p>
+                @if (allPasskeys.Count > 0)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح عوامل التصفية</span>
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="hr-tablewrap">
+                <table class="hr-table">
+                    <caption class="hr-sr">مفاتيح المرور المسجّلة وعناصر التحكم بها</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">الموظف</th>
+                            <th scope="col">الجهاز</th>
+                            <th scope="col">تاريخ التسجيل</th>
+                            <th scope="col">آخر استخدام</th>
+                            <th scope="col">الحالة</th>
+                            <th scope="col"><span class="hr-sr">إجراءات</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var pk in filteredPasskeys)
+                        {
+                            <tr @key="pk.Id">
+                                <td>
+                                    <span class="hr-cell-strong hr-num">@pk.EmployeeID</span>
+                                    <span class="hr-cell-sub hr-wrap-any hr-cell-id">@pk.UserId</span>
+                                </td>
+                                <td>
+                                    <span class="hr-cell-strong">@Display(pk.DeviceName, "مفتاح مرور")</span>
+                                    <span class="hr-cell-sub">FIDO2 / WebAuthn</span>
+                                </td>
+                                <td class="hr-num">@pk.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                <td class="hr-num">@pk.LastUsedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td>
+                                <td>
+                                    @if (pk.IsActive)
+                                    {
+                                        <span class="hr-badge hr-badge-ok">
+                                            <Icon Name="check-circle" Size="xs" />
+                                            <span>فعّال</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-warn">
+                                            <Icon Name="lock-closed" Size="xs" />
+                                            <span>مجمّد</span>
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="hr-rowactions">
+                                        @if (pk.IsActive)
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                    @onclick="() => Ask(PasskeyAction.Freeze, pk)">
+                                                <Icon Name="lock-closed" Size="xs" />
+                                                <span>تجميد</span>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                    @onclick="() => Ask(PasskeyAction.Unfreeze, pk)">
+                                                <Icon Name="lock-open" Size="xs" />
+                                                <span>إعادة التفعيل</span>
+                                            </button>
+                                        }
+
+                                        @* Permanent deletion is separated from the
+                                           reversible actions beside it. *@
+                                        <span class="hr-rowactions-sep" aria-hidden="true"></span>
+
+                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                                @onclick="() => Ask(PasskeyAction.Delete, pk)"
+                                                aria-label="@($"حذف مفتاح الموظف {pk.EmployeeID} نهائياً")"
+                                                title="حذف نهائي">
+                                            <Icon Name="trash" Size="xs" />
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="hr-card-foot">
+                <p class="hr-meta">
+                    عرض <span class="hr-num">@filteredPasskeys.Count</span>
+                    من <span class="hr-num">@allPasskeys.Count</span> مفتاح
+                </p>
+            </div>
+        }
+    </section>
+</div>
+
+<ConfirmDialog IsOpen="@(pending is not null)"
+               Title="@PendingTitle"
+               Subject="@PendingSubject"
+               Message="@PendingMessage"
+               ConfirmText="@PendingConfirmText"
+               Destructive="@(pendingAction != PasskeyAction.Unfreeze)"
+               IsBusy="@isWorking"
+               OnConfirm="ConfirmAsync"
+               OnCancel="Cancel" />
+
+@code {
+    private enum PasskeyAction { Freeze, Unfreeze, Delete }
+
+    private List<EmployeePasskey> allPasskeys = new();
+    private List<EmployeePasskey> filteredPasskeys = new();
+    private bool isLoading = true;
+    private bool isEnrolling;
+    private bool isWorking;
+    private string searchQuery = string.Empty;
+    private string selectedStatusFilter = "active";
+    private string? statusMessage;
+    private bool isError;
+
+    private EmployeePasskey? pending;
+    private PasskeyAction pendingAction;
+
+    private int activePasskeysCount => allPasskeys.Count(p => p.IsActive);
+
+    private static string Display(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value;
+
+    private string PendingTitle => pendingAction switch
+    {
+        PasskeyAction.Freeze => "تجميد مفتاح المرور",
+        PasskeyAction.Unfreeze => "إعادة تفعيل مفتاح المرور",
+        _ => "حذف مفتاح المرور نهائياً"
+    };
+
+    private string PendingMessage => pendingAction switch
+    {
+        PasskeyAction.Freeze => "سيتوقف استخدام هذا المفتاح للدخول حتى إعادة تفعيله. الإجراء قابل للتراجع.",
+        PasskeyAction.Unfreeze => "سيعود هذا المفتاح صالحاً للدخول فوراً.",
+        _ => "سيُحذف المفتاح من قاعدة البيانات نهائياً، ولا يمكن التراجع عن هذا الإجراء."
+    };
+
+    private string PendingConfirmText => pendingAction switch
+    {
+        PasskeyAction.Freeze => "تجميد",
+        PasskeyAction.Unfreeze => "إعادة التفعيل",
+        _ => "حذف نهائي"
+    };
+
+    private string PendingSubject =>
+        pending is null ? string.Empty : $"الموظف {pending.EmployeeID} · {Display(pending.DeviceName, "مفتاح مرور")}";
+
+    protected override async Task OnInitializedAsync() => await LoadPasskeysAsync();
+
+    private async Task LoadPasskeysAsync()
+    {
+        isLoading = true;
+
+        try
+        {
+            allPasskeys = await DbContext.EmployeePasskeys
+                .OrderByDescending(p => p.LastUsedAt)
+                .ToListAsync();
+
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = "تعذّر تحميل مفاتيح المرور.";
+            Logger.LogError(ex, "Error loading passkeys");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = string.Empty;
+        selectedStatusFilter = "all";
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        IEnumerable<EmployeePasskey> query = allPasskeys;
+
+        if (selectedStatusFilter == "active") query = query.Where(p => p.IsActive);
+        else if (selectedStatusFilter == "inactive") query = query.Where(p => !p.IsActive);
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            query = query.Where(p =>
+                p.EmployeeID.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                p.UserId.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (p.DeviceName != null && p.DeviceName.Contains(q, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        filteredPasskeys = query.ToList();
+    }
+
+    private void Ask(PasskeyAction action, EmployeePasskey pk)
+    {
+        pendingAction = action;
+        pending = pk;
+    }
+
+    private void Cancel() => pending = null;
+
+    private async Task ConfirmAsync()
+    {
+        if (pending is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        var target = pending;
+
+        try
+        {
+            switch (pendingAction)
+            {
+                case PasskeyAction.Freeze:
+                    await PasskeyService.RevokePasskeyAsync(target.Id, "admin");
+                    statusMessage = $"تم تجميد مفتاح المرور للموظف {target.EmployeeID}.";
+                    break;
+                case PasskeyAction.Unfreeze:
+                    await PasskeyService.UnfreezePasskeyAsync(target.Id, "admin");
+                    statusMessage = $"تمت إعادة تفعيل مفتاح المرور للموظف {target.EmployeeID}.";
+                    break;
+                default:
+                    await PasskeyService.DeletePasskeyPermanentlyAsync(target.Id, "admin");
+                    statusMessage = $"تم حذف مفتاح المرور للموظف {target.EmployeeID} نهائياً.";
+                    break;
+            }
+
+            isError = false;
+            pending = null;
+            await LoadPasskeysAsync();
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = "تعذّر تنفيذ الإجراء على مفتاح المرور.";
+            Logger.LogError(ex, "Passkey action {Action} failed for {EmployeeId}", pendingAction, target.EmployeeID);
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task RegisterCurrentBrowserPasskeyAsync()
+    {
+        isEnrolling = true;
+        statusMessage = null;
+        isError = false;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var principal = authState.User;
+            var user = await DbContext.Users.FirstOrDefaultAsync(u => u.UserName == principal.Identity!.Name || u.Email == principal.Identity!.Name);
+
+            if (user == null || string.IsNullOrWhiteSpace(user.EmployeeID))
+            {
+                statusMessage = "حسابك غير مرتبط بسجل موظف في نظام الموارد البشرية.";
+                isError = true;
+                return;
+            }
+
+            var uri = new Uri(NavigationManager.Uri);
+            var host = uri.Host;
+            var origin = uri.GetLeftPart(UriPartial.Authority);
+
+            if (string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase))
+            {
+                var target = NavigationManager.Uri.Replace("://127.0.0.1", "://localhost");
+                NavigationManager.NavigateTo(target, forceLoad: true);
+                return;
+            }
+
+            var options = await PasskeyService.MakeRegistrationOptionsAsync(user, host);
+            var optionsJson = options.ToJson();
+
+            // Invoke Browser WebAuthn Prompt
+            var attestationJson = await JSRuntime.InvokeAsync<string>("passkeyHelper.registerPasskey", optionsJson);
+
+            var attestation = System.Text.Json.JsonSerializer.Deserialize<Fido2NetLib.AuthenticatorAttestationRawResponse>(attestationJson);
+            if (attestation == null) throw new Exception("فشل قراءة استجابة مستشعر البصمة.");
+
+            var passkey = await PasskeyService.RegisterCompleteAsync(
+                user,
+                options,
+                attestation,
+                "Web Browser (Windows Hello / Touch ID)",
+                host,
+                origin);
+
+            // Sync with Identity store so web login (PasskeySubmit) can also use it directly
+            try
+            {
+                var attestationResult = await SignInManager.PerformPasskeyAttestationAsync(attestationJson);
+                if (attestationResult.Succeeded)
+                {
+                    await UserManager.AddOrUpdatePasskeyAsync(user, attestationResult.Passkey);
+                }
+            }
+            catch (Exception exId)
+            {
+                Logger.LogDebug(exId, "Identity Passkey registration skipped or already present.");
+            }
+
+            statusMessage = $"تم تسجيل بصمة هذا الجهاز بنجاح للموظف {user.EmployeeID}.";
+            isError = false;
+
+            await LoadPasskeysAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Passkey enrollment failed");
+            statusMessage = $"تعذر تسجيل البصمة: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isEnrolling = false;
+        }
+    }
+}

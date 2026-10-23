@@ -1,0 +1,52 @@
+<script type="module" src="@Assets["js/reconnect-modal.js"]"></script>
+
+@*
+    Connection-loss dialog.
+
+    The element ids and state classes are Blazor's — its script toggles
+    them — so only the wording and the styling change. Arabic, in the
+    system's voice, and told from the user's point of view: what is
+    happening, and what they can do about it.
+*@
+
+<dialog id="components-reconnect-modal" data-nosnippet aria-labelledby="reconnect-title">
+    <div class="components-reconnect-container">
+
+        <div class="components-rejoining-animation" aria-hidden="true">
+            <div></div>
+            <div></div>
+        </div>
+
+        <p id="reconnect-title" class="components-reconnect-first-attempt-visible">
+            جارٍ إعادة الاتصال بالخادم…
+        </p>
+
+        <p class="components-reconnect-repeated-attempt-visible">
+            تعذّرت إعادة الاتصال. محاولة جديدة خلال
+            <span id="components-seconds-to-next-attempt" class="hr-num"></span>
+            ثانية.
+        </p>
+
+        <p class="components-reconnect-failed-visible">
+            تعذّرت إعادة الاتصال بالخادم.
+            <span class="reconnect-hint">أعد المحاولة أو حدّث الصفحة.</span>
+        </p>
+
+        <button id="components-reconnect-button" class="components-reconnect-failed-visible">
+            إعادة المحاولة
+        </button>
+
+        <p class="components-pause-visible">
+            أوقف الخادم هذه الجلسة مؤقتاً.
+        </p>
+
+        <p class="components-resume-failed-visible">
+            تعذّر استئناف الجلسة.
+            <span class="reconnect-hint">أعد المحاولة أو حدّث الصفحة.</span>
+        </p>
+
+        <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
+            استئناف الجلسة
+        </button>
+    </div>
+</dialog>

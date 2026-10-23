@@ -1,0 +1,122 @@
+@*
+    Confirmation for destructive actions.
+
+    Replaces window.confirm across the system. The native dialog cannot be
+    styled, cannot say which record is about to be affected in the system's
+    own voice, and blocks the whole tab while it is up.
+
+    This one names the target, marks the destructive choice with the danger
+    role rather than colour alone, puts the cancel button first in reading
+    order, takes focus on open, and closes on Escape — the escape route a
+    modal is required to offer.
+*@
+
+@if (IsOpen)
+{
+    <div class="hr-modal-scrim" @onclick="OnCancelAsync">
+        <div class="hr-modal hr-modal-confirm"
+             role="alertdialog"
+             aria-modal="true"
+             aria-labelledby="@titleId"
+             aria-describedby="@bodyId"
+             tabindex="-1"
+             @ref="panel"
+             @onclick:stopPropagation="true"
+             @onkeydown="OnKeyDownAsync">
+
+            <div class="hr-modal-head">
+                <div class="hr-confirm-lead">
+                    <span class="hr-iconplate @(Destructive ? "hr-iconplate-danger" : "hr-iconplate")" aria-hidden="true">
+                        <Icon Name="@(Destructive ? "exclamation-triangle" : "question-mark-circle")" Size="sm" />
+                    </span>
+                    <div>
+                        <h2 id="@titleId" class="hr-h2">@Title</h2>
+                        @if (!string.IsNullOrWhiteSpace(Subject))
+                        {
+                            <p class="hr-meta hr-wrap-any" style="margin-block-start:.25rem">@Subject</p>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="hr-modal-body">
+                <p id="@bodyId" class="hr-body hr-measure-sm">@Message</p>
+                @if (ChildContent is not null)
+                {
+                    <div style="margin-block-start:1rem">@ChildContent</div>
+                }
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="OnCancelAsync" disabled="@IsBusy">
+                    @CancelText
+                </button>
+                <button type="button"
+                        class="hr-btn @(Destructive ? "hr-btn-danger" : "hr-btn-primary")"
+                        @onclick="OnConfirmAsync"
+                        disabled="@IsBusy">
+                    @if (IsBusy)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ التنفيذ…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="@(Destructive ? "trash" : "check")" Size="xs" />
+                        <span>@ConfirmText</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string Title { get; set; } = "تأكيد الإجراء";
+    [Parameter] public string? Subject { get; set; }
+    [Parameter] public string Message { get; set; } = "لا يمكن التراجع عن هذا الإجراء.";
+    [Parameter] public string ConfirmText { get; set; } = "تأكيد";
+    [Parameter] public string ConfirmLabel { get => ConfirmText; set => ConfirmText = value; }
+    [Parameter] public string CancelText { get; set; } = "إلغاء";
+    [Parameter] public string CancelLabel { get => CancelText; set => CancelText = value; }
+    [Parameter] public bool Destructive { get; set; } = true;
+    [Parameter] public bool IsDestructive { get => Destructive; set => Destructive = value; }
+    /// <summary>Alias for Destructive to support danger/destructive naming interchangeably.</summary>
+    [Parameter] public bool IsDanger { get => Destructive; set => Destructive = value; }
+    [Parameter] public bool IsBusy { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private readonly string titleId = $"cd-t-{Guid.NewGuid():N}";
+    private readonly string bodyId = $"cd-b-{Guid.NewGuid():N}";
+
+    private ElementReference panel;
+    private bool wasOpen;
+
+    private Task OnConfirmAsync() => IsBusy ? Task.CompletedTask : OnConfirm.InvokeAsync();
+
+    private Task OnCancelAsync() => IsBusy ? Task.CompletedTask : OnCancel.InvokeAsync();
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnCancelAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !wasOpen)
+        {
+            wasOpen = true;
+            await panel.FocusAsync();
+        }
+        else if (!IsOpen)
+        {
+            wasOpen = false;
+        }
+    }
+}

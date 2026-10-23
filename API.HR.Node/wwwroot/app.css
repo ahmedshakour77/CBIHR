@@ -1,0 +1,573 @@
+/* Blazor framework defaults, expressed in the design tokens. The Bootstrap
+   template rules that used to live here (.btn, .btn-primary, .form-control,
+   .form-floating, #006bb7 links, #258cfb focus shadows) styled markup that no
+   longer exists; the link colour in particular painted every unclassed <a>
+   Bootstrap blue in both themes. */
+html, body {
+    font-family: var(--font-ui);
+}
+
+a {
+    color: var(--accent-text);
+}
+
+/* FocusOnNavigate focuses the page <h1> after every route change. That
+   focus is programmatic, never from the keyboard, so it draws no ring. */
+h1:focus {
+    outline: none;
+}
+
+.valid.modified:not([type=checkbox]) {
+    outline: 1px solid var(--ok);
+}
+
+.invalid {
+    outline: 1px solid var(--danger);
+}
+
+.validation-message {
+    color: var(--danger);
+}
+
+/* Default content of <ErrorBoundary>, rendered by the framework. */
+.blazor-error-boundary {
+    background: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIG92ZXJmbG93PSJoaWRkZW4iPjxkZWZzPjxjbGlwUGF0aCBpZD0iY2xpcDAiPjxyZWN0IHg9IjIzNSIgeT0iNTEiIHdpZHRoPSI1NiIgaGVpZ2h0PSI0OSIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMCkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMzUgLTUxKSI+PHBhdGggZD0iTTI2My41MDYgNTFDMjY0LjcxNyA1MSAyNjUuODEzIDUxLjQ4MzcgMjY2LjYwNiA1Mi4yNjU4TDI2Ny4wNTIgNTIuNzk4NyAyNjcuNTM5IDUzLjYyODMgMjkwLjE4NSA5Mi4xODMxIDI5MC41NDUgOTIuNzk1IDI5MC42NTYgOTIuOTk2QzI5MC44NzcgOTMuNTEzIDI5MSA5NC4wODE1IDI5MSA5NC42NzgyIDI5MSA5Ny4wNjUxIDI4OS4wMzggOTkgMjg2LjYxNyA5OUwyNDAuMzgzIDk5QzIzNy45NjMgOTkgMjM2IDk3LjA2NTEgMjM2IDk0LjY3ODIgMjM2IDk0LjM3OTkgMjM2LjAzMSA5NC4wODg2IDIzNi4wODkgOTMuODA3MkwyMzYuMzM4IDkzLjAxNjIgMjM2Ljg1OCA5Mi4xMzE0IDI1OS40NzMgNTMuNjI5NCAyNTkuOTYxIDUyLjc5ODUgMjYwLjQwNyA1Mi4yNjU4QzI2MS4yIDUxLjQ4MzcgMjYyLjI5NiA1MSAyNjMuNTA2IDUxWk0yNjMuNTg2IDY2LjAxODNDMjYwLjczNyA2Ni4wMTgzIDI1OS4zMTMgNjcuMTI0NSAyNTkuMzEzIDY5LjMzNyAyNTkuMzEzIDY5LjYxMDIgMjU5LjMzMiA2OS44NjA4IDI1OS4zNzEgNzAuMDg4N0wyNjEuNzk1IDg0LjAxNjEgMjY1LjM4IDg0LjAxNjEgMjY3LjgyMSA2OS43NDc1QzI2Ny44NiA2OS43MzA5IDI2Ny44NzkgNjkuNTg3NyAyNjcuODc5IDY5LjMxNzkgMjY3Ljg3OSA2Ny4xMTgyIDI2Ni40NDggNjYuMDE4MyAyNjMuNTg2IDY2LjAxODNaTTI2My41NzYgODYuMDU0N0MyNjEuMDQ5IDg2LjA1NDcgMjU5Ljc4NiA4Ny4zMDA1IDI1OS43ODYgODkuNzkyMSAyNTkuNzg2IDkyLjI4MzcgMjYxLjA0OSA5My41Mjk1IDI2My41NzYgOTMuNTI5NSAyNjYuMTE2IDkzLjUyOTUgMjY3LjM4NyA5Mi4yODM3IDI2Ny4zODcgODkuNzkyMSAyNjcuMzg3IDg3LjMwMDUgMjY2LjExNiA4Ni4wNTQ3IDI2My41NzYgODYuMDU0N1oiIGZpbGw9IiNGRkU1MDAiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjwvZz48L3N2Zz4=) no-repeat 1rem/1.8rem, var(--danger);
+    padding: 1rem 1rem 1rem 3.7rem;
+    color: var(--text-on-accent);
+}
+
+    .blazor-error-boundary::after {
+        content: "حدث خطأ غير متوقع.";
+    }
+
+/* ==========================================================================
+   Employee Portal Dedicated Executive Styling
+   ========================================================================== */
+
+.hr-app-portal {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-inset);
+}
+
+.hr-app-portal .hr-header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 0 1rem;
+    height: 4rem;
+}
+
+.hr-portal-header-inner {
+    max-width: 100%;
+    margin: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    height: 100%;
+}
+
+.hr-app-portal .hr-main {
+    padding: 1.5rem 1rem !important;
+    padding-right: 1rem !important;
+    padding-left: 1rem !important;
+    width: 100%;
+    flex: 1;
+}
+
+@media (min-width: 768px) {
+    .hr-app-portal .hr-main {
+        padding: 2rem 1.5rem !important;
+        padding-right: 1.5rem !important;
+        padding-left: 1.5rem !important;
+    }
+}
+
+.hr-portal-container {
+    max-width: 100%;
+    margin: 0;
+    width: 100%;
+}
+
+/* Hero Dossier Card */
+.hr-portal-hero {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl, 1rem);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+}
+
+.hr-info-tile {
+    padding: 1rem;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--r-md, 0.5rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    transition: border-color var(--t-state) var(--ease), background-color var(--t-state) var(--ease);
+}
+
+.hr-info-tile:hover {
+    border-color: var(--line);
+    background: var(--surface);
+}
+
+.hr-contact-item-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-radius: var(--r-md, 0.5rem);
+    background: var(--surface-sunken);
+    border: 1px solid var(--line-soft);
+}
+
+.hr-modal-body {
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.hr-modal-qr-frame {
+    background: #ffffff;
+    padding: 1rem;
+    border-radius:var(--r-md);
+    display: inline-block;
+    border: 1px solid #e2e8f0;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 1.25rem;
+}
+
+.hr-modal-qr-img {
+    width: 190px;
+    height: 190px;
+    display: block;
+}
+
+@keyframes hrFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes hrZoomIn {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+/* ========================================================
+   Dynamic Navbar Display Modes (جانبي / علوي / عائم)
+   ======================================================== */
+
+/* Dedicated Top Navbar Bar */
+.hr-top-nav-bar {
+    display: none;
+    background: var(--surface);
+    border-block-end: 1px solid var(--line);
+    padding-inline: var(--s-4, 1rem);
+    min-block-size: 44px;
+    align-items: center;
+    position: sticky;
+    inset-block-start: var(--header-h, 60px);
+    z-index: calc(var(--z-header, 70) - 1);
+    box-shadow: var(--shadow-xs);
+}
+@media (min-width: 1024px) {
+    .hr-top-nav-bar {
+        padding-inline: var(--s-6, 1.5rem);
+    }
+}
+
+.hr-header-top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-2, 0.5rem);
+    width: 100%;
+}
+.hr-header-top-links {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1, 0.25rem);
+    min-inline-size: 0;
+    overflow-x: auto;
+    /* Seven links fit at desktop widths; if a long Kurdish label still
+       overflows, the scrollbar shows instead of hiding links silently. */
+    scrollbar-width: thin;
+    flex: 1;
+}
+.hr-top-user-slot {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-inline-start: auto;
+}
+.hr-top-user-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2, 0.5rem);
+    padding: 2px 6px 2px 10px;
+    background: var(--surface-2, rgba(0, 0, 0, 0.04));
+    border: 1px solid var(--line);
+    border-radius:var(--r-full);
+    font-size: var(--fs-label);
+    font-weight: 500;
+}
+[dir="ltr"] .hr-top-user-pill {
+    padding: 2px 10px 2px 6px;
+}
+.hr-top-user-name {
+    max-width: 130px;
+    color: var(--text);
+}
+.hr-top-logout-form {
+    margin: 0;
+    padding: 0;
+    display: flex;
+}
+
+/* User Card in Side Rail Footer */
+.hr-rail-user-card {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2, 0.5rem);
+    padding: var(--s-2, 0.5rem);
+    border-radius: var(--r-md, 0.5rem);
+    background: var(--surface-2, rgba(0, 0, 0, 0.03));
+    border: 1px solid var(--line);
+    margin-bottom: var(--s-2, 0.5rem);
+}
+.hr-rail-user-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+.hr-rail-user-name {
+    font-size: var(--fs-label);
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.25;
+}
+.hr-rail-user-role {
+    font-size: var(--fs-caption);
+    color: var(--text-3);
+    line-height: 1.2;
+}
+.hr-rail-logout-form {
+    margin: 0;
+    padding: 0;
+    display: flex;
+}
+
+.hr-header-top-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2, 0.5rem);
+    height: 36px;
+    padding-inline: var(--s-3, 0.75rem);
+    border-radius: var(--r-sm, 0.375rem);
+    color: var(--text-2);
+    font-size: var(--fs-label);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
+}
+.hr-header-top-link:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+.hr-header-top-link.active,
+.hr-header-top-link[aria-current="page"] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 600;
+}
+
+/* "More" menu: the catalog entries that do not fit the bar. A native
+   <details>, so it works on the statically rendered shell. */
+.hr-top-more {
+    position: relative;
+    flex: none;
+}
+.hr-top-more > summary {
+    list-style: none;
+    cursor: pointer;
+}
+.hr-top-more > summary::-webkit-details-marker { display: none; }
+.hr-top-more-caret { transition: transform var(--t-state) var(--ease); }
+.hr-top-more[open] .hr-top-more-caret { transform: rotate(180deg); }
+.hr-top-more[open] > summary { background: var(--surface-2); color: var(--text); }
+
+.hr-top-more-panel {
+    position: absolute;
+    inset-block-start: calc(100% + var(--s-2, 0.5rem));
+    inset-inline-start: 0;
+    z-index: var(--z-popover, 30);
+    inline-size: min(22rem, calc(100vw - 2rem));
+    max-block-size: min(70vh, 34rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--s-2, 0.5rem);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-md);
+}
+.hr-top-more-panel ul { list-style: none; margin: 0; padding: 0; }
+.hr-top-more-group {
+    margin: var(--s-3, 0.75rem) var(--s-2, 0.5rem) var(--s-1, 0.25rem);
+    font-size: var(--fs-caption);
+    font-weight: 700;
+    color: var(--text-3);
+}
+.hr-top-more-group:first-child { margin-block-start: var(--s-1, 0.25rem); }
+.hr-top-more-item {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2, 0.5rem);
+    min-block-size: 2.5rem;
+    padding-inline: var(--s-2, 0.5rem);
+    border-radius: var(--r-sm, 0.375rem);
+    color: var(--text-2);
+    font-size: var(--fs-label);
+    font-weight: 500;
+    text-decoration: none;
+}
+.hr-top-more-item:hover { background: var(--surface-2); color: var(--text); }
+.hr-top-more-item[aria-current="page"] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 600;
+}
+
+/* Mode 1: Top Navigation */
+html[data-nav-mode="top"] .hr-top-nav-bar {
+    display: flex !important;
+}
+html[data-nav-mode="top"] .hr-rail {
+    display: none !important;
+}
+html[data-nav-mode="top"] .hr-main {
+    padding-right: var(--s-4, 1rem) !important;
+    padding-left: var(--s-4, 1rem) !important;
+}
+@media (min-width: 640px) {
+    html[data-nav-mode="top"] .hr-main {
+        padding-right: var(--s-6, 1.5rem) !important;
+        padding-left: var(--s-6, 1.5rem) !important;
+    }
+}
+@media (min-width: 1024px) {
+    html[data-nav-mode="top"] .hr-main {
+        padding-right: var(--s-8, 2rem) !important;
+        padding-left: var(--s-8, 2rem) !important;
+    }
+}
+html[data-nav-mode="top"] .hr-dock {
+    display: none !important;
+}
+
+/* Mode 2: Floating Dock Navigation */
+html[data-nav-mode="floating"] .hr-top-nav-bar {
+    display: none !important;
+}
+html[data-nav-mode="floating"] .hr-rail {
+    display: none !important;
+}
+html[data-nav-mode="floating"] .hr-main {
+    padding-right: var(--s-4, 1rem) !important;
+    padding-left: var(--s-4, 1rem) !important;
+    padding-bottom: calc(var(--dock-h, 64px) + 3.5rem) !important;
+}
+@media (min-width: 640px) {
+    html[data-nav-mode="floating"] .hr-main {
+        padding-right: var(--s-6, 1.5rem) !important;
+        padding-left: var(--s-6, 1.5rem) !important;
+    }
+}
+@media (min-width: 1024px) {
+    html[data-nav-mode="floating"] .hr-main {
+        padding-right: var(--s-8, 2rem) !important;
+        padding-left: var(--s-8, 2rem) !important;
+    }
+}
+/* Geometry, glass and layering live with the component in hr-components.css;
+   this file only decides which navigation surface the mode shows. */
+html[data-nav-mode="floating"] .hr-dock {
+    display: flex !important;
+}
+
+/* Mode 3: Side Navigation (Default) */
+html:not([data-nav-mode="top"]):not([data-nav-mode="floating"]) .hr-top-nav-bar,
+html[data-nav-mode="side"] .hr-top-nav-bar {
+    display: none !important;
+}
+html:not([data-nav-mode="floating"]) .hr-dock,
+html[data-nav-mode="side"] .hr-dock {
+    display: none !important;
+}
+
+/* One navigation surface per screen. In top mode below 1024px the drawer
+   behind the header's menu button is the navigation, so the top bar steps
+   aside. In floating mode the dock and its "all sections" panel are the
+   navigation at every width, so the drawer trigger steps aside. */
+@media (max-width: 1023.98px) {
+    html[data-nav-mode="top"] .hr-top-nav-bar { display: none !important; }
+}
+html[data-nav-mode="floating"] .hr-drawer-only { display: none !important; }
+
+/* ==================== Top Header User Dropdown & Styling ==================== */
+.hr-header-user-menu {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.hr-header-user-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2, 0.5rem);
+    padding: 0.35rem 0.75rem 0.35rem 0.5rem;
+    border: 1px solid var(--line);
+    background: var(--surface-sunken);
+    color: var(--text);
+    border-radius:var(--r-full);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--fs-label);
+    font-weight: 600;
+    transition: background-color var(--t-state) var(--ease), border-color var(--t-state) var(--ease), color var(--t-state) var(--ease), box-shadow var(--t-state) var(--ease), transform var(--t-state) var(--ease);
+}
+
+.hr-header-user-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-sm);
+}
+
+.hr-header-user-btn .hr-chevron {
+    transition: transform var(--t-state) var(--ease);
+    color: var(--text-muted);
+}
+
+.hr-header-user-btn .hr-chevron.is-open {
+    transform: rotate(180deg);
+}
+
+.hr-header-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    inset-inline-end: 0;
+    min-width: 230px;
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg, 12px);
+    box-shadow: var(--shadow-lg);
+    z-index: var(--z-drawer);
+    overflow: hidden;
+    animation: hrDropIn 0.15s ease-out;
+}
+
+[data-theme="dark"] .hr-header-dropdown {
+    box-shadow: var(--shadow-pop), 0 0 0 1px var(--line);
+}
+
+@keyframes hrDropIn {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.hr-header-dropdown-header {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3, 0.75rem);
+    padding: var(--s-3, 0.75rem);
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--line);
+}
+
+.hr-header-dropdown-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.hr-header-dropdown-name {
+    font-size: var(--fs-control);
+    font-weight: 700;
+    color: var(--text);
+}
+
+.hr-header-dropdown-items {
+    padding: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.hr-header-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2, 0.5rem);
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    font-size: var(--fs-label);
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    background: transparent;
+    border: none;
+    border-radius: var(--r-md, 8px);
+    cursor: pointer;
+    font-family: inherit;
+    text-align: inherit;
+    transition: background var(--t-state) var(--ease), color var(--t-state) var(--ease);
+}
+
+.hr-header-dropdown-item:hover {
+    background: var(--surface-2);
+    color: var(--accent);
+}
+
+.hr-header-dropdown-item-danger {
+    color: var(--danger);
+}
+
+.hr-header-dropdown-item-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+.hr-header-dropdown-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 0.25rem 0.5rem;
+}
+
+.hr-header-dropdown-logout-form {
+    margin: 0;
+}
+
+.hr-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-scrim);
+    background: transparent;
+}
+
+

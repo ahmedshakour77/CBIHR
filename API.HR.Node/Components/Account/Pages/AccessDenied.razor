@@ -1,0 +1,33 @@
+@page "/Account/AccessDenied"
+
+<PageTitle>لا تملك صلاحية الوصول | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Denied access is a permissions state, not a failure on the user's part,
+    so the wording says who to ask rather than what went wrong.
+*@
+
+<div class="hr-stack">
+    <div class="hr-card">
+        <div class="hr-card-body">
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-empty-art-warn" aria-hidden="true">
+                    <Icon Name="lock-closed" Size="lg" />
+                </span>
+
+                <h1 class="hr-h1">لا تملك صلاحية الوصول</h1>
+                <p class="hr-sub hr-measure-sm">
+                    حسابك لا يملك الصلاحية اللازمة لفتح هذه الصفحة.
+                    راجع مسؤول النظام لطلب إضافة الصلاحية إلى دورك.
+                </p>
+
+                <div class="hr-pagehead-actions" style="margin-block-start:.5rem">
+                    <a class="hr-btn hr-btn-primary" href="">
+                        <Icon Name="home" Size="sm" />
+                        <span>العودة إلى الرئيسية</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

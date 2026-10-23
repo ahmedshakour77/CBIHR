@@ -1,0 +1,1269 @@
+@page "/vehicles"
+@page "/employee-vehicles"
+@page "/employee-vehicles/{EmployeeIdParam}"
+@page "/employees/{EmployeeIdParam}/vehicles"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Employees
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+
+@inject IEmployeeVehicleService VehicleService
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager Nav
+@inject ILogger<VehiclesPage> Logger
+
+<PageTitle>مركبات ومتعلقات الموظفين | تصاريح دخول البوابات</PageTitle>
+
+<div class="hr-stack">
+
+    @* ==================== Header ==================== *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="" class="hr-crumb">
+                    <Icon Name="home" Size="xs" />
+                    <span>الرئيسية</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">مركبات ومتعلقات الموظفين</span>
+            </nav>
+            <h1 class="hr-h1" style="display:flex;align-items:center;gap:0.75rem;margin-top:0.25rem;">
+                <span class="hr-iconplate hr-plate-a"><Icon Name="truck" Size="md" /></span>
+                <span>سجل المركبات وتصاريح دخول البوابات</span>
+            </h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                إدارة سيارات الموظفين، بيانات اللوحات وأرقام الشواصي، وتراخيص الدخول للمقرات الخمسة (المبنى الرئيسي، الجادرية، أربيل، الموصل، البصرة).
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenAddModal">
+                <Icon Name="plus" Size="sm" />
+                <span>إضافة مركبة جديدة</span>
+            </button>
+        </div>
+    </header>
+
+    @* ==================== KPI Stat Cards ==================== *@
+    <div class="hr-profile-kpi-grid">
+        <div class="hr-card hr-stat hr-stat-a">
+            <div class="hr-stat-label">
+                <span>إجمالي السيارات المسجلة</span>
+                <span class="hr-iconplate hr-plate-a" aria-hidden="true"><Icon Name="truck" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpi.TotalVehicles</strong>
+            <p class="hr-stat-foot">مركبات تابعة لمنتسبي المؤسسة</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-ok">
+            <div class="hr-stat-label">
+                <span>مخولة بالدخول</span>
+                <span class="hr-iconplate hr-iconplate-ok" aria-hidden="true"><Icon Name="check-circle" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpi.AuthorizedVehicles</strong>
+            <p class="hr-stat-foot">تصريح دخول نافذ وسارٍ</p>
+        </div>
+
+        <div class="hr-card hr-stat @(kpi.UnauthorizedVehicles > 0 ? "hr-stat-danger" : "hr-stat-d")">
+            <div class="hr-stat-label">
+                <span>غير مخولة / موقوفة</span>
+                <span class="hr-iconplate @(kpi.UnauthorizedVehicles > 0 ? "hr-iconplate-danger" : "hr-plate-d")" aria-hidden="true">
+                    <Icon Name="no-symbol" Size="sm" />
+                </span>
+            </div>
+            <strong class="hr-stat-figure">@kpi.UnauthorizedVehicles</strong>
+            <p class="hr-stat-foot">دخول غير مسموح حالياً</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-b">
+            <div class="hr-stat-label">
+                <span>المبنى الرئيسي & الجادرية</span>
+                <span class="hr-iconplate hr-plate-b" aria-hidden="true"><Icon Name="building-office-2" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpi.MainBuildingCount / @kpi.JadriyaCount</strong>
+            <p class="hr-stat-foot">تصاريح مقار العاصمة بغداد</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-warn">
+            <div class="hr-stat-label">
+                <span>الفروع (أربيل، الموصل، البصرة)</span>
+                <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true"><Icon Name="map-pin" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@(kpi.ErbilCount + kpi.MosulCount + kpi.BasraCount)</strong>
+            <p class="hr-stat-foot">أربيل: @kpi.ErbilCount | الموصل: @kpi.MosulCount | البصرة: @kpi.BasraCount</p>
+        </div>
+    </div>
+
+    @* ==================== Filters & Search Bar ==================== *@
+    <section class="hr-card">
+        <div class="hr-card-body" style="display:flex;flex-direction:column;gap:1rem;">
+            <div style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;justify-content:space-between;">
+                @* Search Box *@
+                <div class="hr-search" style="flex:1;min-width:280px;max-width:540px;">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input aria-label="البحث في المركبات" type="search"
+                           class="hr-input"
+                           placeholder="ابحث بالرقم، الحرف، المحافظة، البراند، الشاصي، الموظف، السائق..."
+                           value="@searchTerm"
+                           @oninput="OnSearchChanged" />
+                </div>
+
+                @* Location Filter *@
+                <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                    <span class="hr-meta"><Icon Name="funnel" Size="xs" /> المقر:</span>
+                    <select aria-label="تصفية حسب المقر" class="hr-input" style="width:auto;min-width:140px;" value="@selectedLocation" @onchange="OnLocationChanged">
+                        <option value="">جميع المقرات</option>
+                        <option value="main">1- المبنى الرئيسي</option>
+                        <option value="jadriya">2- الجادرية</option>
+                        <option value="erbil">3- أربيل</option>
+                        <option value="mosul">4- الموصل</option>
+                        <option value="basra">5- البصرة</option>
+                    </select>
+
+                    @* Authorization Filter *@
+                    <select aria-label="تصفية حسب حالة التخويل" class="hr-input" style="width:auto;min-width:140px;" value="@authFilter" @onchange="OnAuthFilterChanged">
+                        <option value="all">كافة الحالات</option>
+                        <option value="auth">مخولة للدخول فقط</option>
+                        <option value="unauth">غير مخولة فقط</option>
+                    </select>
+
+                    @* View Toggle *@
+                    <div class="hr-chips" style="margin:0;">
+                        <button type="button" class="hr-btn @(isCardView ? "hr-btn-secondary" : "hr-btn-primary") hr-btn-sm"
+                                @onclick="() => isCardView = false" title="عرض جدول تفصيلي">
+                            <Icon Name="table-cells" Size="xs" />
+                            <span>جدول</span>
+                        </button>
+                        <button type="button" class="hr-btn @(isCardView ? "hr-btn-primary" : "hr-btn-secondary") hr-btn-sm"
+                                @onclick="() => isCardView = true" title="عرض بطاقات مرئية">
+                            <Icon Name="squares-2x2" Size="xs" />
+                            <span>بطاقات</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @* Quick location badges selector *@
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;padding-top:0.5rem;border-top:1px dashed var(--line-soft);">
+                <span class="hr-meta" style="font-size:0.8rem;">فرز سريع حسب البوابة:</span>
+                <button type="button" class="hr-chip @(string.IsNullOrEmpty(selectedLocation) ? "is-active" : "")" @onclick="@(() => SelectLocation(""))">
+                    الكل (@kpi.TotalVehicles)
+                </button>
+                <button type="button" class="hr-chip @(selectedLocation == "main" ? "is-active" : "")" @onclick="@(() => SelectLocation("main"))">
+                    🏢 المبنى الرئيسي (@kpi.MainBuildingCount)
+                </button>
+                <button type="button" class="hr-chip @(selectedLocation == "jadriya" ? "is-active" : "")" @onclick="@(() => SelectLocation("jadriya"))">
+                    🏛️ الجادرية (@kpi.JadriyaCount)
+                </button>
+                <button type="button" class="hr-chip @(selectedLocation == "erbil" ? "is-active" : "")" @onclick="@(() => SelectLocation("erbil"))">
+                    ⛰️ أربيل (@kpi.ErbilCount)
+                </button>
+                <button type="button" class="hr-chip @(selectedLocation == "mosul" ? "is-active" : "")" @onclick="@(() => SelectLocation("mosul"))">
+                    🏛️ الموصل (@kpi.MosulCount)
+                </button>
+                <button type="button" class="hr-chip @(selectedLocation == "basra" ? "is-active" : "")" @onclick="@(() => SelectLocation("basra"))">
+                    🌴 البصرة (@kpi.BasraCount)
+                </button>
+            </div>
+        </div>
+    </section>
+
+    @* ==================== Content Area ==================== *@
+    @if (isLoading)
+    {
+        <div class="hr-card" style="padding:2.5rem;text-align:center;">
+            <div class="hr-skeleton" style="height:3rem;margin-bottom:1rem;border-radius:var(--r-md)"></div>
+            <div class="hr-skeleton" style="height:12rem;border-radius:var(--r-md)"></div>
+        </div>
+    }
+    else if (vehicles.Count == 0)
+    {
+        <div class="hr-card">
+            <div class="hr-empty">
+                <span class="hr-empty-art hr-plate-a" aria-hidden="true">
+                    <Icon Name="truck" Size="lg" />
+                </span>
+                <p class="hr-h3">لا توجد مركبات مطابقة للبحث أو الفلتر</p>
+                <p class="hr-sub hr-measure-sm">
+                    لم يتم العثور على أي مركبة مسجلة وفق المعايير المحددة. يمكنك إضافة مركبة جديدة أو تعديل شروط البحث.
+                </p>
+                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenAddModal">
+                    <Icon Name="plus" Size="xs" />
+                    <span>تسجيل مركبة الآن</span>
+                </button>
+            </div>
+        </div>
+    }
+    else if (isCardView)
+    {
+        @* ==================== CARD VIEW ==================== *@
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(340px, 1fr));gap:1rem;">
+            @foreach (var v in vehicles)
+            {
+                <div class="hr-card" @key="v.Id" style="display:flex;flex-direction:column;justify-content:space-between;">
+                    <div class="hr-card-body" style="display:flex;flex-direction:column;gap:0.85rem;">
+                        
+                        @* Header: License Plate + Auth Badge *@
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
+                            @* Iraqi License Plate Badge *@
+                            <div class="iq-license-plate" title="لوحة التسجيل: @v.Governorate @v.PlateLetter @v.PlateNumber">
+                                <span class="iq-plate-gov">@v.Governorate</span>
+                                @if (!string.IsNullOrWhiteSpace(v.PlateLetter))
+                                {
+                                    <span class="iq-plate-letter">@v.PlateLetter</span>
+                                }
+                                <span class="iq-plate-num">@v.PlateNumber</span>
+                            </div>
+
+                            @* Authorization Pill *@
+                            @if (v.IsAuthorized)
+                            {
+                                <span class="hr-badge hr-badge-ok">
+                                    <Icon Name="check-circle" Size="xs" />
+                                    <span>مخولة بالدخول</span>
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="hr-badge hr-badge-danger">
+                                    <Icon Name="no-symbol" Size="xs" />
+                                    <span>غير مخولة</span>
+                                </span>
+                            }
+                        </div>
+
+                        @* Vehicle Make & Model *@
+                        <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line-soft);padding-bottom:0.6rem;">
+                            <div>
+                                <h2 style="margin:0;font-size:1.15rem;font-weight:700;color:var(--text);">
+                                    @v.Brand @v.Model
+                                </h2>
+                                <div style="display:flex;gap:0.5rem;margin-top:0.25rem;flex-wrap:wrap;">
+                                    @if (!string.IsNullOrWhiteSpace(v.Color))
+                                    {
+                                        <span class="hr-badge">
+                                            اللون: @v.Color
+                                        </span>
+                                    }
+                                    @if (v.ManufacturingYear.HasValue)
+                                    {
+                                        <span class="hr-badge">
+                                            موديل: @v.ManufacturingYear
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        @* Owner / Employee info *@
+                        @if (v.Employee != null)
+                        {
+                            <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem;border-radius:var(--r-md);background:var(--surface-sunken);">
+                                <span class="hr-iconplate hr-plate-d" style="width:2rem;height:2rem;flex-shrink:0;">
+                                    <Icon Name="user" Size="xs" />
+                                </span>
+                                <div style="min-width:0;flex:1;">
+                                    <a href="employee-profile/@v.Employee.EmployeeID" class="hr-link" style="font-weight:600;font-size:0.95rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                        @v.Employee.Name
+                                    </a>
+                                    <span class="hr-meta" style="font-size:0.78rem;">
+                                        رقم وظيفي: <strong class="hr-num">@v.Employee.EmployeeID</strong>
+                                    </span>
+                                </div>
+                            </div>
+                        }
+
+                        @* Driver Information *@
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.65rem;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--line-soft);font-size:0.85rem;">
+                            <div style="display:flex;align-items:center;gap:0.45rem;">
+                                <span class="hr-meta" style="font-weight:600;font-size:0.8rem;">السائق:</span>
+                                @if (v.IsDriverSelf)
+                                {
+                                    <span class="hr-badge hr-badge-neutral" style="display:inline-flex;align-items:center;gap:0.25rem;">
+                                        <Icon Name="user" Size="xs" />
+                                        <span>الموظف نفسه</span>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="hr-badge hr-badge-info" style="display:inline-flex;align-items:center;gap:0.25rem;font-weight:600;">
+                                        <Icon Name="identification" Size="xs" />
+                                        <span>@(string.IsNullOrWhiteSpace(v.DriverName) ? "سائق مخصص" : v.DriverName)</span>
+                                    </span>
+                                }
+                            </div>
+                            @if (!v.IsDriverSelf && !string.IsNullOrWhiteSpace(v.DriverPhone))
+                            {
+                                <a href="tel:@v.DriverPhone" dir="ltr" class="hr-link hr-num" style="font-size:0.8rem;text-decoration:none;">
+                                    📞 @v.DriverPhone
+                                </a>
+                            }
+                        </div>
+
+                        @* VIN / Chassis Number *@
+                        @if (!string.IsNullOrWhiteSpace(v.Vin))
+                        {
+                            <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.8rem;background:var(--surface);border:1px solid var(--line-soft);padding:0.35rem 0.6rem;border-radius:var(--r-sm);">
+                                <span class="hr-meta">رقم الشاصي (VIN):</span>
+                                <code dir="ltr" style="font-family:monospace;font-weight:600;letter-spacing:0.5px;color:var(--accent);">@v.Vin</code>
+                            </div>
+                        }
+
+                        @* Gate permissions list (The 5 requested sites) *@
+                        <div>
+                            <span class="hr-meta" style="font-size:0.78rem;display:block;margin-bottom:0.35rem;">تصاريح المقرات المسموح بالدخول إليها:</span>
+                            <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+                                <span class="hr-gate-pill @(v.AllowMainBuilding ? "is-allowed" : "is-blocked")" title="1- المبنى الرئيسي">
+                                    <span class="dot"></span> 1- المبنى الرئيسي
+                                </span>
+                                <span class="hr-gate-pill @(v.AllowJadriya ? "is-allowed" : "is-blocked")" title="2- الجادرية">
+                                    <span class="dot"></span> 2- الجادرية
+                                </span>
+                                <span class="hr-gate-pill @(v.AllowErbil ? "is-allowed" : "is-blocked")" title="3- أربيل">
+                                    <span class="dot"></span> 3- أربيل
+                                </span>
+                                <span class="hr-gate-pill @(v.AllowMosul ? "is-allowed" : "is-blocked")" title="4- الموصل">
+                                    <span class="dot"></span> 4- الموصل
+                                </span>
+                                <span class="hr-gate-pill @(v.AllowBasra ? "is-allowed" : "is-blocked")" title="5- البصرة">
+                                    <span class="dot"></span> 5- البصرة
+                                </span>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(v.Notes))
+                        {
+                            <p class="hr-meta" style="font-size:0.8rem;margin:0;font-style:italic;background:var(--surface-sunken);padding:0.35rem 0.5rem;border-radius:var(--r-sm);">
+                                📝 @v.Notes
+                            </p>
+                        }
+                    </div>
+
+                    @* Card Footer Actions *@
+                    <div class="hr-card-foot" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;background:var(--surface-sunken);border-top:1px solid var(--line-soft);">
+                        <button type="button" class="hr-btn @(v.IsAuthorized ? "hr-btn-warn" : "hr-btn-ok") hr-btn-sm"
+                                @onclick="() => ToggleAuth(v)">
+                            <Icon Name="@(v.IsAuthorized ? "no-symbol" : "check")" Size="xs" />
+                            <span>@(v.IsAuthorized ? "إلغاء التخويل" : "تفعيل التخويل")</span>
+                        </button>
+
+                        <div style="display:flex;gap:0.35rem;">
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-btn-icon"
+                                    @onclick="() => OpenEditModal(v)" title="تعديل بيانات المركبة">
+                                <Icon Name="pencil-square" Size="xs" />
+                            </button>
+                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                    @onclick="() => AskDelete(v)" title="حذف المركبة">
+                                <Icon Name="trash" Size="xs" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        @* ==================== TABLE VIEW ==================== *@
+        <div class="hr-tablewrap">
+            <table class="hr-table hr-table-wide">
+                <thead>
+                    <tr>
+                        <th scope="col" style="width:50px;">#</th>
+                        <th scope="col">لوحة التسجيل</th>
+                        <th scope="col">المركبة والموديل</th>
+                        <th scope="col">اللون / سنة الصنع</th>
+                        <th scope="col">الموظف المالك</th>
+                        <th scope="col">السائق المصرح</th>
+                        <th scope="col">رقم الشاصي (VIN)</th>
+                        <th scope="col">حالة التخويل</th>
+                        <th scope="col">المقرات المصرح بها (1-5)</th>
+                        <th scope="col" style="text-align:center;width:140px;">إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int i = 0; i < vehicles.Count; i++)
+                    {
+                        var v = vehicles[i];
+                        <tr @key="v.Id">
+                            <td class="hr-num">@(i + 1)</td>
+                            <td>
+                                <div class="iq-license-plate">
+                                    <span class="iq-plate-gov">@v.Governorate</span>
+                                    @if (!string.IsNullOrWhiteSpace(v.PlateLetter))
+                                    {
+                                        <span class="iq-plate-letter">@v.PlateLetter</span>
+                                    }
+                                    <span class="iq-plate-num">@v.PlateNumber</span>
+                                </div>
+                            </td>
+                            <td>
+                                <strong>@v.Brand</strong> <span class="hr-meta">@v.Model</span>
+                            </td>
+                            <td>
+                                <span>@(v.Color ?? "—")</span>
+                                @if (v.ManufacturingYear.HasValue)
+                                {
+                                    <span class="hr-num" style="display:block;font-size:0.8rem;color:var(--text-muted);">@v.ManufacturingYear</span>
+                                }
+                            </td>
+                            <td>
+                                @if (v.Employee != null)
+                                {
+                                    <a href="employee-profile/@v.Employee.EmployeeID" class="hr-link" style="font-weight:600;">
+                                        @v.Employee.Name
+                                    </a>
+                                    <span class="hr-num hr-meta" style="display:block;font-size:0.8rem;">@v.Employee.EmployeeID</span>
+                                }
+                                else
+                                {
+                                    <span class="hr-meta">—</span>
+                                }
+                            </td>
+                            <td>
+                                @if (v.IsDriverSelf)
+                                {
+                                    <span class="hr-badge hr-badge-neutral" style="font-size:0.8rem;display:inline-flex;align-items:center;gap:0.25rem;">
+                                        <Icon Name="user" Size="xs" />
+                                        <span>الموظف نفسه</span>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <div>
+                                        <strong style="display:block;font-size:0.88rem;color:var(--accent);">
+                                            @(string.IsNullOrWhiteSpace(v.DriverName) ? "سائق مخصص" : v.DriverName)
+                                        </strong>
+                                        @if (!string.IsNullOrWhiteSpace(v.DriverPhone))
+                                        {
+                                            <a href="tel:@v.DriverPhone" dir="ltr" class="hr-meta hr-num" style="font-size:0.78rem;display:inline-block;margin-top:0.15rem;">
+                                                📞 @v.DriverPhone
+                                            </a>
+                                        }
+                                    </div>
+                                }
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(v.Vin))
+                                {
+                                    <code dir="ltr" style="font-size:0.82rem;font-family:monospace;color:var(--accent);">@v.Vin</code>
+                                }
+                                else
+                                {
+                                    <span class="hr-meta">—</span>
+                                }
+                            </td>
+                            <td>
+                                <button type="button" class="hr-btn @(v.IsAuthorized ? "hr-badge-ok" : "hr-badge-danger") hr-btn-sm"
+                                        style="cursor:pointer;border:none;padding:0.25rem 0.6rem;"
+                                        @onclick="() => ToggleAuth(v)"
+                                        title="اضغط للتبديل السريع">
+                                    <Icon Name="@(v.IsAuthorized ? "check-circle" : "no-symbol")" Size="xs" />
+                                    <span>@(v.IsAuthorized ? "مخولة للدخول" : "غير مخولة")</span>
+                                </button>
+                            </td>
+                            <td>
+                                <div style="display:flex;gap:0.25rem;flex-wrap:wrap;max-width:320px;">
+                                    <span class="hr-gate-pill @(v.AllowMainBuilding ? "is-allowed" : "is-blocked")" title="1- المبنى الرئيسي">الرئيسي</span>
+                                    <span class="hr-gate-pill @(v.AllowJadriya ? "is-allowed" : "is-blocked")" title="2- الجادرية">الجادرية</span>
+                                    <span class="hr-gate-pill @(v.AllowErbil ? "is-allowed" : "is-blocked")" title="3- أربيل">أربيل</span>
+                                    <span class="hr-gate-pill @(v.AllowMosul ? "is-allowed" : "is-blocked")" title="4- الموصل">الموصل</span>
+                                    <span class="hr-gate-pill @(v.AllowBasra ? "is-allowed" : "is-blocked")" title="5- البصرة">البصرة</span>
+                                </div>
+                            </td>
+                            <td style="text-align:center;">
+                                <div style="display:inline-flex;gap:0.35rem;">
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-btn-icon"
+                                            @onclick="() => OpenEditModal(v)" title="تعديل">
+                                        <Icon Name="pencil-square" Size="xs" />
+                                    </button>
+                                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                            @onclick="() => AskDelete(v)" title="حذف">
+                                        <Icon Name="trash" Size="xs" />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+</div>
+
+@* ==================== MODAL: ADD / EDIT VEHICLE ==================== *@
+@if (showModal)
+{
+    <div class="hr-modal-scrim" @onclick="CloseModal">
+        <div class="hr-modal hr-modal-lg" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="modal-vehicle-title" tabindex="-1" @onkeydown="OnModalKeyDown">
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true"><Icon Name="truck" Size="sm" /></span>
+                    <div class="hr-modal-titles">
+                        <h2 id="modal-vehicle-title" class="hr-h3">@(isEditMode ? "تعديل بيانات المركبة" : "تسجيل مركبة جديدة لموظف")</h2>
+                        <p class="hr-meta">توثيق بيانات السيارة ولوحة التسجيل وصلاحيات الدخول للبوابات والمقرات</p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="CloseModal" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body hr-stack">
+
+                @if (!string.IsNullOrEmpty(modalError))
+                {
+                    <div class="hr-alert hr-alert-danger" role="alert">
+                        <Icon Name="exclamation-triangle" Size="xs" />
+                        <span>@modalError</span>
+                    </div>
+                }
+
+                @* 1. Employee Selection (Required) *@
+                <div class="hr-field">
+                    <label class="hr-field-label">الموظف المالك للمركبة <span style="color:var(--danger);">*</span></label>
+                    @if (selectedEmployee != null)
+                    {
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.85rem;background:var(--surface-sunken);border:1px solid var(--line);border-radius:var(--r-md);">
+                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                <span class="hr-iconplate hr-plate-d" style="width:2.2rem;height:2.2rem;"><Icon Name="user" Size="xs" /></span>
+                                <div>
+                                    <strong style="display:block;font-size:0.95rem;">@selectedEmployee.Name</strong>
+                                    <span class="hr-meta" style="font-size:0.8rem;">رقم وظيفي: @selectedEmployee.EmployeeID | تشكيل: @(selectedEmployee.Formation?.Name ?? "—")</span>
+                                </div>
+                            </div>
+                            @if (!isEditMode)
+                            {
+                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ClearSelectedEmployee">
+                                    تغيير الموظف
+                                </button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="hr-lookup" style="position:relative;">
+                            <div class="hr-search">
+                                <span class="hr-search-icon"><Icon Name="magnifying-glass" Size="sm" /></span>
+                                <input aria-label="البحث عن الموظف المالك للمركبة" type="search"
+                                       class="hr-input"
+                                       placeholder="ابحث بالاسم أو الرقم الوظيفي لاختيار الموظف..."
+                                       value="@empSearchInput"
+                                       @oninput="OnEmpSearchInput" />
+                            </div>
+                            @if (empLookupResults.Count > 0)
+                            {
+                                <ul class="hr-popover hr-lookup-list hr-scroll" style="position:absolute;top:100%;left:0;right:0;z-index:999;max-height:200px;background:var(--surface);box-shadow:var(--shadow-pop);border-radius:var(--r-md);border:1px solid var(--line);padding:0.25rem 0;list-style:none;">
+                                    @foreach (var emp in empLookupResults)
+                                    {
+                                        <li @key="emp.Id">
+                                            <button type="button" class="hr-menu-item" style="width:100%;display:flex;justify-content:space-between;padding:0.5rem 0.75rem;"
+                                                    @onclick="() => ChooseEmployee(emp)">
+                                                <span>@emp.Name</span>
+                                                <span class="hr-num hr-meta">@emp.EmployeeID</span>
+                                            </button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* 2. License Plate Fields: Number, Letter, Governorate *@
+                <fieldset style="border:1px solid var(--line);padding:1rem;border-radius:var(--r-md);background:var(--surface-sunken);">
+                    <legend style="padding:0 0.5rem;font-weight:700;color:var(--accent);font-size:0.9rem;">
+                        تفاصيل لوحة التسجيل المرورية
+                    </legend>
+                    <div class="hr-grid-3">
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-1" class="hr-field-label">المحافظة <span style="color:var(--danger);">*</span></label>
+                            <select id="f-vehicles-page-1" class="hr-select" @bind="formGov">
+                                <option value="">اختر المحافظة...</option>
+                                <option value="بغداد">بغداد</option>
+                                <option value="البصرة">البصرة</option>
+                                <option value="أربيل">أربيل</option>
+                                <option value="نينوى">نينوى</option>
+                                <option value="كركوك">كركوك</option>
+                                <option value="النجف">النجف</option>
+                                <option value="كربلاء">كربلاء</option>
+                                <option value="بابل">بابل</option>
+                                <option value="السليمانية">السليمانية</option>
+                                <option value="دهوك">دهوك</option>
+                                <option value="ذي قار">ذي قار</option>
+                                <option value="ميسان">ميسان</option>
+                                <option value="المثنى">المثنى</option>
+                                <option value="القادسية">القادسية</option>
+                                <option value="واسط">واسط</option>
+                                <option value="ديالى">ديالى</option>
+                                <option value="الأنبار">الأنبار</option>
+                                <option value="صلاح الدين">صلاح الدين</option>
+                            </select>
+                        </div>
+
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-2" class="hr-field-label">حرف اللوحة</label>
+                            <input id="f-vehicles-page-2" type="text" class="hr-input" placeholder="مثال: أ، ب، جـ..." maxlength="10" @bind="formPlateLetter" />
+                        </div>
+
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-3" class="hr-field-label">رقم اللوحة <span style="color:var(--danger);">*</span></label>
+                            <input id="f-vehicles-page-3" type="text" class="hr-input hr-num" placeholder="مثال: 12345" maxlength="30" @bind="formPlateNumber" />
+                        </div>
+                    </div>
+
+                    @* Live Preview of Plate *@
+                    @if (!string.IsNullOrWhiteSpace(formGov) || !string.IsNullOrWhiteSpace(formPlateNumber))
+                    {
+                        <div style="margin-top:0.75rem;display:flex;align-items:center;gap:0.75rem;">
+                            <span class="hr-meta" style="font-size:0.8rem;">معاينة اللوحة:</span>
+                            <div class="iq-license-plate">
+                                <span class="iq-plate-gov">@(string.IsNullOrWhiteSpace(formGov) ? "العراق" : formGov)</span>
+                                @if (!string.IsNullOrWhiteSpace(formPlateLetter))
+                                {
+                                    <span class="iq-plate-letter">@formPlateLetter</span>
+                                }
+                                <span class="iq-plate-num">@(string.IsNullOrWhiteSpace(formPlateNumber) ? "00000" : formPlateNumber)</span>
+                            </div>
+                        </div>
+                    }
+                </fieldset>
+
+                @* 3. Vehicle Specifications: Brand, Model, Color, Year, VIN *@
+                <fieldset style="border:1px solid var(--line);padding:1rem;border-radius:var(--r-md);">
+                    <legend style="padding:0 0.5rem;font-weight:700;color:var(--accent);font-size:0.9rem;">
+                        مواصفات المركبة ورقم الشاصي
+                    </legend>
+                    <div class="hr-grid-2">
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-4" class="hr-field-label">البراند / الشركة المصنعة <span style="color:var(--danger);">*</span></label>
+                            <input id="f-vehicles-page-4" type="text" class="hr-input" placeholder="مثال: تويوتا، نيسان، كيا، هيونداي..." @bind="formBrand" />
+                        </div>
+
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-5" class="hr-field-label">الموديل <span style="color:var(--danger);">*</span></label>
+                            <input id="f-vehicles-page-5" type="text" class="hr-input" placeholder="مثال: كورولا، كامري، سورينتو..." @bind="formModel" />
+                        </div>
+
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-6" class="hr-field-label">اللون</label>
+                            <input id="f-vehicles-page-6" type="text" class="hr-input" placeholder="مثال: أبيض، أسود، فضي، رصاصي..." @bind="formColor" />
+                        </div>
+
+                        <div class="hr-field">
+                            <label for="f-vehicles-page-7" class="hr-field-label">سنة الصنع (موديل سنة)</label>
+                            <input id="f-vehicles-page-7" type="number" class="hr-input hr-num" placeholder="مثال: 2024" min="1970" max="2035" @bind="formYear" />
+                        </div>
+
+                        <div class="hr-field" style="grid-column:1 / -1;">
+                            <label for="f-vehicles-page-8" class="hr-field-label">رقم الشاصي (Chassis Number / VIN)</label>
+                            <input id="f-vehicles-page-8" type="text" class="hr-input" dir="ltr" placeholder="رقم الشاصي المكون من 17 رمزاً..." maxlength="50" @bind="formVin" />
+                        </div>
+                    </div>
+                </fieldset>
+
+                @* 4. Driver Information (Employee or Dedicated Driver) *@
+                <fieldset style="border:1px solid var(--line);padding:1rem;border-radius:var(--r-md);background:var(--surface-sunken);">
+                    <legend style="padding:0 0.5rem;font-weight:700;color:var(--accent);font-size:0.9rem;">
+                        بيانات السائق / قائد المركبة
+                    </legend>
+
+                    <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                        <span class="hr-field-label">من يقود هذه المركبة؟</span>
+                        
+                        <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+                            <label class="hr-checkbox-label" style="flex:1;min-width:200px;cursor:pointer;border-color:@(formIsDriverSelf ? "var(--accent)" : "var(--line-soft)");background:@(formIsDriverSelf ? "color-mix(in srgb, var(--accent) 8%, var(--surface))" : "var(--surface)");">
+                                <input type="radio" name="driver-type" checked="@formIsDriverSelf" @onchange="() => formIsDriverSelf = true" />
+                                <div>
+                                    <strong style="display:block;">الموظف نفسه</strong>
+                                    <span class="hr-meta" style="font-size:0.78rem;">
+                                        @(selectedEmployee != null ? selectedEmployee.Name : "الموظف المالك المسجل أعلاه")
+                                    </span>
+                                </div>
+                            </label>
+
+                            <label class="hr-checkbox-label" style="flex:1;min-width:200px;cursor:pointer;border-color:@(!formIsDriverSelf ? "var(--accent)" : "var(--line-soft)");background:@(!formIsDriverSelf ? "color-mix(in srgb, var(--accent) 8%, var(--surface))" : "var(--surface)");">
+                                <input type="radio" name="driver-type" checked="@(!formIsDriverSelf)" @onchange="() => formIsDriverSelf = false" />
+                                <div>
+                                    <strong style="display:block;">سائق آخر / سائق مخصص</strong>
+                                    <span class="hr-meta" style="font-size:0.78rem;">سائق شخصي أو سائق عائلي أو مفوض</span>
+                                </div>
+                            </label>
+                        </div>
+
+                        @if (!formIsDriverSelf)
+                        {
+                            <div class="hr-grid-2" style="margin-top:0.5rem;padding-top:0.75rem;border-top:1px dashed var(--line);">
+                                <div class="hr-field">
+                                    <label for="f-driver-name" class="hr-field-label">اسم السائق الثلاثي أو الرباعي <span style="color:var(--danger);">*</span></label>
+                                    <input id="f-driver-name" type="text" class="hr-input" placeholder="اسم السائق الكامل..." maxlength="150" @bind="formDriverName" />
+                                </div>
+
+                                <div class="hr-field">
+                                    <label for="f-driver-phone" class="hr-field-label">رقم هاتف السائق (لأمن البوابات)</label>
+                                    <input id="f-driver-phone" type="tel" dir="ltr" class="hr-input hr-num" placeholder="07XXXXXXXXX" maxlength="30" @bind="formDriverPhone" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </fieldset>
+
+                @* 5. Gate Authorization & Permitted Locations (The 5 requested sites) *@
+                <fieldset style="border:1px solid var(--line);padding:1rem;border-radius:var(--r-md);background:var(--surface-sunken);">
+                    <legend style="padding:0 0.5rem;font-weight:700;color:var(--accent);font-size:0.9rem;">
+                        صلاحيات وتخويل الدخول للبوابات
+                    </legend>
+
+                    @* Master Authorization Toggle *@
+                    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding-bottom:0.75rem;border-bottom:1px dashed var(--line);">
+                        <input type="checkbox" id="auth-master" style="width:1.2rem;height:1.2rem;cursor:pointer;" @bind="formIsAuthorized" />
+                        <label for="auth-master" style="font-weight:700;cursor:pointer;">
+                            السيارة مخولة رسمياً للدخول (تصريح نشط)
+                        </label>
+                    </div>
+
+                    <span id="vehicle-sites-label" class="hr-field-label" style="margin-bottom:0.5rem;">
+                        المقرات المصرح بدخولها (حدد المواقع المسموحة):
+                    </span>
+                    <div role="group" aria-labelledby="vehicle-sites-label" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.75rem;">
+                        <label class="hr-checkbox-label">
+                            <input type="checkbox" @bind="formAllowMain" />
+                            <span>1- المبنى الرئيسي</span>
+                        </label>
+                        <label class="hr-checkbox-label">
+                            <input type="checkbox" @bind="formAllowJadriya" />
+                            <span>2- الجادرية</span>
+                        </label>
+                        <label class="hr-checkbox-label">
+                            <input type="checkbox" @bind="formAllowErbil" />
+                            <span>3- أربيل</span>
+                        </label>
+                        <label class="hr-checkbox-label">
+                            <input type="checkbox" @bind="formAllowMosul" />
+                            <span>4- الموصل</span>
+                        </label>
+                        <label class="hr-checkbox-label">
+                            <input type="checkbox" @bind="formAllowBasra" />
+                            <span>5- البصرة</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                @* Notes *@
+                <div class="hr-field">
+                    <label for="f-vehicles-page-9" class="hr-field-label">ملاحظات إضافية (رقم باج السيارة، نوع الوقود، إلخ)</label>
+                    <textarea id="f-vehicles-page-9" class="hr-textarea" rows="2" placeholder="أي ملاحظات تخص المركبة أو تصريحها..." @bind="formNotes"></textarea>
+                </div>
+
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModal" disabled="@isSaving">
+                    إلغاء
+                </button>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveVehicle" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="hr-spinner hr-spinner-xs"></span>
+                        <span>جارٍ الحفظ...</span>
+                    }
+                    else
+                    {
+                        <Icon Name="check" Size="xs" />
+                        <span>حفظ بيانات المركبة</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== MODAL: DELETE CONFIRMATION ==================== *@
+@if (showDeleteModal && vehicleToDelete != null)
+{
+    <div class="hr-modal-scrim" @onclick="() => showDeleteModal = false">
+        <div class="hr-modal hr-modal-confirm" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="delete-vehicle-modal-title" tabindex="-1" @onkeydown="OnDeleteModalKeyDown">
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate" style="background:color-mix(in srgb, var(--danger) 15%, transparent);color:var(--danger);" aria-hidden="true">
+                        <Icon Name="exclamation-triangle" Size="sm" />
+                    </span>
+                    <div class="hr-modal-titles">
+                        <h2 id="delete-vehicle-modal-title" class="hr-h3">تأكيد حذف المركبة</h2>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="() => showDeleteModal = false" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+            <div class="hr-modal-body hr-stack">
+                <p>
+                    هل أنت متأكد من رغبتك في حذف المركبة:
+                    <strong>@vehicleToDelete.Brand @vehicleToDelete.Model</strong>
+                    (لوحة: <strong>@vehicleToDelete.Governorate @vehicleToDelete.PlateLetter @vehicleToDelete.PlateNumber</strong>)؟
+                </p>
+                <div class="hr-alert hr-alert-danger" role="alert" style="margin:0;">
+                    <Icon Name="exclamation-circle" Size="xs" />
+                    <span>سيتم حذف سجل المركبة وتصاريح البوابات المرتبطة بها نهائياً من النظام.</span>
+                </div>
+            </div>
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showDeleteModal = false">إلغاء</button>
+                <button type="button" class="hr-btn hr-btn-danger" @onclick="ConfirmDelete" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="hr-spinner hr-spinner-xs"></span>
+                        <span>جارٍ الحفظ…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="trash" Size="xs" />
+                        <span>حذف نهائي</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    /* Iraqi license plate badge styling */
+    .iq-license-plate {
+        display: inline-flex;
+        align-items: stretch;
+        direction: rtl;
+        background: #ffffff;
+        color: #111827;
+        border: 2px solid #1f2937;
+        border-radius: 6px;
+        font-weight: 700;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        overflow: hidden;
+        user-select: none;
+        height: 28px;
+        font-family: inherit;
+    }
+    .iq-plate-gov {
+        background: #1e3a8a;
+        color: #ffffff;
+        padding: 0 8px;
+        font-size: 0.72rem;
+        display: flex;
+        align-items: center;
+        border-left: 2px solid #1f2937;
+        white-space: nowrap;
+    }
+    .iq-plate-letter {
+        padding: 0 7px;
+        font-size: 0.92rem;
+        display: flex;
+        align-items: center;
+        border-left: 1px dashed #9ca3af;
+        color: #1e3a8a;
+    }
+    .iq-plate-num {
+        padding: 0 9px;
+        font-size: 0.98rem;
+        letter-spacing: 0.5px;
+        display: flex;
+        align-items: center;
+        font-family: var(--font-numeric);
+    }
+
+    .hr-checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.88rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: var(--surface);
+        padding: 0.5rem 0.75rem;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--line-soft);
+    }
+</style>
+
+@code {
+    [Parameter] public string? EmployeeIdParam { get; set; }
+
+    private List<EmployeeVehicle> vehicles = [];
+    private VehicleKpiSummary kpi = new(0, 0, 0, 0, 0, 0, 0, 0);
+
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isCardView = true;
+
+    // Filters
+    private string searchTerm = "";
+    private string selectedLocation = "";
+    private string authFilter = "all";
+
+    // Modal state
+    private bool showModal = false;
+    private bool isEditMode = false;
+    private int editingVehicleId = 0;
+    private string? modalError;
+
+    // Delete modal
+    private bool showDeleteModal = false;
+    private EmployeeVehicle? vehicleToDelete;
+
+    // Form inputs
+    private Employee? selectedEmployee;
+    private string empSearchInput = "";
+    private List<Employee> empLookupResults = [];
+
+    private string formBrand = "";
+    private string formModel = "";
+    private string? formColor;
+    private string formPlateNumber = "";
+    private string? formPlateLetter;
+    private string formGov = "بغداد";
+    private string? formVin;
+    private int? formYear;
+    private bool formIsAuthorized = true;
+    private bool formAllowMain = true;
+    private bool formAllowJadriya = false;
+    private bool formAllowErbil = false;
+    private bool formAllowMosul = false;
+    private bool formAllowBasra = false;
+    private bool formIsDriverSelf = true;
+    private string? formDriverName;
+    private string? formDriverPhone;
+    private string? formNotes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(EmployeeIdParam))
+        {
+            searchTerm = EmployeeIdParam;
+        }
+
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            bool? isAuth = authFilter switch
+            {
+                "auth" => true,
+                "unauth" => false,
+                _ => null
+            };
+
+            vehicles = await VehicleService.GetAllVehiclesAsync(searchTerm, selectedLocation, isAuth);
+            kpi = await VehicleService.GetKpiSummaryAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load employee vehicles data");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnSearchChanged(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? "";
+        await LoadDataAsync();
+    }
+
+    private async Task OnLocationChanged(ChangeEventArgs e)
+    {
+        selectedLocation = e.Value?.ToString() ?? "";
+        await LoadDataAsync();
+    }
+
+    private async Task SelectLocation(string loc)
+    {
+        selectedLocation = loc;
+        await LoadDataAsync();
+    }
+
+    private async Task OnAuthFilterChanged(ChangeEventArgs e)
+    {
+        authFilter = e.Value?.ToString() ?? "all";
+        await LoadDataAsync();
+    }
+
+    private async Task ToggleAuth(EmployeeVehicle vehicle)
+    {
+        var newStatus = !vehicle.IsAuthorized;
+        var ok = await VehicleService.ToggleAuthorizationAsync(vehicle.Id, newStatus);
+        if (ok)
+        {
+            vehicle.IsAuthorized = newStatus;
+            kpi = await VehicleService.GetKpiSummaryAsync();
+        }
+    }
+
+    private async Task OnEmpSearchInput(ChangeEventArgs e)
+    {
+        empSearchInput = e.Value?.ToString() ?? "";
+        if (empSearchInput.Length >= 2)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            empLookupResults = await db.Employees
+                .AsNoTracking()
+                .Include(emp => emp.Formation)
+                .Where(emp => !emp.IsArchived && (emp.Name.Contains(empSearchInput) || emp.EmployeeID.Contains(empSearchInput)))
+                .Take(7)
+                .ToListAsync();
+        }
+        else
+        {
+            empLookupResults.Clear();
+        }
+    }
+
+    private void ChooseEmployee(Employee emp)
+    {
+        selectedEmployee = emp;
+        empSearchInput = "";
+        empLookupResults.Clear();
+    }
+
+    private void ClearSelectedEmployee()
+    {
+        selectedEmployee = null;
+        empSearchInput = "";
+        empLookupResults.Clear();
+    }
+
+    private async void OpenAddModal()
+    {
+        isEditMode = false;
+        editingVehicleId = 0;
+        modalError = null;
+
+        formBrand = "";
+        formModel = "";
+        formColor = "";
+        formPlateNumber = "";
+        formPlateLetter = "";
+        formGov = "بغداد";
+        formVin = "";
+        formYear = DateTime.Now.Year;
+        formIsAuthorized = true;
+        formAllowMain = true;
+        formAllowJadriya = false;
+        formAllowErbil = false;
+        formAllowMosul = false;
+        formAllowBasra = false;
+        formIsDriverSelf = true;
+        formDriverName = "";
+        formDriverPhone = "";
+        formNotes = "";
+
+        // Preselect employee if parameter passed
+        if (!string.IsNullOrWhiteSpace(EmployeeIdParam))
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            selectedEmployee = await db.Employees
+                .AsNoTracking()
+                .Include(emp => emp.Formation)
+                .FirstOrDefaultAsync(emp => emp.EmployeeID == EmployeeIdParam);
+        }
+        else
+        {
+            selectedEmployee = null;
+        }
+
+        showModal = true;
+    }
+
+    private void OpenEditModal(EmployeeVehicle v)
+    {
+        isEditMode = true;
+        editingVehicleId = v.Id;
+        modalError = null;
+
+        selectedEmployee = v.Employee;
+        formBrand = v.Brand;
+        formModel = v.Model;
+        formColor = v.Color;
+        formPlateNumber = v.PlateNumber;
+        formPlateLetter = v.PlateLetter;
+        formGov = v.Governorate;
+        formVin = v.Vin;
+        formYear = v.ManufacturingYear;
+        formIsAuthorized = v.IsAuthorized;
+        formAllowMain = v.AllowMainBuilding;
+        formAllowJadriya = v.AllowJadriya;
+        formAllowErbil = v.AllowErbil;
+        formAllowMosul = v.AllowMosul;
+        formAllowBasra = v.AllowBasra;
+        formIsDriverSelf = v.IsDriverSelf;
+        formDriverName = v.DriverName;
+        formDriverPhone = v.DriverPhone;
+        formNotes = v.Notes;
+
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        modalError = null;
+    }
+
+    private void OnModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseModal();
+    }
+
+    private void OnDeleteModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") showDeleteModal = false;
+    }
+
+    private async Task SaveVehicle()
+    {
+        modalError = null;
+
+        if (selectedEmployee == null)
+        {
+            modalError = "يرجى اختيار الموظف المالك للمركبة.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(formGov))
+        {
+            modalError = "يرجى تحديد المحافظة المسجلة بها اللوحة.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(formPlateNumber))
+        {
+            modalError = "يرجى إدخال رقم اللوحة.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(formBrand))
+        {
+            modalError = "يرجى إدخال البراند / الشركة المصنعة (مثل: تويوتا، نيسان...).";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(formModel))
+        {
+            modalError = "يرجى إدخال الموديل (مثل: كورولا، كامري...).";
+            return;
+        }
+
+        if (!formIsDriverSelf && string.IsNullOrWhiteSpace(formDriverName))
+        {
+            modalError = "يرجى إدخال اسم السائق في حال لم يكن الموظف نفسه.";
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            if (isEditMode)
+            {
+                var vehicle = new EmployeeVehicle
+                {
+                    Id = editingVehicleId,
+                    EmployeeId = selectedEmployee.Id,
+                    Brand = formBrand.Trim(),
+                    Model = formModel.Trim(),
+                    Color = string.IsNullOrWhiteSpace(formColor) ? null : formColor.Trim(),
+                    PlateNumber = formPlateNumber.Trim(),
+                    PlateLetter = string.IsNullOrWhiteSpace(formPlateLetter) ? null : formPlateLetter.Trim(),
+                    Governorate = formGov.Trim(),
+                    Vin = string.IsNullOrWhiteSpace(formVin) ? null : formVin.Trim(),
+                    ManufacturingYear = formYear,
+                    IsDriverSelf = formIsDriverSelf,
+                    DriverName = formIsDriverSelf ? null : (string.IsNullOrWhiteSpace(formDriverName) ? null : formDriverName.Trim()),
+                    DriverPhone = string.IsNullOrWhiteSpace(formDriverPhone) ? null : formDriverPhone.Trim(),
+                    IsAuthorized = formIsAuthorized,
+                    AllowMainBuilding = formAllowMain,
+                    AllowJadriya = formAllowJadriya,
+                    AllowErbil = formAllowErbil,
+                    AllowMosul = formAllowMosul,
+                    AllowBasra = formAllowBasra,
+                    Notes = string.IsNullOrWhiteSpace(formNotes) ? null : formNotes.Trim()
+                };
+
+                await VehicleService.UpdateVehicleAsync(vehicle);
+            }
+            else
+            {
+                var vehicle = new EmployeeVehicle
+                {
+                    EmployeeId = selectedEmployee.Id,
+                    Brand = formBrand.Trim(),
+                    Model = formModel.Trim(),
+                    Color = string.IsNullOrWhiteSpace(formColor) ? null : formColor.Trim(),
+                    PlateNumber = formPlateNumber.Trim(),
+                    PlateLetter = string.IsNullOrWhiteSpace(formPlateLetter) ? null : formPlateLetter.Trim(),
+                    Governorate = formGov.Trim(),
+                    Vin = string.IsNullOrWhiteSpace(formVin) ? null : formVin.Trim(),
+                    ManufacturingYear = formYear,
+                    IsDriverSelf = formIsDriverSelf,
+                    DriverName = formIsDriverSelf ? null : (string.IsNullOrWhiteSpace(formDriverName) ? null : formDriverName.Trim()),
+                    DriverPhone = string.IsNullOrWhiteSpace(formDriverPhone) ? null : formDriverPhone.Trim(),
+                    IsAuthorized = formIsAuthorized,
+                    AllowMainBuilding = formAllowMain,
+                    AllowJadriya = formAllowJadriya,
+                    AllowErbil = formAllowErbil,
+                    AllowMosul = formAllowMosul,
+                    AllowBasra = formAllowBasra,
+                    Notes = string.IsNullOrWhiteSpace(formNotes) ? null : formNotes.Trim()
+                };
+
+                await VehicleService.AddVehicleAsync(vehicle);
+            }
+
+            showModal = false;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            modalError = $"حدث خطأ أثناء الحفظ: {ex.Message}";
+            Logger.LogError(ex, "Error saving vehicle");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void AskDelete(EmployeeVehicle v)
+    {
+        vehicleToDelete = v;
+        showDeleteModal = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (vehicleToDelete == null) return;
+        isSaving = true;
+        try
+        {
+            await VehicleService.DeleteVehicleAsync(vehicleToDelete.Id);
+            showDeleteModal = false;
+            vehicleToDelete = null;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting vehicle");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

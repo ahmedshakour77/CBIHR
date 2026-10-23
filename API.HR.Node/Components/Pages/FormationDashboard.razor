@@ -1,0 +1,1303 @@
+@page "/formation-dashboard"
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using API.HR.Node.Data
+@using API.HR.Node.Security
+@using API.HR.Node.Services.OrganizationalHierarchy
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = AuthorizationPolicies.FormationDashboard)]
+@implements IAsyncDisposable
+
+@inject IFormationKpiService KpiService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject API.HR.Node.Services.Localization.ILanguageService Lang
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<FormationDashboard> Logger
+
+<PageTitle>لوحة مؤشرات التشكيل الإداري | منظومة الموارد البشرية</PageTitle>
+
+<div class="hr-stack formation-dashboard-container">
+
+    @* ==================== 1. EXECUTIVE HEADER & ACTIONS ==================== *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                <span class="hr-eyebrow">
+                    @(Lang.IsKurdish ? "تەختەی نیشاندەرە جێبەجێکارییەکانی پێکهاتە" : "لوحة المؤشرات والتقارير التنفيذية للتشكيل")
+                </span>
+                @if (isLockedFormation)
+                {
+                    <span class="hr-badge hr-badge-ok" title="هذا الحساب مقيد بتشكيل إداري محدد">
+                        <Icon Name="lock-closed" Size="xs" />
+                        <span>تشكيل محدد ومصرّح</span>
+                    </span>
+                }
+                else
+                {
+                    <span class="hr-badge hr-badge-accent" title="صلاحية إدارية عليا لاستعراض كافة التشكيلات">
+                        <Icon Name="shield-check" Size="xs" />
+                        <span>إشراف عام لكافة التشكيلات</span>
+                    </span>
+                }
+            </div>
+
+            <h1 class="hr-h1 hr-balance" style="display:flex;align-items:center;gap:var(--s-2);margin-block-start:.25rem;">
+                <Icon Name="building-office-2" Size="md" />
+                <span>@(report?.FormationName ?? "لوحة مؤشرات التشكيل الإداري")</span>
+            </h1>
+
+        </div>
+
+        <div class="hr-pagehead-actions" style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-2);width:100%;">
+            @* Formation Selector for Admins *@
+            @if (isAdminOrGlobal)
+            {
+                <div style="min-width:18rem;flex:1 1 18rem;">
+                    <label for="formation-selector" class="hr-sr">اختر التشكيل الإداري</label>
+                    <select id="formation-selector" class="hr-select" @onchange="OnFormationSelectionChanged" value="@(selectedFormationId?.ToString() ?? "")">
+                        <option value="">-- كافة تشكيلات البنك المركزي (عرض مدمج شامل) --</option>
+                        @foreach (var f in availableFormations)
+                        {
+                            <option value="@f.Id">@f.Name (@f.EmployeeCount موظف)</option>
+                        }
+                    </select>
+                </div>
+            }
+            else if (isLockedFormation)
+            {
+                <div class="hr-badge hr-badge-solid" style="padding:.55rem 1rem;font-size:var(--fs-body);border-radius:var(--r-md);">
+                    <Icon Name="building-office-2" Size="sm" />
+                    <span style="font-weight:700;">@report?.FormationName</span>
+                </div>
+            }
+
+            <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;margin-inline-start:auto;">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="ReloadDataAsync" disabled="@isLoading" title="تحديث البيانات لحظياً">
+                    @if (isLoading)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ التحديث…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="arrow-path" Size="sm" />
+                        <span>تحديث</span>
+                    }
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="ExportDashboardCsv" disabled="@(isLoading || report == null)" title="تصدير ملخص المؤشرات كملف CSV">
+                    <Icon Name="arrow-down-tray" Size="sm" />
+                    <span>تصدير CSV</span>
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="PrintOrExportReport" title="طباعة تقرير التشكيل التنفيذي أو حفظه كـ PDF">
+                    <Icon Name="printer" Size="sm" />
+                    <span>طباعة التقرير</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    @if (isLoading)
+    {
+        <div class="hr-kpi-grid">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="hr-kpi-card" aria-hidden="true">
+                    <div class="hr-kpi-header">
+                        <div class="hr-skeleton hr-skeleton-line" style="width:50%"></div>
+                        <div class="hr-skeleton" style="width:2.25rem;height:2.25rem;border-radius:var(--r-md)"></div>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-skeleton" style="height:2.25rem;width:40%;margin-block:0.5rem"></div>
+                        <div class="hr-skeleton" style="height:6px;width:100%;border-radius:999px"></div>
+                    </div>
+                    <div class="hr-skeleton hr-skeleton-line" style="width:70%"></div>
+                </div>
+            }
+        </div>
+    }
+    else if (report != null)
+    {
+        @* ==================== 2. EXECUTIVE HERO KPI METRICS (8 CARDS) ==================== *@
+        <section aria-labelledby="kpis-title">
+            <h2 id="kpis-title" class="hr-sr">مؤشرات الأداء الرئيسية للتشكيل</h2>
+
+            <div class="hr-kpi-grid">
+                @* 1. Total Workforce *@
+                <div class="hr-kpi-card hr-kpi-accent">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">إجمالي كادر التشكيل</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="users" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.TotalStaff.ToString("N0")</strong>
+                            <span class="hr-kpi-unit">كادر وظيفي</span>
+                        </div>
+                        <div class="hr-kpi-split" title="توزيع الذكور والإناث">
+                            <div class="hr-kpi-split-a" style="width:@($"{report.MalePercentage:F1}%");background:var(--accent);" title="@($"ذكور: {report.MaleCount:N0} ({report.MalePercentage:F1}%)")"></div>
+                            <div class="hr-kpi-split-b" style="width:@($"{report.FemalePercentage:F1}%");background:var(--series-4);" title="@($"إناث: {report.FemaleCount:N0} ({report.FemalePercentage:F1}%)")"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <div class="hr-kpi-chips">
+                            <span class="hr-kpi-chip">
+                                <span class="hr-kpi-chip-dot" style="background:var(--accent);"></span>
+                                <span>ذكور <strong class="hr-num">@report.MaleCount.ToString("N0")</strong> (@report.MalePercentage.ToString("F1")%)</span>
+                            </span>
+                            <span class="hr-kpi-chip">
+                                <span class="hr-kpi-chip-dot" style="background:var(--series-4);"></span>
+                                <span>إناث <strong class="hr-num">@report.FemaleCount.ToString("N0")</strong> (@report.FemalePercentage.ToString("F1")%)</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                @* 2. Active Workforce & Hiring *@
+                <div class="hr-kpi-card hr-kpi-ok">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">الموظفون الفعليون</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="check-circle" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.ActiveStaff.ToString("N0")</strong>
+                            <span class="hr-kpi-unit">على رأس العمل</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill is-ok" style="width:100%;"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">تعيينات العام الحالي: <strong class="hr-num">@report.NewHiresThisYear.ToString("N0")</strong> موظف</span>
+                    </div>
+                </div>
+
+                @* 3. Demographics: Average Age & Service *@
+                <div class="hr-kpi-card">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">متوسط العمر والخدمة</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="calendar" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.AvgAgeYears.ToString("F1")</strong>
+                            <span class="hr-kpi-unit">سنة (العمر)</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill" style="width:@($"{Math.Min(100, (report.AvgAgeYears / 60.0) * 100):F0}%");background:var(--series-5);"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">متوسط سنوات الخدمة: <strong class="hr-num">@report.AvgServiceYears.ToString("F1")</strong> سنة</span>
+                    </div>
+                </div>
+
+                @* 4. Approaching Retirement & Promotions *@
+                <div class="hr-kpi-card hr-kpi-warn">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">استحقاقات التقاعد والترفيع</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="clock" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.ApproachingRetirementCount.ToString("N0")</strong>
+                            <span class="hr-kpi-unit">قريب من التقاعد (58+)</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill is-warn" style="width:@($"{Math.Min(100, (report.TotalStaff > 0 ? report.ApproachingRetirementCount * 100.0 / report.TotalStaff : 0)):F0}%")"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">مستحقو ترفيع/علاوة قادمة: <strong class="hr-num">@report.EligibleForPromotionCount.ToString("N0")</strong> موظف</span>
+                    </div>
+                </div>
+
+                @* 5. Recognition & Discipline *@
+                <div class="hr-kpi-card hr-kpi-ok">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">التقدير والانضباط</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="document-text" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.TotalAppreciationLetters.ToString("N0")</strong>
+                            <span class="hr-kpi-unit">كتاب شكر</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill is-ok" style="width:@($"{report.CleanDisciplinePercentage:F0}%")"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">العقوبات: <strong class="hr-num">@report.TotalPenalties.ToString("N0")</strong> | سجل نظيف: <strong class="hr-num">@report.CleanDisciplinePercentage.ToString("F1")%</strong></span>
+                    </div>
+                </div>
+
+                @* 6. Leave Balance *@
+                <div class="hr-kpi-card">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">رصيد الإجازات التراكمي</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="calendar-days" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.TotalLeaveBalanceDays.ToString("N0")</strong>
+                            <span class="hr-kpi-unit">يوم إجمالي</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill" style="width:75%;background:var(--series-6);"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">متوسط الرصيد لكل كادر: <strong class="hr-num">@report.AvgLeaveBalanceDays.ToString("F1")</strong> يوم</span>
+                    </div>
+                </div>
+
+                @* 7. Vehicles & Gate Authorizations *@
+                <div class="hr-kpi-card hr-kpi-accent">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">أسطول المركبات والتخويلات</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="truck" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.VehiclesStats.TotalVehicles.ToString("N0")</strong>
+                            <span class="hr-kpi-unit">مركبة مسجلة</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill" style="width:@($"{Math.Min(100, (report.VehiclesStats.TotalVehicles > 0 ? report.VehiclesStats.AuthorizedVehicles * 100.0 / report.VehiclesStats.TotalVehicles : 0)):F0}%");background:var(--accent);"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">مركبات مخولة: <strong class="hr-num">@report.VehiclesStats.AuthorizedVehicles.ToString("N0")</strong> | المبنى الرئيسي: <strong class="hr-num">@report.VehiclesStats.MainBuildingAccess.ToString("N0")</strong></span>
+                    </div>
+                </div>
+
+                @* 8. Digital Profile Completeness *@
+                <div class="hr-kpi-card hr-kpi-ok">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">الهوية الرقمية والأرشفة</span>
+                        <span class="hr-kpi-iconplate" aria-hidden="true"><Icon Name="identification" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-figure-row">
+                            <strong class="hr-kpi-figure hr-num">@report.DigitalPhotoPercentage.ToString("F1")</strong>
+                            <span class="hr-kpi-unit">% موثق</span>
+                        </div>
+                        <div class="hr-kpi-meter">
+                            <div class="hr-kpi-meter-fill is-ok" style="width:@($"{report.DigitalPhotoPercentage:F0}%")"></div>
+                        </div>
+                    </div>
+                    <div class="hr-kpi-foot">
+                        <span class="hr-meta">الصور الموثقة: <strong class="hr-num">@report.DigitalPhotoCount.ToString("N0")</strong> من أصل <strong class="hr-num">@report.TotalStaff.ToString("N0")</strong></span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        @* ==================== 2.2 EXECUTIVE HEALTH GAUGES COCKPIT ==================== *@
+        <section class="hr-stack-sm" style="margin-block-start:var(--s-4);">
+            <div class="hr-section-head">
+                <div>
+                    <h2 class="hr-h2" style="display:flex;align-items:center;gap:var(--s-2);">
+                        <Icon Name="adjustments-horizontal" Size="md" />
+                        <span>مؤشرات السلامة والأداء القيادي للتشكيل </span>
+                    </h2>
+                  </div>
+            </div>
+
+            <div class="hr-fd-grid" style="--fd-min:13rem;gap:var(--s-3);">
+                @* Gauge 1: Clean Discipline *@
+                <div class="hr-card hr-fd-gauge">
+                    <div>
+                        <div class="hr-fd-gauge-title">
+                            نقاء السجل الانضباطي
+                        </div> 
+                    </div>
+                    <div id="gauge-discipline" role="img" aria-label="@GaugeLabel("نقاء السجل الانضباطي", report.CleanDisciplinePercentage)" class="hr-fd-gauge-plot"></div>
+                    <div>
+                        <span class="hr-badge hr-badge-ok hr-fd-gauge-badge">
+                            @(report.TotalPenalties == 0 ? "سجل نظيف 100%" : $"{report.TotalPenalties} عقوبات مسجلة")
+                        </span>
+                    </div>
+                </div>
+
+                @* Gauge 2: Active Workforce Readiness *@
+                <div class="hr-card hr-fd-gauge">
+                    <div>
+                        <div class="hr-fd-gauge-title">
+                            الجاهزية والدوام الفعلي
+                        </div>
+                      </div>
+                    <div id="gauge-readiness" role="img" aria-label="@GaugeLabel("الجاهزية والدوام الفعلي", report.ActiveStaffPercentage)" class="hr-fd-gauge-plot"></div>
+                    <div>
+                        <span class="hr-badge hr-badge-accent hr-fd-gauge-badge">
+                            @report.ActiveStaff من أصل @report.TotalStaff موظف
+                        </span>
+                    </div>
+                </div>
+
+                @* Gauge 3: Higher Academic Degrees *@
+                <div class="hr-card hr-fd-gauge">
+                    <div>
+                        <div class="hr-fd-gauge-title">
+                            الكفاءات والشهادات العليا
+                        </div>
+                        <p class="hr-meta hr-fd-gauge-sub">دكتوراه وماجستير ودبلوم عالي</p>
+                    </div>
+                    <div id="gauge-higher-edu" role="img" aria-label="@GaugeLabel("الكفاءات والشهادات العليا", report.HigherEducationPercentage)" class="hr-fd-gauge-plot"></div>
+                    <div>
+                        <span class="hr-badge hr-fd-gauge-badge" style="background:var(--series-4);color:var(--series-on);">
+                            @report.HigherEducationCount حامل شهادة عليا
+                        </span>
+                    </div>
+                </div>
+
+                @* Gauge 4: Career Promotion Pipeline *@
+                <div class="hr-card hr-fd-gauge">
+                    <div>
+                        <div class="hr-fd-gauge-title">
+                            استحقاق الترفيع والعلاوة
+                        </div>
+                        <p class="hr-meta hr-fd-gauge-sub">المستحقون للترقية القادمة</p>
+                    </div>
+                    <div id="gauge-promotion" role="img" aria-label="@GaugeLabel("استحقاق الترفيع والعلاوة", report.PromotionReadinessPercentage)" class="hr-fd-gauge-plot"></div>
+                    <div>
+                        <span class="hr-badge hr-badge-warn hr-fd-gauge-badge">
+                            @report.EligibleForPromotionCount مرشح للاستحقاق
+                        </span>
+                    </div>
+                </div>
+
+                @* Gauge 5: Digital Archive & Dossier *@
+                <div class="hr-card hr-fd-gauge">
+                    <div>
+                        <div class="hr-fd-gauge-title">
+                            الأرشفة والهوية الرقمية
+                        </div>
+                        <p class="hr-meta hr-fd-gauge-sub">اكتمال الملفات والصور</p>
+                    </div>
+                    <div id="gauge-digital" role="img" aria-label="@GaugeLabel("الأرشفة والهوية الرقمية", report.DigitalPhotoPercentage)" class="hr-fd-gauge-plot"></div>
+                    <div>
+                        <span class="hr-badge hr-badge-ok hr-fd-gauge-badge">
+                            @report.DigitalPhotoCount ملف موثق رقمياً
+                        </span>
+                    </div>
+                </div>
+
+                @* Gauge 6: Contract Staff (موظفو العقود) *@
+                <div class="hr-card hr-fd-gauge">
+                    <div>
+                        <div class="hr-fd-gauge-title">
+                            موظفو العقود
+                        </div>
+                        <p class="hr-meta hr-fd-gauge-sub">بحسب الحالة الوظيفية للموظف</p>
+                    </div>
+                    <div id="gauge-contracts" role="img" aria-label="@GaugeLabel("موظفو العقود", report.ContractStaffPercentage)" class="hr-fd-gauge-plot"></div>
+                    <div>
+                        <span class="hr-badge hr-fd-gauge-badge" style="background:var(--series-5);color:var(--series-on);">
+                            @report.ContractStaffCount موظف عقد (@report.ContractStaffPercentage.ToString("F1")%)
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        @* Gender, education, age, grades, tenure and gate access each have a
+           detailed view in the tabs below, so they are not charted twice here. *@
+
+        @* ==================== 3. EXECUTIVE TABS FOR DETAILED SECTIONS ==================== *@
+        <div class="hr-tabs" role="tablist" aria-label="أقسام تقارير التشكيل" style="margin-block-start:var(--s-4);">
+            <button type="button" role="tab" class="hr-tab"
+                    id="tab-cadre" aria-controls="panel-cadre"
+                    aria-selected="@((activeTab == "cadre") ? "true" : "false")"
+                    @onclick='() => activeTab = "cadre"'>
+                <Icon Name="chart-bar" Size="sm" />
+                <span>الدرجات والعناوين الوظيفية</span>
+            </button>
+
+            <button type="button" role="tab" class="hr-tab"
+                    id="tab-education" aria-controls="panel-education"
+                    aria-selected="@((activeTab == "education") ? "true" : "false")"
+                    @onclick='() => activeTab = "education"'>
+                <Icon Name="academic-cap" Size="sm" />
+                <span>المؤهلات العلمية والديموغرافيا</span>
+            </button>
+
+            <button type="button" role="tab" class="hr-tab"
+                    id="tab-performance" aria-controls="panel-performance"
+                    aria-selected="@((activeTab == "performance") ? "true" : "false")"
+                    @onclick='() => activeTab = "performance"'>
+                <Icon Name="document-text" Size="sm" />
+                <span>الأداء والانضباط والإجازات</span>
+            </button>
+
+            <button type="button" role="tab" class="hr-tab"
+                    id="tab-vehicles" aria-controls="panel-vehicles"
+                    aria-selected="@((activeTab == "vehicles") ? "true" : "false")"
+                    @onclick='() => activeTab = "vehicles"'>
+                <Icon Name="truck" Size="sm" />
+                <span>المركبات وبوابات الدخول</span>
+            </button>
+
+            <button type="button" role="tab" class="hr-tab"
+                    id="tab-roster" aria-controls="panel-roster"
+                    aria-selected="@((activeTab == "roster") ? "true" : "false")"
+                    @onclick='() => activeTab = "roster"'>
+                <Icon Name="table-cells" Size="sm" />
+                <span>سجل كادر التشكيل التفصيلي</span>
+                <span class="hr-badge hr-num">@report.TotalStaff</span>
+            </button>
+        </div>
+
+        @* ==================== 4. TAB PANELS ==================== *@
+
+        @* ---------------- PANEL 1: GRADES & CADRE ---------------- *@
+        @if (activeTab == "cadre")
+        {
+            <div id="panel-cadre" role="tabpanel" aria-labelledby="tab-cadre" tabindex="0" class="hr-stack-sm">
+                <div class="hr-fd-grid">
+                    
+                    @* Grades Bar Chart *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">توزيع السلم الوظيفي (الدرجات من 1 إلى 10)</h3>
+                                <p class="hr-meta">التوزيع العددي والنسبي للموظفين حسب درجات الخدمة المدنية</p>
+                            </div>
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick='() => ExportSectionCsv(report.GradeDistribution, "الدرجة_الوظيفية")'>
+                                <Icon Name="arrow-down-tray" Size="xs" />
+                                <span>تصدير CSV</span>
+                            </button>
+                        </div>
+
+                        <ul class="hr-barlist" style="margin-block-start:var(--s-3);">
+                            @foreach (var grade in report.GradeDistribution)
+                            {
+                                <li class="hr-barlist-item">
+                                    <div class="hr-barlist-head">
+                                        <span class="hr-barlist-name" style="font-weight:600;">@grade.Label</span>
+                                        <span class="hr-barlist-value">
+                                            <span class="hr-num">@grade.Count.ToString("N0") موظف</span>
+                                            <span class="hr-barlist-pct hr-num">@grade.Percentage.ToString("F1")%</span>
+                                        </span>
+                                    </div>
+                                    <div class="hr-meter" aria-hidden="true">
+                                        <div class="hr-meter-fill" style="width:@($"{grade.Percentage:F1}%");background:@(grade.ColorToken ?? "var(--accent)");"></div>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+
+                    @* Top Job Titles *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">أبرز العناوين الوظيفية في التشكيل</h3>
+                                <p class="hr-meta">المسميات الوظيفية الأكثر تمثيلاً ضمن الكادر</p>
+                            </div>
+                            <span class="hr-badge hr-badge-accent">أعلى @report.TopJobTitles.Count عناوين</span>
+                        </div>
+
+                        <ul class="hr-barlist" style="margin-block-start:var(--s-3);">
+                            @foreach (var jt in report.TopJobTitles)
+                            {
+                                <li class="hr-barlist-item">
+                                    <div class="hr-barlist-head">
+                                        <span class="hr-barlist-name hr-truncate" title="@jt.Label">@jt.Label</span>
+                                        <span class="hr-barlist-value">
+                                            <span class="hr-num">@jt.Count.ToString("N0")</span>
+                                            <span class="hr-barlist-pct hr-num">@jt.Percentage.ToString("F1")%</span>
+                                        </span>
+                                    </div>
+                                    <div class="hr-meter" aria-hidden="true">
+                                        <div class="hr-meter-fill" style="width:@($"{jt.Percentage:F1}%");background:linear-gradient(90deg, var(--series-4), var(--accent));"></div>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* ---------------- PANEL 2: EDUCATION & DEMOGRAPHICS ---------------- *@
+        @if (activeTab == "education")
+        {
+            <div id="panel-education" role="tabpanel" aria-labelledby="tab-education" tabindex="0" class="hr-stack-sm">
+                <div class="hr-fd-grid">
+                    
+                    @* Education Qualifications (Radial / Donut Breakdown) *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">المؤهلات العلمية والشهادات الأكاديمية</h3>
+                                <p class="hr-meta">توزيع الشهادات التخصصية لكادر التشكيل</p>
+                            </div>
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick='() => ExportSectionCsv(report.EducationDistribution, "المؤهل_العلمي")'>
+                                <Icon Name="arrow-down-tray" Size="xs" />
+                                <span>تصدير CSV</span>
+                            </button>
+                        </div>
+
+                        @* Interactive CSS/SVG Donut Flow *@
+                        <div style="display:flex;align-items:center;justify-content:center;padding:var(--s-3);position:relative;">
+                            <svg viewBox="0 0 100 100" style="width:160px;height:160px;transform:rotate(-90deg);" aria-hidden="true">
+                                @{
+                                    double accumulatedPct = 0;
+                                    foreach (var edu in report.EducationDistribution)
+                                    {
+                                        var strokeDash = $"{edu.Percentage:F1} {100 - edu.Percentage:F1}";
+                                        var strokeOffset = -accumulatedPct;
+                                        <circle cx="50" cy="50" r="38"
+                                                fill="transparent"
+                                                stroke="@edu.ColorToken"
+                                                stroke-width="14"
+                                                stroke-dasharray="@strokeDash"
+                                                stroke-dashoffset="@strokeOffset"
+                                                stroke-linecap="round" />
+                                        accumulatedPct += edu.Percentage;
+                                    }
+                                }
+                            </svg>
+                            <div style="position:absolute;text-align:center;">
+                                <span class="hr-num" style="font-size:var(--fs-h2);font-weight:800;">@report.TotalStaff</span>
+                                <span style="display:block;font-size:var(--fs-caption);color:var(--text-muted);">مؤهل مسجل</span>
+                            </div>
+                        </div>
+
+                        <div class="hr-chips" style="margin-block-start:var(--s-3);justify-content:center;">
+                            @foreach (var edu in report.EducationDistribution)
+                            {
+                                <div class="hr-badge" style="padding:.35rem .65rem;display:inline-flex;align-items:center;gap:.35rem;">
+                                    <span style="width:10px;height:10px;border-radius:50%;background:@edu.ColorToken;"></span>
+                                    <span>@edu.Label:</span>
+                                    <strong class="hr-num">@edu.Count</strong>
+                                    <span class="hr-meta">(@edu.Percentage.ToString("F1")%)</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @* Age Pyramid (Double Column Chart: Male vs Female) *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">الهرم العمري للكادر</h3>
+                                <p class="hr-meta">توزيع الفئات العمرية مع فرز الذكور والإناث</p>
+                            </div>
+                            <span class="hr-badge hr-badge-accent">@report.AgePyramid.Count فئات عمرية</span>
+                        </div>
+
+                        <div style="display:flex;flex-direction:column;gap:var(--s-2);margin-block-start:var(--s-3);max-height:480px;overflow-y:auto;padding-inline-end:.5rem;">
+                            @foreach (var ageRow in report.AgePyramid)
+                            {
+                                <div>
+                                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-caption);margin-block-end:.25rem;">
+                                        <span style="font-weight:700;">@ageRow.Label</span>
+                                        <span class="hr-num">@ageRow.TotalCount موظف (@ageRow.Percentage.ToString("F1")%)</span>
+                                    </div>
+                                    <div style="display:flex;height:1.25rem;background:var(--surface-raised);border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--line);">
+                                        @if (ageRow.TotalCount > 0)
+                                        {
+                                            var mShare = (double)ageRow.MaleCount / ageRow.TotalCount * 100;
+                                            var fShare = 100 - mShare;
+                                            <div style="width:@($"{mShare:F1}%");background:var(--accent);display:flex;align-items:center;justify-content:center;color:var(--text-on-accent);font-size:var(--fs-caption);" title="ذكور: @ageRow.MaleCount">
+                                                @if (mShare > 15) { <span>@ageRow.MaleCount</span> }
+                                            </div>
+                                            <div style="width:@($"{fShare:F1}%");background:var(--series-4);display:flex;align-items:center;justify-content:center;color:var(--series-on);font-size:var(--fs-caption);" title="إناث: @ageRow.FemaleCount">
+                                                @if (fShare > 15) { <span>@ageRow.FemaleCount</span> }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div style="display:flex;justify-content:center;gap:var(--s-3);margin-block-start:var(--s-3);font-size:var(--fs-caption);">
+                            <span style="display:inline-flex;align-items:center;gap:.25rem;"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);"></span> ذكور</span>
+                            <span style="display:inline-flex;align-items:center;gap:.25rem;"><span style="width:10px;height:10px;border-radius:2px;background:var(--series-4);"></span> إناث</span>
+                        </div>
+                    </div>
+
+                    @* Service Tenure Longevity Flow *@
+                    <div class="hr-card" style="padding:var(--s-4);grid-column:1 / -1;">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">سنوات الخدمة والولاء الوظيفي</h3>
+                                <p class="hr-meta">فئات مدة الخدمة الفعلية لموظفي التشكيل</p>
+                            </div>
+                            <span class="hr-badge">متوسط الخدمة: @report.AvgServiceYears.ToString("F1") سنة</span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(10rem, 1fr));gap:var(--s-3);margin-block-start:var(--s-3);">
+                            @foreach (var tenure in report.ServiceTenureDistribution)
+                            {
+                                <div class="hr-fd-tile">
+                                    <span class="hr-fd-tile-label"><span class="hr-fd-tile-dot" style="background:@tenure.ColorToken;" aria-hidden="true"></span>@tenure.Label</span>
+                                    <div style="display:flex;align-items:baseline;gap:.5rem;margin-block-start:.25rem;">
+                                        <strong class="hr-num" style="font-size:var(--fs-h3);">@tenure.Count.ToString("N0")</strong>
+                                        <span class="hr-meta hr-num">(@tenure.Percentage.ToString("F1")%)</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* ---------------- PANEL 3: PERFORMANCE, DISCIPLINE & LEAVES ---------------- *@
+        @if (activeTab == "performance")
+        {
+            <div id="panel-performance" role="tabpanel" aria-labelledby="tab-performance" tabindex="0" class="hr-stack-sm">
+                <div class="hr-fd-grid">
+                    
+                    @* Letters vs Penalties Scorecard *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">مؤشرات الشكر والانضباط الإداري</h3>
+                                <p class="hr-meta">تقييم الالتزام والتكريم الوظيفي في التشكيل</p>
+                            </div>
+                            <span class="hr-badge hr-badge-ok">سجل نظيف @report.CleanDisciplinePercentage.ToString("F1")%</span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-3);margin-block:var(--s-3);">
+                            <div class="hr-fd-tile hr-fd-tile-lg hr-fd-tile-center">
+                                <span style="font-size:var(--fs-caption);color:var(--ok);font-weight:700;display:block;">كتب الشكر والتقدير</span>
+                                <strong class="hr-num" style="font-size:var(--fs-h1);color:var(--ok);">@report.TotalAppreciationLetters.ToString("N0")</strong>
+                                <span style="font-size:var(--fs-caption);color:var(--text-muted);display:block;">كتاب تكريم رسمي</span>
+                            </div>
+
+                            <div class="hr-fd-tile hr-fd-tile-lg hr-fd-tile-center">
+                                <span style="font-size:var(--fs-caption);color:var(--danger);font-weight:700;display:block;">العقوبات الإدارية</span>
+                                <strong class="hr-num" style="font-size:var(--fs-h1);color:var(--danger);">@report.TotalPenalties.ToString("N0")</strong>
+                                <span style="font-size:var(--fs-caption);color:var(--text-muted);display:block;">عقوبة مسجلة</span>
+                            </div>
+                        </div>
+
+                        <p class="hr-sub" style="font-size:var(--fs-caption);">
+                            معدل التكريم: <strong class="hr-num">@((report.TotalStaff > 0 ? (double)report.TotalAppreciationLetters / report.TotalStaff : 0).ToString("F2"))</strong> كتاب لكل موظف.
+                            نسبة الكوادر ذات السجل الخالي تماماً من العقوبات: <strong class="hr-num">@report.CleanDisciplinePercentage.ToString("F1")%</strong>.
+                        </p>
+                    </div>
+
+                    @* Leave Types Distribution *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">حركات الإجازات المستهلكة</h3>
+                                <p class="hr-meta">التوزيع حسب نوع الإجازة لكادر التشكيل</p>
+                            </div>
+                            <span class="hr-badge">متوسط الرصيد: @report.AvgLeaveBalanceDays.ToString("F1") يوم</span>
+                        </div>
+
+                        @if (report.LeaveTypesDistribution.Count == 0)
+                        {
+                            <div class="hr-empty" style="padding:var(--s-4);">
+                                <span class="hr-empty-art" aria-hidden="true"><Icon Name="calendar" Size="md" /></span>
+                                <p class="hr-h3">لا توجد حركات إجازات مسجلة</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <ul class="hr-barlist" style="margin-block-start:var(--s-3);">
+                                @foreach (var leave in report.LeaveTypesDistribution)
+                                {
+                                    <li class="hr-barlist-item">
+                                        <div class="hr-barlist-head">
+                                            <span class="hr-barlist-name">@leave.Label</span>
+                                            <span class="hr-barlist-value">
+                                                <span class="hr-num">@leave.Count.ToString("N0") إجازة</span>
+                                                <span class="hr-barlist-pct hr-num">@leave.Percentage.ToString("F1")%</span>
+                                            </span>
+                                        </div>
+                                        <div class="hr-meter" aria-hidden="true">
+                                            <div class="hr-meter-fill" style="width:@($"{leave.Percentage:F1}%");background:linear-gradient(90deg, var(--series-5), var(--ok));"></div>
+                                        </div>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* ---------------- PANEL 4: VEHICLES & GATE ACCESS ---------------- *@
+        @if (activeTab == "vehicles")
+        {
+            <div id="panel-vehicles" role="tabpanel" aria-labelledby="tab-vehicles" tabindex="0" class="hr-stack-sm">
+                <div class="hr-fd-grid" style="--fd-min:20rem;">
+                    
+                    @* Fleet & Authorization Status *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">حالة تصاريح المركبات</h3>
+                                <p class="hr-meta">مركبات الكادر والمخولة رسمياً بالدخول</p>
+                            </div>
+                            <span class="hr-badge hr-badge-accent">@report.VehiclesStats.TotalVehicles مركبة</span>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-3);margin-block:var(--s-3);">
+                            <div class="hr-fd-tile hr-fd-tile-center">
+                                <span style="font-size:var(--fs-caption);color:var(--ok);font-weight:700;">مخولة بالدخول</span>
+                                <strong class="hr-num" style="display:block;font-size:var(--fs-h2);color:var(--ok);">@report.VehiclesStats.AuthorizedVehicles.ToString("N0")</strong>
+                            </div>
+                            <div class="hr-fd-tile hr-fd-tile-center">
+                                <span style="font-size:var(--fs-caption);color:var(--warn);font-weight:700;">غير مخولة / قيد التدقيق</span>
+                                <strong class="hr-num" style="display:block;font-size:var(--fs-h2);color:var(--warn);">@(report.VehiclesStats.TotalVehicles - report.VehiclesStats.AuthorizedVehicles)</strong>
+                            </div>
+                        </div>
+
+                        <div style="margin-block-start:var(--s-3);">
+                            <a href="/vehicles" class="hr-btn hr-btn-secondary hr-btn-sm" style="width:100%;justify-content:center;">
+                                <Icon Name="truck" Size="xs" />
+                                <span>الانتقال إلى سجل مركبات الموظفين الكامل</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    @* Branch Gate Clearances *@
+                    <div class="hr-card hr-card-pad">
+                        <div class="hr-section-head">
+                            <div>
+                                <h3 class="hr-h3">توزيع تصاريح الدخول للمقرات والفروع</h3>
+                                <p class="hr-meta">عدد المركبات المصرح لها بدخول كل موقع</p>
+                            </div>
+                            <span class="hr-badge">5 مقرات</span>
+                        </div>
+
+                        <ul class="hr-barlist" style="margin-block-start:var(--s-3);">
+                            <li class="hr-barlist-item">
+                                <div class="hr-barlist-head">
+                                    <span class="hr-barlist-name"><Icon Name="building-office-2" Size="xs" /> المبنى الرئيسي</span>
+                                    <span class="hr-barlist-value hr-num">@report.VehiclesStats.MainBuildingAccess مركبة</span>
+                                </div>
+                                <div class="hr-meter">
+                                    <div class="hr-meter-fill" style="width:@($"{Math.Min(100, (report.VehiclesStats.TotalVehicles > 0 ? report.VehiclesStats.MainBuildingAccess * 100.0 / report.VehiclesStats.TotalVehicles : 0)):F0}%");background:var(--accent);"></div>
+                                </div>
+                            </li>
+
+                            <li class="hr-barlist-item">
+                                <div class="hr-barlist-head">
+                                    <span class="hr-barlist-name"><Icon Name="map-pin" Size="xs" /> مقر الجادرية</span>
+                                    <span class="hr-barlist-value hr-num">@report.VehiclesStats.JadriyaAccess مركبة</span>
+                                </div>
+                                <div class="hr-meter">
+                                    <div class="hr-meter-fill" style="width:@($"{Math.Min(100, (report.VehiclesStats.TotalVehicles > 0 ? report.VehiclesStats.JadriyaAccess * 100.0 / report.VehiclesStats.TotalVehicles : 0)):F0}%");background:var(--ok);"></div>
+                                </div>
+                            </li>
+
+                            <li class="hr-barlist-item">
+                                <div class="hr-barlist-head">
+                                    <span class="hr-barlist-name"><Icon Name="map-pin" Size="xs" /> فرع أربيل</span>
+                                    <span class="hr-barlist-value hr-num">@report.VehiclesStats.ErbilAccess مركبة</span>
+                                </div>
+                                <div class="hr-meter">
+                                    <div class="hr-meter-fill" style="width:@($"{Math.Min(100, (report.VehiclesStats.TotalVehicles > 0 ? report.VehiclesStats.ErbilAccess * 100.0 / report.VehiclesStats.TotalVehicles : 0)):F0}%");background:var(--series-4);"></div>
+                                </div>
+                            </li>
+
+                            <li class="hr-barlist-item">
+                                <div class="hr-barlist-head">
+                                    <span class="hr-barlist-name"><Icon Name="map-pin" Size="xs" /> فرع الموصل</span>
+                                    <span class="hr-barlist-value hr-num">@report.VehiclesStats.MosulAccess مركبة</span>
+                                </div>
+                                <div class="hr-meter">
+                                    <div class="hr-meter-fill" style="width:@($"{Math.Min(100, (report.VehiclesStats.TotalVehicles > 0 ? report.VehiclesStats.MosulAccess * 100.0 / report.VehiclesStats.TotalVehicles : 0)):F0}%");background:var(--series-5);"></div>
+                                </div>
+                            </li>
+
+                            <li class="hr-barlist-item">
+                                <div class="hr-barlist-head">
+                                    <span class="hr-barlist-name"><Icon Name="map-pin" Size="xs" /> فرع البصرة</span>
+                                    <span class="hr-barlist-value hr-num">@report.VehiclesStats.BasraAccess مركبة</span>
+                                </div>
+                                <div class="hr-meter">
+                                    <div class="hr-meter-fill" style="width:@($"{Math.Min(100, (report.VehiclesStats.TotalVehicles > 0 ? report.VehiclesStats.BasraAccess * 100.0 / report.VehiclesStats.TotalVehicles : 0)):F0}%");background:var(--series-6);"></div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* ---------------- PANEL 5: DETAILED STAFF ROSTER ---------------- *@
+        @if (activeTab == "roster")
+        {
+            <div id="panel-roster" role="tabpanel" aria-labelledby="tab-roster" tabindex="0" class="hr-stack-sm">
+                <section class="hr-card hr-card-pad">
+                    <div class="hr-toolbar" style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-3);margin-block-end:var(--s-3);">
+                        <div class="hr-toolbar-search" style="flex:1 1 18rem;">
+                            <label class="hr-field-label" for="roster-search">بحث فوري في كادر التشكيل</label>
+                            <div class="hr-search">
+                                <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                                <input id="roster-search"
+                                       type="search"
+                                       class="hr-input"
+                                       placeholder="ابحث بالاسم، الرقم الوظيفي، العنوان، أو الدرجة…"
+                                       @bind="rosterSearchTerm"
+                                       @bind:event="oninput" />
+                            </div>
+                        </div>
+
+                        <div class="hr-chips" style="display:flex;align-items:center;gap:var(--s-1);flex-wrap:wrap;">
+                            <button type="button" class="hr-optionchip @(rosterFilter == "all" ? "is-selected" : "")" aria-pressed="@(rosterFilter == "all" ? "true" : "false")" @onclick='() => rosterFilter = "all"'>
+                                <span>الكل (@report.StaffRoster.Count)</span>
+                            </button>
+                            <button type="button" class="hr-optionchip @(rosterFilter == "males" ? "is-selected" : "")" aria-pressed="@(rosterFilter == "males" ? "true" : "false")" @onclick='() => rosterFilter = "males"'>
+                                <span>ذكور (@report.MaleCount)</span>
+                            </button>
+                            <button type="button" class="hr-optionchip @(rosterFilter == "females" ? "is-selected" : "")" aria-pressed="@(rosterFilter == "females" ? "true" : "false")" @onclick='() => rosterFilter = "females"'>
+                                <span>إناث (@report.FemaleCount)</span>
+                            </button>
+                            <button type="button" class="hr-optionchip @(rosterFilter == "retirement" ? "is-selected" : "")" aria-pressed="@(rosterFilter == "retirement" ? "true" : "false")" @onclick='() => rosterFilter = "retirement"'>
+                                <span>مقترب من التقاعد (@report.ApproachingRetirementCount)</span>
+                            </button>
+                            <button type="button" class="hr-optionchip @(rosterFilter == "vehicles" ? "is-selected" : "")" aria-pressed="@(rosterFilter == "vehicles" ? "true" : "false")" @onclick='() => rosterFilter = "vehicles"'>
+                                <span>يملكون مركبات (@report.StaffRoster.Count(r => r.VehicleCount > 0))</span>
+                            </button>
+                        </div>
+
+                        <div style="margin-inline-start:auto;">
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ExportRosterCsv" title="تصدير كادر التشكيل المصفى كملف CSV">
+                                <Icon Name="arrow-down-tray" Size="xs" />
+                                <span>تصدير كادر التشكيل (CSV)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    @* Roster Table *@
+                    @if (FilteredRoster.Count == 0)
+                    {
+                        <div class="hr-empty">
+                            <span class="hr-empty-art" aria-hidden="true"><Icon Name="users" Size="lg" /></span>
+                            <p class="hr-h3">لا توجد نتائج مطابقة</p>
+                            <p class="hr-sub hr-measure-sm">جرّب تغيير عبارة البحث أو تصنيف التصفية.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="hr-tablewrap">
+                            <table class="hr-table hr-table-wide">
+                                <caption class="hr-sr">قائمة موظفي التشكيل الإداري</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">الموظف</th>
+                                        <th scope="col">العنوان والمستوى</th>
+                                        <th scope="col">الدرجة والمرحلة</th>
+                                        <th scope="col">المؤهل الأكاديمي</th>
+                                        <th scope="col">العمر والخدمة</th>
+                                        <th scope="col">التقدير والعقوبات</th>
+                                        <th scope="col">المركبات</th>
+                                        <th scope="col">رصيد الإجازات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var emp in FilteredRoster.Take(pageSize))
+                                    {
+                                        <tr @key="emp.EmployeeID">
+                                            <td>
+                                                <div class="hr-idcell">
+                                                    <API.HR.Node.Components.Layout.UserAvatar EmployeeId="@emp.EmployeeID"
+                                                                                              UserName="@emp.Name"
+                                                                                              Size="sm" />
+                                                    <div class="hr-idcell-text">
+                                                        <a href="@($"/employees?q={emp.EmployeeID}")" class="hr-cell-strong hr-truncate" style="color:var(--accent);text-decoration:none;">
+                                                            @emp.Name
+                                                        </a>
+                                                        <span class="hr-cell-sub hr-num">رقم: @emp.EmployeeID</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span class="hr-cell-strong hr-truncate">@(emp.JobTitle ?? "—")</span>
+                                                @if (!string.IsNullOrWhiteSpace(emp.PositionTitle))
+                                                {
+                                                    <span class="hr-cell-sub hr-truncate">@emp.PositionTitle</span>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                <div class="hr-chips">
+                                                    <span class="hr-badge">@(emp.GradeName ?? "—")</span>
+                                                    @if (!string.IsNullOrWhiteSpace(emp.StageName))
+                                                    {
+                                                        <span class="hr-badge">@emp.StageName</span>
+                                                    }
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span class="hr-badge hr-badge-accent">@(emp.EducationLevel ?? "غير محدد")</span>
+                                            </td>
+
+                                            <td>
+                                                <div style="display:flex;flex-direction:column;gap:.1rem;">
+                                                    <span class="hr-num">العمر: <strong>@emp.Age</strong> سنة</span>
+                                                    <span class="hr-cell-sub hr-num">الخدمة: @emp.ServiceYears.ToString("F1") سنة</span>
+                                                    @if (emp.ApproachingRetirement)
+                                                    {
+                                                        <span class="hr-badge hr-badge-warn" style="font-size:var(--fs-caption);padding:.1rem .3rem;">مقترب من التقاعد</span>
+                                                    }
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div style="display:flex;gap:.25rem;align-items:center;">
+                                                    <span class="hr-badge hr-badge-ok" title="كتب الشكر">
+                                                        <Icon Name="document-text" Size="xs" />
+                                                        <span class="hr-num">@emp.AppreciationCount</span>
+                                                    </span>
+                                                    @if (emp.PenaltyCount > 0)
+                                                    {
+                                                        <span class="hr-badge hr-badge-danger" title="عقوبات">
+                                                            <Icon Name="exclamation-triangle" Size="xs" />
+                                                            <span class="hr-num">@emp.PenaltyCount</span>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                @if (emp.VehicleCount > 0)
+                                                {
+                                                    <span class="hr-badge @(emp.HasAuthorizedVehicle ? "hr-badge-ok" : "")" title="@(emp.HasAuthorizedVehicle ? "مركبة مخولة" : "مركبة مسجلة")">
+                                                        <Icon Name="truck" Size="xs" />
+                                                        <span class="hr-num">@emp.VehicleCount</span>
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="hr-meta">—</span>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                <span class="hr-num" style="font-weight:700;">@(emp.LeaveBalance?.ToString("N0") ?? "0")</span>
+                                                <span class="hr-cell-sub">يوم</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (FilteredRoster.Count > pageSize)
+                        {
+                            <div style="display:flex;justify-content:center;margin-block-start:var(--s-3);">
+                                <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => pageSize += 50">
+                                    <span>عرض المزيد من الكادر (@pageSize من @FilteredRoster.Count)</span>
+                                </button>
+                            </div>
+                        }
+                    }
+                </section>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isAdminOrGlobal;
+    private bool isLockedFormation;
+    private int? selectedFormationId;
+    private List<FormationOptionDto> availableFormations = [];
+    private FormationKpiReportDto? report;
+
+    private string activeTab = "cadre";
+    private string rosterSearchTerm = string.Empty;
+    private string rosterFilter = "all";
+    private int pageSize = 50;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserAccessAndReportAsync();
+    }
+
+    private async Task LoadUserAccessAndReportAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            var (isGlobal, lockedId, formations) = await KpiService.GetUserFormationAccessAsync(user);
+            isAdminOrGlobal = isGlobal;
+            availableFormations = formations;
+
+            if (lockedId.HasValue)
+            {
+                isLockedFormation = true;
+                selectedFormationId = lockedId.Value;
+            }
+            else if (!isAdminOrGlobal && formations.Count > 0)
+            {
+                selectedFormationId = formations[0].Id;
+                isLockedFormation = true;
+            }
+            else
+            {
+                isLockedFormation = false;
+            }
+
+            await LoadReportAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load formation KPI access.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadReportAsync()
+    {
+        isLoading = true;
+        try
+        {
+            report = await KpiService.GetFormationKpiReportAsync(selectedFormationId);
+            shouldRenderCharts = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to fetch formation KPI report.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private bool shouldRenderCharts;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (shouldRenderCharts && report != null)
+        {
+            shouldRenderCharts = false;
+            await Task.Yield();
+            try
+            {
+                await EnsureChartScriptsAsync();
+                await JSRuntime.InvokeVoidAsync("HrFormationCharts.renderCharts", report);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to render ApexCharts for formation.");
+            }
+        }
+    }
+
+    // ApexCharts is ~940 KB and this is the only page that draws with it, so
+    // it loads here, once, instead of on every page of the app. hrLoadScript
+    // returns the same promise to repeat callers.
+    private async Task EnsureChartScriptsAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("hrLoadScript", Assets["js/apexcharts.min.js"]);
+        await JSRuntime.InvokeVoidAsync("hrLoadScript", Assets["js/hr-formation-charts.js"]);
+    }
+
+    // ApexCharts draws the gauges into empty containers, so each one carries a
+    // spoken summary of its figure; role="img" keeps the drawn SVG silent.
+    private static string GaugeLabel(string title, double percentage) =>
+        $"{title}: {percentage:F1}%";
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("HrFormationCharts.destroyAll");
+        }
+        catch
+        {
+            // Ignore during disposal
+        }
+    }
+
+    private async Task OnFormationSelectionChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(val))
+        {
+            selectedFormationId = null;
+        }
+        else if (int.TryParse(val, out var parsedId))
+        {
+            selectedFormationId = parsedId;
+        }
+
+        pageSize = 50;
+        await LoadReportAsync();
+    }
+
+    private async Task ReloadDataAsync()
+    {
+        await LoadReportAsync();
+    }
+
+    private List<FormationStaffRosterItemDto> FilteredRoster
+    {
+        get
+        {
+            if (report?.StaffRoster == null) return [];
+            var list = report.StaffRoster.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(rosterSearchTerm))
+            {
+                var term = rosterSearchTerm.Trim();
+                list = list.Where(r =>
+                    r.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    r.EmployeeID.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                    (r.JobTitle != null && r.JobTitle.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    (r.GradeName != null && r.GradeName.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                    (r.EducationLevel != null && r.EducationLevel.Contains(term, StringComparison.OrdinalIgnoreCase))
+                );
+            }
+
+            if (rosterFilter == "males")
+            {
+                list = list.Where(r => r.Gender != null && r.Gender.Contains("ذكر"));
+            }
+            else if (rosterFilter == "females")
+            {
+                list = list.Where(r => r.Gender != null && (r.Gender.Contains("أنثى") || r.Gender.Contains("انثى")));
+            }
+            else if (rosterFilter == "retirement")
+            {
+                list = list.Where(r => r.ApproachingRetirement);
+            }
+            else if (rosterFilter == "vehicles")
+            {
+                list = list.Where(r => r.VehicleCount > 0);
+            }
+
+            return list.ToList();
+        }
+    }
+
+    private async Task ExportDashboardCsv()
+    {
+        if (report == null) return;
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append('\uFEFF'); // UTF-8 BOM
+            sb.AppendLine("المؤشر,القيمة");
+            sb.AppendLine($"التشكيل الإداري,{EscapeCsv(report.FormationName)}");
+            sb.AppendLine($"تاريخ التقرير,{report.GeneratedAt:yyyy-MM-dd HH:mm}");
+            sb.AppendLine($"إجمالي الكادر,{report.TotalStaff}");
+            sb.AppendLine($"الموظفون الفعليون,{report.ActiveStaff}");
+            sb.AppendLine($"عدد الذكور,{report.MaleCount} ({report.MalePercentage:F1}%)");
+            sb.AppendLine($"عدد الإناث,{report.FemaleCount} ({report.FemalePercentage:F1}%)");
+            sb.AppendLine($"تعيينات العام الحالي,{report.NewHiresThisYear}");
+            sb.AppendLine($"المحالون على التقاعد قريباً (سن 58+),{report.ApproachingRetirementCount}");
+            sb.AppendLine($"المستحقون للعلاوة أو الترفيع,{report.EligibleForPromotionCount}");
+            sb.AppendLine($"إجمالي كتب الشكر والتقدير,{report.TotalAppreciationLetters}");
+            sb.AppendLine($"إجمالي العقوبات الإدارية,{report.TotalPenalties}");
+            sb.AppendLine($"نسبة السجل النظيف,{report.CleanDisciplinePercentage:F1}%");
+            sb.AppendLine($"رصيد الإجازات الإجمالي (يوم),{report.TotalLeaveBalanceDays}");
+            sb.AppendLine($"متوسط رصيد الإجازات (يوم),{report.AvgLeaveBalanceDays:F1}");
+            sb.AppendLine($"متوسط العمر (سنة),{report.AvgAgeYears:F1}");
+            sb.AppendLine($"متوسط سنوات الخدمة (سنة),{report.AvgServiceYears:F1}");
+            sb.AppendLine($"إجمالي المركبات المسجلة,{report.VehiclesStats.TotalVehicles}");
+            sb.AppendLine($"المركبات المخولة بالدخول,{report.VehiclesStats.AuthorizedVehicles}");
+            sb.AppendLine($"تصاريح المبنى الرئيسي,{report.VehiclesStats.MainBuildingAccess}");
+            sb.AppendLine($"تصاريح الجادرية,{report.VehiclesStats.JadriyaAccess}");
+            sb.AppendLine($"الهوية الرقمية المكتملة,{report.DigitalPhotoCount} ({report.DigitalPhotoPercentage:F1}%)");
+
+            await DownloadCsvString(sb.ToString(), $"Formation_KPI_{report.FormationName}_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export formation KPI summary CSV.");
+        }
+    }
+
+    private async Task ExportRosterCsv()
+    {
+        if (report == null || report.StaffRoster.Count == 0) return;
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append('\uFEFF');
+            sb.AppendLine("الرقم الوظيفي,الاسم,التشكيل,العنوان الوظيفي,المنصب,الدرجة,المرحلة,المؤهل العلمي,النوع,العمر,سنوات الخدمة,تاريخ التعيين,تاريخ آخر عنوان,تاريخ آخر علاوة,كتب الشكر,العقوبات,المركبات,مخولة,رصيد الإجازات");
+
+            foreach (var r in FilteredRoster)
+            {
+                sb.AppendLine($"{EscapeCsv(r.EmployeeID)},{EscapeCsv(r.Name)},{EscapeCsv(r.FormationName)},{EscapeCsv(r.JobTitle)},{EscapeCsv(r.PositionTitle)},{EscapeCsv(r.GradeName)},{EscapeCsv(r.StageName)},{EscapeCsv(r.EducationLevel)},{EscapeCsv(r.Gender)},{r.Age},{r.ServiceYears:F1},{r.HireDate?.ToString("yyyy-MM-dd")},{r.LastJobTitleDate?.ToString("yyyy-MM-dd")},{r.LastAllowanceDate?.ToString("yyyy-MM-dd")},{r.AppreciationCount},{r.PenaltyCount},{r.VehicleCount},{(r.HasAuthorizedVehicle ? "نعم" : "لا")},{r.LeaveBalance}");
+            }
+
+            await DownloadCsvString(sb.ToString(), $"Formation_Roster_{report.FormationName}_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export roster CSV.");
+        }
+    }
+
+    private async Task ExportSectionCsv(List<DistributionItemDto> items, string sectionName)
+    {
+        if (items.Count == 0) return;
+        try
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append('\uFEFF');
+            sb.AppendLine("الفئة,العدد,النسبة المئوية");
+            foreach (var item in items)
+            {
+                sb.AppendLine($"{EscapeCsv(item.Label)},{item.Count},{item.Percentage:F1}%");
+            }
+
+            await DownloadCsvString(sb.ToString(), $"Formation_{sectionName}_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export section CSV.");
+        }
+    }
+
+    private async Task DownloadCsvString(string content, string filename)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        var base64 = Convert.ToBase64String(bytes);
+        var js = $@"
+            (function() {{
+                var a = document.createElement('a');
+                a.href = 'data:text/csv;charset=utf-8;base64,{base64}';
+                a.download = '{filename}';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }})();
+        ";
+        await JSRuntime.InvokeVoidAsync("eval", js);
+    }
+
+    private async Task PrintOrExportReport()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private static string EscapeCsv(string? val)
+    {
+        if (string.IsNullOrEmpty(val)) return "\"\"";
+        if (val.Contains(',') || val.Contains('"') || val.Contains('\n') || val.Contains('\r'))
+        {
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        }
+        return $"\"{val}\"";
+    }
+}

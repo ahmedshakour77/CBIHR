@@ -1,0 +1,42 @@
+@*
+    Identity status banner.
+
+    Identity signals failure by prefixing the message with "Error"; that
+    convention is kept as the source of truth and mapped onto the system's
+    alert roles, with an icon alongside so the state does not rest on
+    colour. role="alert" means it is announced when it appears.
+*@
+
+@if (!string.IsNullOrEmpty(DisplayMessage))
+{
+    <div class="hr-alert @(isError ? "hr-alert-danger" : "hr-alert-ok")" role="alert">
+        <Icon Name="@(isError ? "exclamation-triangle" : "check-circle")" Size="sm" />
+        <div class="hr-alert-grow">
+            <p class="hr-wrap-any">@DisplayMessage</p>
+        </div>
+    </div>
+}
+
+@code {
+    private string? messageFromCookie;
+
+    [Parameter]
+    public string? Message { get; set; }
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    private string? DisplayMessage => Message ?? messageFromCookie;
+
+    private bool isError => DisplayMessage?.StartsWith("Error", StringComparison.OrdinalIgnoreCase) is true;
+
+    protected override void OnInitialized()
+    {
+        messageFromCookie = HttpContext.Request.Cookies[IdentityRedirectManager.StatusCookieName];
+
+        if (messageFromCookie is not null)
+        {
+            HttpContext.Response.Cookies.Delete(IdentityRedirectManager.StatusCookieName);
+        }
+    }
+}

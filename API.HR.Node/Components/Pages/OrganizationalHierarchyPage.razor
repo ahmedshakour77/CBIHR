@@ -1,0 +1,1723 @@
+@page "/org-hierarchy"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,HRManager,FormationManager")]
+@using API.HR.Node.Data.OrganizationalHierarchy
+@using API.HR.Node.Services.OrganizationalHierarchy
+@using API.HR.Node.Services.Localization
+
+@inject IOrganizationalHierarchyService OrgService
+@inject ILanguageService Lang
+@inject IJSRuntime JSRuntime
+@inject ILogger<OrganizationalHierarchyPage> Logger
+
+<PageTitle>@(Lang.IsKurdish ? "پێکهاتەی کارگێڕیی دینامیکی | سیستەمی سەرچاوە مرۆییەکان" : "الهيكلية الإدارية والوظيفية | منظومة الموارد البشرية")</PageTitle>
+
+<div class="hr-stack" style="gap:var(--s-6);">
+
+    @* ==================== 1. PAGE HEADER ==================== *@
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin-block-end:.25rem;">
+                <span class="hr-badge hr-badge-accent">
+                    <Icon Name="squares-2x2" Size="xs" />
+                    <span>@(Lang.IsKurdish ? "مۆدیۆلی سەربەخۆ" : "نظام الهيكل الوظيفي والإداري")</span>
+                </span>
+                <span class="hr-badge hr-badge-ok">الوحدات · المسؤولون · الموظفون</span>
+            </div>
+            <h1 class="hr-h1 hr-balance">@(Lang.IsKurdish ? "پێکهاتەی کارگێڕیی دینامیکی و هێڵکاریی بەستراوەیی" : "الهيكلية الإدارية والوظيفية ومخطط التبعية")</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start:.5rem">
+                @(Lang.IsKurdish
+                    ? "سیستەمی تەواو بۆ دروستکردن و بەڕێوەبردنی پێکهاتەی شێوە-دار، دیاریکردنی بەرپرسانی بەشەکان و بەستنەوەی فەرمانبەران بە یەکە کارگێڕییەکان."
+                    : "بناء وتوثيق شجرة التشكيلات الإدارية المتكاملة، وتعيين مسؤولي الوحدات وربط الموظفين بكوادرهم التخصصية مع سلسلة القيادة والتبعية المباشرة.")
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions" style="display:flex;flex-wrap:wrap;gap:var(--s-2);">
+            <a href="job-hierarchy" class="hr-btn hr-btn-primary">
+                <Icon Name="squares-2x2" Size="sm" />
+                <span>المخطط الشجري التفاعلي (Org Chart) 🌳</span>
+            </a>
+
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenAddModalForRoot">
+                <Icon Name="plus" Size="sm" />
+                <span>@(Lang.IsKurdish ? "زیادکردنی یەکە" : "إضافة تشكيل إداري")</span>
+            </button>
+
+            <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenTypesModal">
+                <Icon Name="tag" Size="sm" />
+                <span>@(Lang.IsKurdish ? "بەڕێوەبردنی جۆرەکان" : "إدارة أنواع الوحدات")</span>
+            </button>
+
+            @if (allUnitsFlat.Count > 0)
+            {
+                <button type="button" class="hr-btn hr-btn-quiet hr-text-danger" @onclick="ConfirmClearAllUnits" title="مسح كافة الوحدات والبدء من جديد">
+                    <Icon Name="trash" Size="sm" />
+                    <span>@(Lang.IsKurdish ? "سڕینەوەی هەموو" : "مسح الشجرة للبدء من جديد")</span>
+                </button>
+            }
+
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="ReloadDataAsync"
+                    title="@(Lang.IsKurdish ? "نوێکردنەوە" : "تحديث")"
+                    aria-label="@(Lang.IsKurdish ? "نوێکردنەوەی داتا" : "تحديث البيانات")">
+                <Icon Name="arrow-path" Size="sm" />
+            </button>
+        </div>
+    </header>
+
+    @* ==================== 2. UNIT TYPES STRIP ==================== *@
+    <div class="hr-card hr-card-quiet" style="padding:var(--s-4);">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);margin-block-end:var(--s-3);">
+            <div style="display:flex;align-items:center;gap:.5rem;">
+                <span class="hr-num" style="font-weight:700;font-size:var(--fs-title);">@(Lang.IsKurdish ? "جۆرە کارگێڕییە پێناسەکراوەکان" : "أنواع الوحدات الإدارية المعتمدة")</span>
+                <span class="hr-badge">@unitTypes.Count @(Lang.IsKurdish ? "جۆر" : "أنواع")</span>
+            </div>
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="OpenAddTypeSubModal">
+                <Icon Name="plus" Size="xs" />
+                <span>@(Lang.IsKurdish ? "زیادکردنی جۆری نوێ" : "إضافة نوع جديد")</span>
+            </button>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:var(--s-2);">
+            @foreach (var type in unitTypes)
+            {
+                var badgeClass = GetTypeBadgeClass(type.Code);
+                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;gap:.5rem;border-radius:var(--r-md);background:var(--surface);">
+                    <span class="@badgeClass" style="font-weight:700;font-size:var(--fs-caption);">
+                        #@type.HierarchyLevel
+                    </span>
+                    <span style="font-weight:700;font-size:var(--fs-control);">
+                        @(Lang.IsKurdish && !string.IsNullOrEmpty(type.NameKu) ? type.NameKu : type.Name)
+                    </span>
+                    <span class="hr-meta" style="font-size:var(--fs-caption);">(@type.Code)</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* ==================== 3. LINEAGE INSPECTOR (BREADCRUMB TO ROOT) ==================== *@
+    @if (selectedLineage != null && selectedLineage.Count > 0)
+    {
+        <section class="hr-card" style="padding:var(--s-5);background:linear-gradient(135deg, var(--surface) 0%, var(--surface-sunken) 100%);border:1px solid color-mix(in srgb, var(--accent) 40%, var(--line));box-shadow:var(--shadow-md);">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:var(--s-3);margin-block-end:var(--s-4);">
+                <div>
+                    <div style="display:flex;align-items:center;gap:.5rem;">
+                        <span class="hr-badge hr-badge-ok">
+                            <Icon Name="check-badge" Size="xs" />
+                            <span>مسار التبعية وصولاً إلى رأس الهرم (Closure Path)</span>
+                        </span>
+                        <span class="hr-meta">العمق: @(selectedLineage.Max(x => x.Depth)) مستويات صعوداً</span>
+                    </div>
+                    <h2 class="hr-h2" style="margin-block-start:.25rem;margin-block-end:0;">
+                        @(Lang.IsKurdish ? "هێڵی فەرمانی سەرکەوتوو بۆ" : "سلسلة التبعية والقيادة الصاعدة لـ"):
+                        <span style="color:var(--accent);">@selectedUnitName</span>
+                    </h2>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ClearLineage">
+                    <Icon Name="x-mark" Size="xs" />
+                    <span>@(Lang.IsKurdish ? "داخستن" : "إغلاق المفتش")</span>
+                </button>
+            </div>
+
+            @* Pipeline Steps Flow *@
+            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-2);padding:var(--s-3);background:var(--surface);border-radius:var(--r-lg);border:1px solid var(--line);">
+                @for (var i = 0; i < selectedLineage.Count; i++)
+                {
+                    var step = selectedLineage[i];
+                    var isTarget = i == selectedLineage.Count - 1;
+                    var badgeTone = GetTypeBadgeClassByLevel(step.HierarchyLevel);
+
+                    <div style="display:flex;align-items:center;gap:.375rem;padding:var(--s-2) var(--s-3);border-radius:var(--r);background:@(isTarget ? "var(--accent-tint)" : "var(--surface-sunken)");border:1px solid @(isTarget ? "var(--accent)" : "var(--line)");">
+                        <span class="@badgeTone" style="font-size:var(--fs-caption);font-weight:700;">@step.TypeName</span>
+                        <strong style="font-size:var(--fs-control);color:@(isTarget ? "var(--accent-ink)" : "var(--text)");">
+                            @(Lang.IsKurdish && !string.IsNullOrEmpty(step.UnitNameKu) ? step.UnitNameKu : step.UnitName)
+                        </strong>
+                        <span class="hr-meta" style="font-size:var(--fs-caption);">(مستوى @step.HierarchyLevel)</span>
+                    </div>
+
+                    @if (i < selectedLineage.Count - 1)
+                    {
+                        <span style="color:var(--text-3);display:flex;align-items:center;" aria-hidden="true">
+                            <Icon Name="chevron-left" Size="xs" />
+                        </span>
+                    }
+                }
+            </div>
+        </section>
+    }
+
+    @* ==================== 4. HIERARCHY TREE VIEW ==================== *@
+    <section class="hr-card">
+        <div class="hr-card-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--s-3);">
+            <div>
+                <h2 class="hr-h2">@(Lang.IsKurdish ? "دارەدارێژەی پێکهاتەی کارگێڕی" : "شجرة الهيكلية الإدارية والوظيفية")</h2>
+                <p class="hr-meta">@(Lang.IsKurdish ? "پیشاندانی یەکە کارگێڕییەکان، بەرپرسان و فەرمانبەرانی سەر بە هەر یەکەیەکی کارگێڕی" : "استعراض شامل للتشكيلات الإدارية، المسؤولين المكلفين، وكوادر الموظفين التابعين لكل تشكيل")</p>
+            </div>
+            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-2);">
+                @* View Mode Selector *@
+                <div style="display:flex;align-items:center;gap:2px;background:var(--surface-sunken);padding:3px;border-radius:var(--r-md);border:1px solid var(--line);">
+                    <button type="button" 
+                            class="hr-btn hr-btn-xs @(treeViewMode == "tree" ? "hr-btn-primary" : "hr-btn-quiet")" 
+                            style="border-radius:var(--r-sm);font-weight:600;" 
+                            @onclick='() => treeViewMode = "tree"'>
+                        <Icon Name="bars-3-bottom-left" Size="xs" />
+                        <span>قائمة الشجرة</span>
+                    </button>
+                    <button type="button" 
+                            class="hr-btn hr-btn-xs @(treeViewMode == "chart" ? "hr-btn-primary" : "hr-btn-quiet")" 
+                            style="border-radius:var(--r-sm);font-weight:600;" 
+                            @onclick='() => treeViewMode = "chart"'>
+                        <Icon Name="squares-2x2" Size="xs" />
+                        <span>المخطط التفاعلي 🌳</span>
+                    </button>
+                </div>
+
+                @if (treeViewMode == "chart")
+                {
+                    <div style="display:flex;align-items:center;gap:2px;">
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="ChartZoomOut" title="تصغير">
+                            <Icon Name="minus" Size="xs" />
+                        </button>
+                        <span class="hr-meta hr-num" style="min-width:36px;text-align:center;font-size:var(--fs-caption);">@((int)(chartZoomLevel * 100))%</span>
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="ChartZoomIn" title="تكبير">
+                            <Icon Name="plus" Size="xs" />
+                        </button>
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick="ChartResetZoom" title="100%">
+                            <span>100%</span>
+                        </button>
+                    </div>
+                }
+
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ExpandAll">
+                    <Icon Name="chevron-down" Size="xs" />
+                    <span>توسيع</span>
+                </button>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CollapseAll">
+                    <Icon Name="chevron-up" Size="xs" />
+                    <span>طي</span>
+                </button>
+                @if (treeViewMode == "tree")
+                {
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ExpandAllStaff">
+                        <Icon Name="users" Size="xs" />
+                        <span>إظهار الكوادر</span>
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CollapseAllStaff">
+                        <Icon Name="eye-slash" Size="xs" />
+                        <span>إخفاء الكوادر</span>
+                    </button>
+                }
+                <span class="hr-meta">إجمالي التشكيلات: <strong class="hr-num">@allUnitsFlat.Count</strong></span>
+            </div>
+        </div>
+
+        <div class="hr-card-body" style="padding:var(--s-4);">
+            @if (isLoading)
+            {
+                <div class="hr-skeleton" style="height:15rem;border-radius:var(--r-lg);"></div>
+            }
+            else if (treeRoots.Count == 0)
+            {
+                <div class="hr-empty" style="padding:var(--s-8) var(--s-4);text-align:center;">
+                    <span class="hr-empty-art"><Icon Name="squares-2x2" Size="lg" /></span>
+                    <p class="hr-h3" style="margin-block:.5rem;">الهيكلية الإدارية فارغة حالياً</p>
+                    <p class="hr-meta" style="max-width:30rem;margin-inline:auto;margin-block-end:var(--s-4);">
+                        ابدأ ببناء هيكلية مؤسستك بإضافة التشكيل الأول ليمثل رأس الهرم الإداري (مثل: المحافظ / ديوان المحافظة / رئاسة الهيئة).
+                    </p>
+                    <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenAddModalForRoot">
+                        <Icon Name="plus" Size="sm" />
+                        <span>إضافة رأس الهرم الإداري الآن</span>
+                    </button>
+                </div>
+            }
+            else
+            {
+                @if (treeViewMode == "chart")
+                {
+                    <div class="hr-orgchart-viewport" 
+                         style="overflow:auto;background:radial-gradient(circle, var(--line-soft) 1px, transparent 1px);background-size:24px 24px;border:1px solid var(--line);border-radius:var(--r-lg);padding:var(--s-6);min-height:550px;position:relative;">
+                        <div class="hr-orgchart-canvas" 
+                             style="transform: scale(@chartZoomLevel); transform-origin: top center; transition: transform var(--t-state) var(--ease); display:flex; flex-direction:column; align-items:center; width:max-content; margin-inline:auto; padding-block-end:var(--s-8);">
+                            @if (treeRoots.Count == 1)
+                            {
+                                @RenderOrgChartNode(treeRoots[0])
+                            }
+                            else
+                            {
+                                <div style="display:flex; gap:var(--s-6); align-items:flex-start;">
+                                    @foreach (var root in treeRoots)
+                                    {
+                                        @RenderOrgChartNode(root)
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="hr-tree-container" style="display:flex;flex-direction:column;gap:var(--s-3);">
+                        @foreach (var root in treeRoots)
+                        {
+                            @RenderTreeNode(root, 0)
+                        }
+                    </div>
+                }
+            }
+        </div>
+    </section>
+
+</div>
+
+@* ==================== RENDER TREE NODE RECURSIVE ==================== *@
+@code {
+    private string treeViewMode = "tree"; // "tree", "chart"
+    private double chartZoomLevel = 0.95;
+    private HashSet<int> collapsedNodeIds = new();
+    private HashSet<int> expandedStaffNodeIds = new();
+
+    private void ChartZoomIn()
+    {
+        if (chartZoomLevel < 1.6)
+            chartZoomLevel = Math.Round(chartZoomLevel + 0.1, 2);
+    }
+
+    private void ChartZoomOut()
+    {
+        if (chartZoomLevel > 0.4)
+            chartZoomLevel = Math.Round(chartZoomLevel - 0.1, 2);
+    }
+
+    private void ChartResetZoom()
+    {
+        chartZoomLevel = 0.95;
+    }
+
+    private RenderFragment RenderOrgChartNode(HierarchyTreeNodeDto node) => __builder =>
+    {
+        var isCollapsed = collapsedNodeIds.Contains(node.Id);
+        var hasChildren = node.Children.Count > 0;
+        var hasManager = !string.IsNullOrWhiteSpace(node.ManagerEmployeeId) || !string.IsNullOrWhiteSpace(node.ManagerTitle);
+
+        var toneColor = node.TypeCode?.ToUpperInvariant() switch
+        {
+            "GOV" => "var(--series-4)",
+            "DEPT" => "var(--series-2)",
+            "DIR" => "var(--series-2)",
+            "DIV" => "var(--series-1)",
+            "SEC" => "var(--series-3)",
+            "UNIT" => "var(--series-4)",
+            "OFF" => "var(--series-5)",
+            "BRN" => "var(--series-1)",
+            _ => "var(--series-1)"
+        };
+
+        <div class="hr-org-node-container" style="display:flex; flex-direction:column; align-items:center; position:relative; margin: 0 10px;">
+            <div class="hr-org-card hr-card" 
+                 style="width: 280px; background:var(--surface); border-radius:var(--r-lg); overflow:hidden; border: 2px solid @toneColor; box-shadow:var(--shadow-md); transition: background-color var(--t-move) var(--ease), border-color var(--t-move) var(--ease), color var(--t-move) var(--ease), box-shadow var(--t-move) var(--ease), transform var(--t-move) var(--ease);">
+                
+                @* Node Card Header *@
+                <div style="padding: 10px 14px; background: @toneColor; color:var(--series-on); display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                    <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                        <span style="font-size:var(--fs-caption); font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                            @(Lang.IsKurdish && !string.IsNullOrEmpty(node.TypeNameKu) ? node.TypeNameKu : node.TypeName)
+                        </span>
+                        @if (!string.IsNullOrEmpty(node.Code))
+                        {
+                            <span class="hr-num" style="font-size:var(--fs-caption); background:color-mix(in srgb, var(--b-1000) 22%, transparent); padding:1px 5px; border-radius:var(--r-xs); opacity:0.95;">
+                                @node.Code
+                            </span>
+                        }
+                    </div>
+                    <span class="hr-num" style="font-size:var(--fs-caption); background:color-mix(in srgb, var(--series-on) 28%, transparent); padding:2px 8px; border-radius:var(--r-md); font-weight:bold; white-space:nowrap;">
+                        #@node.HierarchyLevel · @node.EmployeesCount موظف
+                    </span>
+                </div>
+
+                @* Node Card Body *@
+                <div style="padding: 12px 14px; display:flex; flex-direction:column; gap:8px;">
+                    @* Unit Title *@
+                    <strong style="font-size:var(--fs-body); color:var(--text); line-height:1.35; display:block; min-height:38px; font-weight:800;">
+                        @(Lang.IsKurdish && !string.IsNullOrEmpty(node.NameKu) ? node.NameKu : node.Name)
+                    </strong>
+
+                    @* Leader / Manager Profile Spotlight *@
+                    <div style="background:var(--surface-sunken); border:1px solid var(--line); border-radius:var(--r-md); padding:8px 10px; display:flex; align-items:center; gap:10px;">
+                        @if (hasManager)
+                        {
+                            <UserAvatar EmployeeId="@node.ManagerEmployeeId" UserName="@node.ManagerName" Size="lg" Style="border: 2px solid var(--accent); box-shadow: var(--shadow-xs); flex-shrink:0;" />
+                            <div style="flex:1; min-width:0;">
+                                <strong style="font-size:var(--fs-control); color:var(--accent-ink); font-weight:700; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="@(node.ManagerName ?? node.ManagerEmployeeId)">
+                                    @(node.ManagerName ?? node.ManagerEmployeeId)
+                                </strong>
+                                @if (!string.IsNullOrEmpty(node.ManagerEmployeeId))
+                                {
+                                    <div style="display:flex; align-items:center; gap:4px; margin-block-start:2px;">
+                                        <span class="hr-badge hr-num" style="font-size:var(--fs-caption); padding:1px 6px;">
+                                            الرقم: @node.ManagerEmployeeId
+                                        </span>
+                                    </div>
+                                }
+                                <span class="hr-meta" style="font-size:var(--fs-caption); display:block; margin-block-start:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                    @(node.ManagerTitle ?? "مسؤول الوحدة")
+                                </span>
+                            </div>
+                        }
+                        else
+                        {
+                            <UserAvatar EmployeeId="" UserName="شاغر" Size="lg" Style="border: 2px dashed var(--line); opacity: 0.65; flex-shrink:0;" />
+                            <div style="flex:1; min-width:0;">
+                                <span style="font-size:var(--fs-label); color:var(--text-3); font-weight:600; display:block;">
+                                    منصب شاغر / قيد التكليف
+                                </span>
+                                <span class="hr-meta" style="font-size:var(--fs-caption); display:block; margin-block-start:2px;">
+                                    @(node.ManagerTitle ?? "لم يتم تعيين مسؤول")
+                                </span>
+                            </div>
+                        }
+                    </div>
+
+                    @* Bottom Stats & Actions *@
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-block-start:4px; padding-block-start:6px; border-block-start:1px solid var(--line-soft);flex-wrap:wrap;gap:var(--s-2);">
+                        <button type="button" class="hr-badge @(node.EmployeesCount > 0 ? "hr-badge-accent" : "") hr-num" style="font-size:var(--fs-caption); cursor:pointer; border:none;" @onclick="() => ToggleStaffView(node.Id)" title="عرض الكادر">
+                            👥 @node.EmployeesCount موظف
+                        </button>
+
+                        <div style="display:flex; align-items:center; gap:4px;">
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="padding:2px 5px;font-size:var(--fs-caption);" @onclick="() => InspectLineageAsync(node.Id, node.Name)" title="فحص مسار القيادة">
+                                <Icon Name="magnifying-glass" Size="xs" />
+                            </button>
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="padding:2px 5px;font-size:var(--fs-caption);" @onclick="() => OpenEditModal(node.Id)" title="تعديل">
+                                <Icon Name="pencil" Size="xs" />
+                            </button>
+                            @if (hasChildren)
+                            {
+                                <button type="button" 
+                                        class="hr-btn hr-btn-quiet hr-btn-xs" 
+                                        style="padding:2px 8px; font-size:var(--fs-caption); height:24px; border:1px solid var(--line-soft); border-radius:var(--r-full);" 
+                                        @onclick="() => ToggleNodeCollapse(node.Id)">
+                                    <Icon Name="@(isCollapsed ? "plus" : "minus")" Size="xs" />
+                                    <span>@(isCollapsed ? $"({node.Children.Count})" : "طي")</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* CHILDREN & CONNECTING BRANCHES *@
+            @if (hasChildren && !isCollapsed)
+            {
+                <div style="width:2px; height:24px; background:var(--line);"></div>
+                <div class="hr-org-children" style="display:flex; position:relative; padding-block-start:20px;">
+                    <div style="position:absolute; top:0; left: calc(50% / @node.Children.Count); right: calc(50% / @node.Children.Count); height:2px; background:var(--line);"></div>
+
+                    @foreach (var child in node.Children)
+                    {
+                        <div style="display:flex; flex-direction:column; align-items:center; position:relative;">
+                            <div style="position:absolute; top:-20px; width:2px; height:20px; background:var(--line);"></div>
+                            @RenderOrgChartNode(child)
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private void ToggleNodeCollapse(int nodeId)
+    {
+        if (collapsedNodeIds.Contains(nodeId))
+            collapsedNodeIds.Remove(nodeId);
+        else
+            collapsedNodeIds.Add(nodeId);
+    }
+
+    private void ToggleStaffView(int nodeId)
+    {
+        if (expandedStaffNodeIds.Contains(nodeId))
+            expandedStaffNodeIds.Remove(nodeId);
+        else
+            expandedStaffNodeIds.Add(nodeId);
+    }
+
+    private void ExpandAll() => collapsedNodeIds.Clear();
+
+    private void CollapseAll()
+    {
+        collapsedNodeIds = allUnitsFlat.Select(u => u.Id).ToHashSet();
+    }
+
+    private void ExpandAllStaff()
+    {
+        expandedStaffNodeIds = allUnitsFlat.Select(u => u.Id).ToHashSet();
+    }
+
+    private void CollapseAllStaff()
+    {
+        expandedStaffNodeIds.Clear();
+    }
+
+    private RenderFragment RenderTreeNode(HierarchyTreeNodeDto node, int depth) => __builder =>
+    {
+        var badgeClass = GetTypeBadgeClass(node.TypeCode);
+
+        var hasChildren = node.Children.Count > 0;
+        var isCollapsed = collapsedNodeIds.Contains(node.Id);
+        var isStaffExpanded = expandedStaffNodeIds.Contains(node.Id);
+        var hasManager = !string.IsNullOrWhiteSpace(node.ManagerEmployeeId) || !string.IsNullOrWhiteSpace(node.ManagerTitle);
+
+        <div class="hr-tree-item" style="--depth:@depth;margin-block-end:.75rem;">
+            <div class="hr-card" style="padding:var(--s-3) var(--s-4);border:1px solid color-mix(in srgb, var(--accent) 40%, var(--line));background:var(--surface);border-radius:var(--r-md);box-shadow:var(--shadow-sm);transition: background-color var(--t-state) var(--ease), border-color var(--t-state) var(--ease), color var(--t-state) var(--ease), box-shadow var(--t-state) var(--ease), transform var(--t-state) var(--ease);">
+                
+                @* Main Row: Info, Manager, Counters & Actions *@
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);">
+                    
+                    @* 1. Unit Info & Hierarchy Expander *@
+                    <div style="display:flex;align-items:center;gap:var(--s-3);flex:1 1 17rem;min-width:0;">
+                        @if (hasChildren)
+                        {
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="() => ToggleNodeCollapse(node.Id)" title="@(isCollapsed ? "توسيع الفروع" : "طي الفروع")" aria-label="@(isCollapsed ? "توسيع الفروع" : "طي الفروع")" style="width:1.75rem;height:1.75rem;">
+                                <Icon Name="@(isCollapsed ? "chevron-left" : "chevron-down")" Size="xs" />
+                            </button>
+                        }
+                        else
+                        {
+                            <span style="display:inline-block;width:1.75rem;"></span>
+                        }
+
+                        <span class="@badgeClass hr-num" style="font-size:var(--fs-caption);font-weight:700;">@node.TypeName</span>
+
+                        <div>
+                            <div style="display:flex;align-items:baseline;gap:.5rem;">
+                                <strong style="font-size:var(--fs-h3);color:var(--text);font-weight:700;">
+                                    @(Lang.IsKurdish && !string.IsNullOrEmpty(node.NameKu) ? node.NameKu : node.Name)
+                                </strong>
+                                <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">[@node.Code]</span>
+                            </div>
+
+                            @* Level badge *@
+                            <div style="font-size:var(--fs-caption);color:var(--text-3);margin-block-start:2px;">
+                                <span>المستوى الإداري @node.HierarchyLevel</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    @* 2. Designated Unit Manager (مسؤول الوحدة) *@
+                    <div style="display:flex;align-items:center;gap:.5rem;">
+                        @if (hasManager)
+                        {
+                            <div class="hr-card" style="padding:.375rem .75rem;display:flex;align-items:center;gap:.5rem;background:linear-gradient(135deg, var(--surface-sunken) 0%, var(--surface) 100%);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-xs);">
+                                <UserAvatar EmployeeId="@node.ManagerEmployeeId" UserName="@node.ManagerName" Size="md" Style="flex-shrink:0;border:1.5px solid var(--accent);box-shadow:var(--shadow-xs);" />
+                                <div>
+                                    <div style="font-size:var(--fs-caption);color:var(--text-3);font-weight:700;">
+                                        @(node.ManagerTitle ?? "مسؤول التشكيل")
+                                    </div>
+                                    <div style="display:flex;align-items:baseline;gap:.375rem;">
+                                        <strong style="font-size:var(--fs-control);color:var(--accent-ink);">
+                                            @(node.ManagerName ?? node.ManagerEmployeeId)
+                                        </strong>
+                                        @if (!string.IsNullOrEmpty(node.ManagerEmployeeId))
+                                        {
+                                            <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">(@node.ManagerEmployeeId)</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" style="font-size:var(--fs-caption);color:var(--text-3);border:1px dashed var(--line);display:flex;align-items:center;gap:.375rem;" @onclick="() => OpenEditModal(node.Id)" title="انقر لتعيين مسؤول لهذا التشكيل">
+                                <UserAvatar EmployeeId="" UserName="شاغر" Size="xs" Style="opacity:0.6;" />
+                                <span>بدون مسؤول محدد</span>
+                            </button>
+                        }
+                    </div>
+
+                    @* 3. Staff Counter & Toggle (كادر الوحدة) *@
+                    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-2);">
+                        <button type="button" class="hr-btn @(isStaffExpanded ? "hr-btn-secondary" : "hr-btn-quiet") hr-btn-sm" @onclick="() => ToggleStaffView(node.Id)" title="@(isStaffExpanded ? "إخفاء كادر الموظفين" : "عرض كادر الموظفين")" style="gap:.375rem;">
+                            <Icon Name="users" Size="xs" />
+                            <span>كادر الموظفين</span>
+                            <span class="hr-badge @(node.EmployeesCount > 0 ? "hr-badge-accent" : "")" style="font-size:var(--fs-caption);">@node.EmployeesCount</span>
+                            <Icon Name="@(isStaffExpanded ? "chevron-up" : "chevron-down")" Size="xs" />
+                        </button>
+
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-btn-icon" @onclick="() => OpenStaffAssignModal(node.Id, node.Name)" title="إدارة وإلحاق موظفين بهذا التشكيل" aria-label="إدارة وإلحاق موظفين بهذا التشكيل">
+                            <Icon Name="user-plus" Size="xs" />
+                        </button>
+
+                        @if (node.Children.Count > 0)
+                        {
+                            <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);" title="الفروع التابعة مباشرة">
+                                @node.Children.Count فروع
+                            </span>
+                        }
+                    </div>
+
+                    @* 4. Actions (إجراءات التشكيل) *@
+                    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--s-2);">
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="() => OpenAddModalForParent(node.Id)" title="إضافة تشكيل تابع مباشرة لهذه الوحدة">
+                            <Icon Name="plus" Size="xs" />
+                            <span>إضافة فرع</span>
+                        </button>
+
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => InspectLineageAsync(node.Id, node.Name)" title="فحص مسار التبعية وصولاً لرأس الهرم">
+                            <Icon Name="arrow-up" Size="xs" />
+                            <span>التبعية</span>
+                        </button>
+
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="() => OpenEditModal(node.Id)" title="تعديل بيانات التشكيل الإداري والمسؤول" aria-label="تعديل بيانات التشكيل الإداري والمسؤول">
+                            <Icon Name="pencil" Size="xs" />
+                        </button>
+
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="() => PromptDeleteUnit(node.Id, node.Name, node.Children.Count)" title="حذف التشكيل" aria-label="حذف التشكيل">
+                            <Icon Name="trash" Size="xs" />
+                        </button>
+                    </div>
+                </div>
+
+                @* Staff Roster Accordion Panel *@
+                @if (isStaffExpanded)
+                {
+                    <div class="hr-card" style="margin-block-start:var(--s-3);padding:var(--s-3) var(--s-4);background:var(--surface-sunken);border:1px solid var(--line);border-radius:var(--r-md);animation:fadeIn .2s ease-in-out;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-block-end:var(--s-3);flex-wrap:wrap;gap:var(--s-2);">
+                            <div style="display:flex;align-items:center;gap:.5rem;">
+                                <span class="hr-iconplate hr-plate-accent" style="width:1.75rem;height:1.75rem;border-radius:var(--r-full);">
+                                    <Icon Name="users" Size="xs" />
+                                </span>
+                                <strong style="font-size:var(--fs-control);color:var(--text);">كادر التشكيل الإداري: @node.Name</strong>
+                                <span class="hr-meta">(@node.EmployeesCount موظف مسجل)</span>
+                            </div>
+
+                            <button type="button" class="hr-btn hr-btn-primary hr-btn-xs" @onclick="() => OpenStaffAssignModal(node.Id, node.Name)">
+                                <Icon Name="plus" Size="xs" />
+                                <span>إلحاق موظف بهذا التشكيل</span>
+                            </button>
+                        </div>
+
+                        @if (node.Employees.Count == 0)
+                        {
+                            <div style="text-align:center;padding:var(--s-3);color:var(--text-3);font-size:var(--fs-label);">
+                                <p style="margin:0 0 .5rem 0;">لم يتم ربط أي موظف بهذا التشكيل الإداري بعد.</p>
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="() => OpenStaffAssignModal(node.Id, node.Name)">
+                                    <Icon Name="user-plus" Size="xs" />
+                                    <span>إلحاق موظف الآن</span>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(min(17rem, 100%), 1fr));gap:var(--s-2);">
+                                @foreach (var emp in node.Employees)
+                                {
+                                    <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);background:var(--surface);border-radius:var(--r);border:1px solid var(--line);">
+                                        <div style="display:flex;align-items:center;gap:.5rem;min-width:0;">
+                                            <UserAvatar EmployeeId="@emp.EmployeeID" UserName="@emp.Name" Size="sm" />
+                                            <div style="min-width:0;">
+                                                <div style="display:flex;align-items:center;gap:.25rem;">
+                                                    <a href="employees/@emp.EmployeeID" style="font-weight:700;font-size:var(--fs-label);text-decoration:none;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="عرض ملف الموظف">
+                                                        @emp.Name
+                                                    </a>
+                                                    @if (emp.IsManager)
+                                                    {
+                                                        <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);padding:0 .25rem;" title="المسؤول المعتمد لهذا التشكيل">مسؤول</span>
+                                                    }
+                                                </div>
+                                                <div class="hr-meta" style="font-size:var(--fs-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                                    @(emp.JobTitle ?? "موظف") · <span class="hr-num">@emp.EmployeeID</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-xs" style="color:var(--danger);flex-shrink:0;" @onclick="() => RemoveEmployeeFromUnit(emp.EmployeeID, node.Id)" title="إلغاء ربط الموظف من هذا التشكيل" aria-label="إلغاء ربط الموظف من هذا التشكيل">
+                                            <Icon Name="x-mark" Size="xs" />
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+            </div>
+
+            @* Recursive Children (if not collapsed) *@
+            @if (hasChildren && !isCollapsed)
+            {
+                <div style="margin-block-start:.5rem;display:flex;flex-direction:column;gap:.5rem;">
+                    @foreach (var child in node.Children)
+                    {
+                        @RenderTreeNode(child, depth + 1)
+                    }
+                </div>
+            }
+        </div>
+    };
+}
+
+@* ==================== 5. ADD / EDIT UNIT MODAL ==================== *@
+@if (isModalOpen)
+{
+    <div class="hr-modal-scrim" @onclick="CloseModal">
+        <div class="hr-modal" role="dialog" aria-modal="true" aria-labelledby="org-md-unit-title" tabindex="-1" @onkeydown="e => OnOverlayKey(e, CloseModal)" style="max-width:40rem;" @onclick:stopPropagation="true">
+            <div class="hr-modal-head">
+                <div>
+                    <h2 id="org-md-unit-title" class="hr-h2">@(isEditMode ? $"تعديل بيانات التشكيل: {formName}" : "إضافة تشكيل إداري جديد")</h2>
+                    <p class="hr-meta">تحديد المسمى، الرمز، التصنيف، التبعية الهرمية وتكليف المسؤول الإداري</p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" aria-label="إغلاق" title="إغلاق" @onclick="CloseModal">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body" style="padding:var(--s-5);">
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="hr-alert hr-alert-danger" role="alert" style="margin-block-end:var(--s-4);">
+                        <Icon Name="exclamation-circle" Size="sm" />
+                        <span>@errorMessage</span>
+                    </div>
+                }
+
+                <div class="hr-stack-sm">
+                    @* Name (Arabic) *@
+                    <div class="hr-field">
+                        <label for="organizationalhierarchypage-f1" class="hr-label">اسم التشكيل الإداري (بالعربية) <span style="color:var(--danger)">*</span></label>
+                        <input id="organizationalhierarchypage-f1" type="text" class="hr-input" @bind="formName" placeholder="مثال: قسم الموارد البشرية / شعبة الرواتب" required />
+                    </div>
+
+                    @* Name (Kurdish) *@
+                    <div class="hr-field">
+                        <label for="organizationalhierarchypage-f2" class="hr-label">ناوی پێکهاتەی کارگێڕی (بە کوردی - ئارەزوومەندانە)</label>
+                        <input id="organizationalhierarchypage-f2" type="text" class="hr-input" @bind="formNameKu" placeholder="نموونە: بەشی سەرچاوە مرۆییەکان" />
+                    </div>
+
+                    <div class="hr-form-cols" style="gap:var(--s-3);">
+                        @* Code *@
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f3" class="hr-label">رمز التشكيل (Code) <span style="color:var(--danger)">*</span></label>
+                            <input id="organizationalhierarchypage-f3" type="text" class="hr-input" @bind="formCode" placeholder="مثال: DIV-HR-01" required />
+                        </div>
+
+                        @* Unit Type *@
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f4" class="hr-label">نوع الوحدة الإدارية <span style="color:var(--danger)">*</span></label>
+                            <select id="organizationalhierarchypage-f4" class="hr-input" @bind="formUnitTypeId">
+                                @foreach (var t in unitTypes)
+                                {
+                                    <option value="@t.Id">@t.Name (@t.Code) - مستوى @t.HierarchyLevel</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @* Parent Unit *@
+                    <div class="hr-field">
+                        <label for="organizationalhierarchypage-f5" class="hr-label">الوحدة الإدارية الأعلى (التبعية المباشرة في الشجرة)</label>
+                        <select id="organizationalhierarchypage-f5" aria-describedby="organizationalhierarchypage-f5-h" class="hr-input" @bind="formParentUnitId">
+                            <option value="">بدون (رأس الهرم الإداري / Root)</option>
+                            @foreach (var u in allUnitsFlat.Where(u => !isEditMode || u.Id != currentEditingId))
+                            {
+                                <option value="@u.Id">@u.Name [@u.Code] - (@(u.UnitType?.Name ?? "غير محدد"))</option>
+                            }
+                        </select>
+                        <span id="organizationalhierarchypage-f5-h" class="hr-meta">إذا تم اختياره، ستتفرع هذه الوحدة مباشرة كابن تحت الوحدة المختارة</span>
+                    </div>
+
+                    @* ==================== INTERACTIVE MANAGER DESIGNATION ==================== *@
+                    <div class="hr-card hr-card-quiet" style="padding:var(--s-3);border:1px solid var(--line);border-radius:var(--r-md);margin-block:var(--s-2);">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:.5rem;flex-wrap:wrap;gap:var(--s-2);">
+                            <label class="hr-label" style="font-weight:700;display:flex;align-items:center;gap:.375rem;margin:0;">
+                                <Icon Name="user-circle" Size="xs" />
+                                <span>مسؤول / مدير التشكيل الإداري</span>
+                            </label>
+                            <span class="hr-meta" style="font-size:var(--fs-caption);">تحديد الموظف القيادي والمسمى الإشرافي</span>
+                        </div>
+
+                        <div class="hr-form-cols" style="--cols:minmax(0,1.2fr) minmax(0,1fr);gap:var(--s-3);">
+                            <div class="hr-field">
+                                <label class="hr-label" style="font-size:var(--fs-label);">الموظف المكلف بالمسؤولية</label>
+                                @if (!string.IsNullOrEmpty(formManagerEmployeeId))
+                                {
+                                    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.375rem .625rem;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);">
+                                        <div style="min-width:0;">
+                                            <strong style="font-size:var(--fs-control);color:var(--accent);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                                @(formManagerEmployeeName ?? formManagerEmployeeId)
+                                            </strong>
+                                            <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">@formManagerEmployeeId</span>
+                                        </div>
+                                        <div style="display:flex;gap:.25rem;flex-shrink:0;">
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-xs" @onclick="OpenManagerPickerModal">تغيير</button>
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs hr-text-danger" @onclick="ClearSelectedManager">إلغاء</button>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" style="width:100%;justify-content:center;" @onclick="OpenManagerPickerModal">
+                                        <Icon Name="user-plus" Size="xs" />
+                                        <span>اختيار مسؤول من سجل الموظفين</span>
+                                    </button>
+                                }
+                            </div>
+
+                            <div class="hr-field">
+                                <label for="organizationalhierarchypage-f6" class="hr-label" style="font-size:var(--fs-label);">المسمى الوظيفي الإشرافي للمسؤول</label>
+                                <input id="organizationalhierarchypage-f6" type="text" class="hr-input" @bind="formManagerTitle" placeholder="مثال: مدير القسم، مسؤول الشعبة" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hr-form-cols" style="gap:var(--s-3);">
+                        @* Order Index *@
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f7" class="hr-label">الترتيب بين التشكيلات الشقيقة</label>
+                            <input id="organizationalhierarchypage-f7" type="number" class="hr-input" @bind="formOrderIndex" min="0" />
+                        </div>
+
+                        @* IsActive State *@
+                        <div class="hr-field" style="display:flex;align-items:flex-end;">
+                            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;padding-block-end:.625rem;">
+                                <input type="checkbox" @bind="formIsActive" style="width:1.125rem;height:1.125rem;accent-color:var(--accent);" />
+                                <span style="font-weight:700;font-size:var(--fs-control);">التشكيل نشط ومفعّل</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    @* Notes *@
+                    <div class="hr-field">
+                        <label for="organizationalhierarchypage-f8" class="hr-label">ملاحظات إضافية</label>
+                        <textarea id="organizationalhierarchypage-f8" class="hr-input" rows="2" @bind="formNotes" placeholder="أي تفاصيل تنظيمية أو اختصاصية..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModal">إلغاء</button>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUnitAsync" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span>جارٍ الحفظ...</span>
+                    }
+                    else
+                    {
+                        <Icon Name="check" Size="xs" />
+                        <span>@(isEditMode ? "حفظ التعديلات" : "إضافة التشكيل")</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== 6. MANAGER PICKER MODAL ==================== *@
+@if (isManagerPickerOpen)
+{
+    <div class="hr-modal-scrim" @onclick="CloseManagerPickerModal" style="z-index:var(--z-modal-stacked);">
+        <div class="hr-modal" role="dialog" aria-modal="true" aria-labelledby="org-md-manager-title" tabindex="-1" @onkeydown="e => OnOverlayKey(e, CloseManagerPickerModal)" style="max-width:34rem;" @onclick:stopPropagation="true">
+            <div class="hr-modal-head">
+                <div>
+                    <h2 id="org-md-manager-title" class="hr-h2">اختيار مسؤول التشكيل الإداري</h2>
+                    <p class="hr-meta">ابحث عن الموظف بالاسم أو الرقم الوظيفي لتعيينه مسؤولاً</p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" aria-label="إغلاق" title="إغلاق" @onclick="CloseManagerPickerModal">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body" style="padding:var(--s-4);">
+                <div class="hr-field" style="margin-block-end:var(--s-3);">
+                    <div class="hr-search">
+                        <span class="hr-search-icon"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <label class="hr-sr" for="org-manager-search">البحث عن المسؤول الإداري بالاسم أو الرقم الوظيفي</label>
+                        <input id="org-manager-search" type="search" class="hr-input" placeholder="اكتب اسم الموظف أو رقمه الوظيفي..." value="@managerSearchTerm" @oninput="OnManagerSearchInput" autofocus />
+                    </div>
+                </div>
+
+                @if (isSearchingManagers)
+                {
+                    <div style="text-align:center;padding:var(--s-4);color:var(--text-3);">جارٍ البحث...</div>
+                }
+                else if (managerCandidates.Count == 0)
+                {
+                    <div class="hr-empty" style="padding:var(--s-4);text-align:center;">
+                        <p class="hr-meta">لا توجد نتائج مطابقة لبحثك.</p>
+                    </div>
+                }
+                else
+                {
+                    <div style="max-height:18rem;overflow-y:auto;display:flex;flex-direction:column;gap:.375rem;">
+                        @foreach (var emp in managerCandidates)
+                        {
+                            <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);background:var(--surface);border-radius:var(--r);border:1px solid var(--line);">
+                                <div style="display:flex;align-items:center;gap:.5rem;min-width:0;">
+                                    <UserAvatar EmployeeId="@emp.EmployeeID" UserName="@emp.Name" Size="sm" />
+                                    <div style="min-width:0;">
+                                        <strong style="font-size:var(--fs-control);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">@emp.Name</strong>
+                                        <div class="hr-meta" style="font-size:var(--fs-caption);">
+                                            <span class="hr-num">@emp.EmployeeID</span> · @(emp.JobTitle ?? "موظف")
+                                            @if (!string.IsNullOrEmpty(emp.AdministrativeUnitName))
+                                            {
+                                                <span> · (@emp.AdministrativeUnitName)</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-xs" @onclick="() => SelectManager(emp)">
+                                    <span>تعيين كمسؤول</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseManagerPickerModal">إغلاق</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== 7. STAFF ASSIGNMENT MODAL ==================== *@
+@if (isStaffModalOpen)
+{
+    <div class="hr-modal-scrim" @onclick="CloseStaffAssignModal" style="z-index:var(--z-modal-stacked);">
+        <div class="hr-modal hr-modal-lg" role="dialog" aria-modal="true" aria-labelledby="org-md-staff-title" tabindex="-1" @onkeydown="e => OnOverlayKey(e, CloseStaffAssignModal)" style="max-width:44rem;" @onclick:stopPropagation="true">
+            <div class="hr-modal-head">
+                <div>
+                    <h2 id="org-md-staff-title" class="hr-h2">إدارة كادر التشكيل الإداري</h2>
+                    <p class="hr-meta">التشكيل: <strong style="color:var(--accent);">@staffModalUnitName</strong> · إلحاق ونقل الموظفين</p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" aria-label="إغلاق" title="إغلاق" @onclick="CloseStaffAssignModal">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body" style="padding:var(--s-4);">
+                @* 1. Search and Add section *@
+                <div class="hr-card hr-card-quiet" style="padding:var(--s-3);margin-block-end:var(--s-4);border:1px solid var(--line);">
+                    <label class="hr-label" style="font-weight:700;display:flex;align-items:center;gap:.375rem;margin-block-end:.5rem;">
+                        <Icon Name="user-plus" Size="xs" />
+                        <span>إلحاق موظف جديد بهذا التشكيل</span>
+                    </label>
+
+                    <div class="hr-field" style="margin-block-end:.5rem;">
+                        <div class="hr-search">
+                            <span class="hr-search-icon"><Icon Name="magnifying-glass" Size="sm" /></span>
+                            <label class="hr-sr" for="org-staff-search">البحث عن موظف لإلحاقه بالتشكيل</label>
+                            <input id="org-staff-search" type="search" class="hr-input" placeholder="ابحث بالاسم أو الرقم الوظيفي لإلحاق موظف..." value="@staffSearchTerm" @oninput="OnStaffSearchInput" />
+                        </div>
+                    </div>
+
+                    @if (isSearchingStaff)
+                    {
+                        <div style="text-align:center;padding:var(--s-2);color:var(--text-3);font-size:var(--fs-label);">جارٍ البحث...</div>
+                    }
+                    else if (staffCandidates.Count > 0)
+                    {
+                        <div style="max-height:12rem;overflow-y:auto;display:flex;flex-direction:column;gap:.25rem;background:var(--surface);padding:var(--s-2);border-radius:var(--r);border:1px solid var(--line);">
+                            @foreach (var cand in staffCandidates.Where(c => c.AdministrativeUnitId != staffModalUnitId))
+                            {
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.25rem .5rem;border-radius:var(--r-sm);border-bottom:1px solid var(--line);">
+                                    <div style="display:flex;align-items:center;gap:.5rem;min-width:0;">
+                                        <UserAvatar EmployeeId="@cand.EmployeeID" UserName="@cand.Name" Size="sm" />
+                                        <div style="min-width:0;">
+                                            <strong style="font-size:var(--fs-label);">@cand.Name</strong>
+                                            <span class="hr-meta hr-num" style="font-size:var(--fs-caption);">(@cand.EmployeeID)</span>
+                                            <span class="hr-meta" style="font-size:var(--fs-caption);">· @(cand.JobTitle ?? "موظف")</span>
+                                            @if (!string.IsNullOrEmpty(cand.AdministrativeUnitName))
+                                            {
+                                                <span class="hr-badge hr-badge-warn" style="font-size:var(--fs-caption);margin-inline-start:.25rem;">حالي: @cand.AdministrativeUnitName</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <button type="button" class="hr-btn hr-btn-primary hr-btn-xs" @onclick="() => AssignStaffToUnitAsync(cand.EmployeeID)" disabled="@isAssigningStaff">
+                                        <Icon Name="plus" Size="xs" />
+                                        <span>إلحاق بالتشكيل</span>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* 2. Current staff in this unit *@
+                <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:.5rem;flex-wrap:wrap;gap:var(--s-2);">
+                        <strong style="font-size:var(--fs-control);">الموظفون التابعون لهذا التشكيل حالياً (@currentUnitStaff.Count موظف)</strong>
+                    </div>
+
+                    @if (currentUnitStaff.Count == 0)
+                    {
+                        <div class="hr-empty" style="padding:var(--s-4);text-align:center;">
+                            <p class="hr-meta">لا يوجد أي موظف مسجل ضمن هذا التشكيل الإداري حالياً.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="max-height:16rem;overflow-y:auto;display:flex;flex-direction:column;gap:.375rem;">
+                            @foreach (var emp in currentUnitStaff)
+                            {
+                                <div class="hr-card" style="padding:var(--s-2) var(--s-3);display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);background:var(--surface);border-radius:var(--r);border:1px solid var(--line);">
+                                    <div style="display:flex;align-items:center;gap:.5rem;min-width:0;">
+                                        <UserAvatar EmployeeId="@emp.EmployeeID" UserName="@emp.Name" Size="sm" />
+                                        <div style="min-width:0;">
+                                            <div style="display:flex;align-items:center;gap:.375rem;">
+                                                <strong style="font-size:var(--fs-control);">@emp.Name</strong>
+                                                @if (emp.IsManager)
+                                                {
+                                                    <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);">مسؤول التشكيل</span>
+                                                }
+                                            </div>
+                                            <div class="hr-meta" style="font-size:var(--fs-caption);">
+                                                <span class="hr-num">@emp.EmployeeID</span> · @(emp.JobTitle ?? "موظف")
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs hr-text-danger" @onclick="() => RemoveStaffFromUnitAsync(emp.EmployeeID)" disabled="@isAssigningStaff" title="إلغاء التبعية لهذا التشكيل">
+                                        <Icon Name="x-mark" Size="xs" />
+                                        <span>إلغاء الإلحاق</span>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseStaffAssignModal">إغلاق</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== 8. MANAGE UNIT TYPES MODAL ==================== *@
+@if (isTypesModalOpen)
+{
+    <div class="hr-modal-scrim" @onclick="CloseTypesModal">
+        <div class="hr-modal hr-modal-lg" role="dialog" aria-modal="true" aria-labelledby="org-md-types-title" tabindex="-1" @onkeydown="e => OnOverlayKey(e, CloseTypesModal)" style="max-width:44rem;" @onclick:stopPropagation="true">
+            <div class="hr-modal-head">
+                <div>
+                    <h2 id="org-md-types-title" class="hr-h2">إدارة أنواع الوحدات الإدارية</h2>
+                    <p class="hr-meta">تعريف وتعديل تصنيفات الوحدات ومستوياتها الهرمية</p>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" aria-label="إغلاق" title="إغلاق" @onclick="CloseTypesModal">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body" style="padding:var(--s-5);">
+                @if (!string.IsNullOrEmpty(typeErrorMessage))
+                {
+                    <div class="hr-alert hr-alert-danger" role="alert" style="margin-block-end:var(--s-4);">
+                        <Icon Name="exclamation-circle" Size="sm" />
+                        <span>@typeErrorMessage</span>
+                    </div>
+                }
+
+                @* Add New Type Form Inline *@
+                <div class="hr-card hr-card-quiet" style="padding:var(--s-4);margin-block-end:var(--s-4);">
+                    <h3 class="hr-h3" style="margin-block-end:var(--s-3);">@(isEditTypeMode ? "تعديل نوع وحدة إدارية" : "إضافة نوع وحدة إدارية جديد")</h3>
+                    <div class="hr-form-cols" style="gap:var(--s-3);">
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f9" class="hr-label">اسم النوع (عربي) *</label>
+                            <input id="organizationalhierarchypage-f9" type="text" class="hr-input" @bind="typeFormName" placeholder="مثال: هيئة، قطاع، مركز" required />
+                        </div>
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f10" class="hr-label">اسم النوع (کوردی)</label>
+                            <input id="organizationalhierarchypage-f10" type="text" class="hr-input" @bind="typeFormNameKu" placeholder="نموونە: دەستە، کەرت، مەڵبەند" />
+                        </div>
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f11" class="hr-label">الرمز التعريفي (Code) *</label>
+                            <input id="organizationalhierarchypage-f11" type="text" class="hr-input" @bind="typeFormCode" placeholder="مثال: AUTH, SEC, CTR" required />
+                        </div>
+                        <div class="hr-field">
+                            <label for="organizationalhierarchypage-f12" class="hr-label">المستوى الهرمي (1-10) *</label>
+                            <input id="organizationalhierarchypage-f12" type="number" class="hr-input" @bind="typeFormLevel" min="1" max="20" required />
+                        </div>
+                    </div>
+                    <div class="hr-field" style="margin-block-start:var(--s-2);">
+                        <label for="organizationalhierarchypage-f13" class="hr-label">الوصف</label>
+                        <input id="organizationalhierarchypage-f13" type="text" class="hr-input" @bind="typeFormDesc" placeholder="نبذة عن طبيعة هذا النوع..." />
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:var(--s-2);margin-block-start:var(--s-3);">
+                        @if (isEditTypeMode)
+                        {
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ResetTypeForm">إلغاء التعديل</button>
+                        }
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="SaveUnitTypeAsync" disabled="@isSavingType">
+                            <Icon Name="check" Size="xs" />
+                            <span>@(isEditTypeMode ? "حفظ التعديل" : "إضافة النوع")</span>
+                        </button>
+                    </div>
+                </div>
+
+                @* Table of Existing Types *@
+                <div style="max-height:16rem;overflow-y:auto;">
+                    <table class="hr-table" style="width:100%;font-size:var(--fs-control);">
+                        <thead>
+                            <tr>
+                                <th scope="col">المستوى</th>
+                                <th scope="col">الاسم</th>
+                                <th scope="col">الاسم (کوردی)</th>
+                                <th scope="col">الرمز</th>
+                                <th scope="col">إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in unitTypes.OrderBy(x => x.HierarchyLevel))
+                            {
+                                <tr>
+                                    <td><span class="hr-badge">#@t.HierarchyLevel</span></td>
+                                    <td><strong>@t.Name</strong></td>
+                                    <td>@(t.NameKu ?? "-")</td>
+                                    <td><code>@t.Code</code></td>
+                                    <td>
+                                        <div style="display:flex;gap:.25rem;">
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="() => EditType(t)" title="تعديل" aria-label="تعديل">
+                                                <Icon Name="pencil" Size="xs" />
+                                            </button>
+                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="() => DeleteTypeAsync(t.Id)" disabled="@isSavingType" title="حذف" aria-label="حذف">
+                                                <Icon Name="trash" Size="xs" />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseTypesModal">إغلاق</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== 9. CONFIRM DELETE UNIT MODAL ==================== *@
+@if (isDeleteModalOpen)
+{
+    <div class="hr-modal-scrim" @onclick="CloseDeleteModal">
+        <div class="hr-modal hr-modal-confirm" role="dialog" aria-modal="true" aria-labelledby="org-md-delete-title" tabindex="-1" @onkeydown="e => OnOverlayKey(e, CloseDeleteModal)" style="max-width:28rem;" @onclick:stopPropagation="true">
+            <div class="hr-modal-head">
+                <div class="hr-confirm-lead">
+                    <span class="hr-iconplate hr-iconplate-danger" aria-hidden="true">
+                        <Icon Name="trash" Size="sm" />
+                    </span>
+                    <div>
+                        <h2 id="org-md-delete-title" class="hr-h2" style="color:var(--danger)">تأكيد حذف التشكيل الإداري</h2>
+                        <p class="hr-meta">سيتم إزالة التشكيل ومساراته من الشجرة</p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" aria-label="إغلاق" title="إغلاق" @onclick="CloseDeleteModal">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+            <div class="hr-modal-body" style="padding:var(--s-4);">
+                <p style="font-size:var(--fs-lead);">هل أنت متأكد من رغبتك في حذف التشكيل: <strong>@unitNameToDelete</strong>؟</p>
+            </div>
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseDeleteModal">إلغاء</button>
+                <button type="button" class="hr-btn hr-btn-danger" @onclick="ConfirmDeleteUnitAsync">
+                    <Icon Name="trash" Size="xs" />
+                    <span>تأكيد الحذف</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== 10. CONFIRM CLEAR ALL MODAL ==================== *@
+@if (isClearConfirmOpen)
+{
+    <div class="hr-modal-scrim" @onclick="CloseClearConfirm">
+        <div class="hr-modal hr-modal-confirm" role="dialog" aria-modal="true" aria-labelledby="org-md-clear-title" tabindex="-1" @onkeydown="e => OnOverlayKey(e, CloseClearConfirm)" style="max-width:28rem;" @onclick:stopPropagation="true">
+            <div class="hr-modal-head">
+                <div class="hr-confirm-lead">
+                    <span class="hr-iconplate hr-iconplate-danger" aria-hidden="true">
+                        <Icon Name="trash" Size="sm" />
+                    </span>
+                    <div>
+                        <h2 id="org-md-clear-title" class="hr-h2" style="color:var(--danger)">تأكيد مسح الشجرة بالكامل</h2>
+                        <p class="hr-meta">سيتم تفريغ كافة التشكيلات للبدء من جديد</p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" aria-label="إغلاق" title="إغلاق" @onclick="CloseClearConfirm">
+                    <Icon Name="x-mark" />
+                </button>
+            </div>
+            <div class="hr-modal-body" style="padding:var(--s-4);">
+                <p>هل أنت متأكد من رغبتك في مسح كافة الوحدات الإدارية (@allUnitsFlat.Count وحدة) والبدء بشجرة جديدة من الصفر؟</p>
+                <p class="hr-meta">ملاحظة: أنواع الوحدات الإدارية ستبقى محفوظة ولن تُحذف.</p>
+            </div>
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseClearConfirm">إلغاء</button>
+                <button type="button" class="hr-btn hr-btn-danger" @onclick="ExecuteClearAllUnits">
+                    <span>تأكيد المسح والبدء من جديد</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private bool isSavingType = false;
+    private string? errorMessage;
+    private string? typeErrorMessage;
+
+    private List<AdministrativeUnitType> unitTypes = [];
+    private List<HierarchyTreeNodeDto> treeRoots = [];
+    private List<AdministrativeUnit> allUnitsFlat = [];
+
+    // Lineage Inspector state
+    private List<LineageStepDto>? selectedLineage;
+    private string selectedUnitName = string.Empty;
+
+    // Unit Modal state
+    private bool isModalOpen = false;
+    private bool isEditMode = false;
+    private int currentEditingId;
+
+    private string formName = string.Empty;
+    private string? formNameKu;
+    private string formCode = string.Empty;
+    private int formUnitTypeId;
+    private int? formParentUnitId;
+    private string? formManagerTitle;
+    private string? formManagerEmployeeId;
+    private string? formManagerEmployeeName;
+    private int formOrderIndex = 1;
+    private bool formIsActive = true;
+    private string? formNotes;
+
+    // Manager Picker state
+    private bool isManagerPickerOpen = false;
+    private string managerSearchTerm = string.Empty;
+    private List<HierarchyEmployeeDto> managerCandidates = [];
+    private bool isSearchingManagers = false;
+
+    // Staff Assignment state
+    private bool isStaffModalOpen = false;
+    private int staffModalUnitId;
+    private string staffModalUnitName = string.Empty;
+    private List<HierarchyEmployeeDto> currentUnitStaff = [];
+    private List<HierarchyEmployeeDto> staffCandidates = [];
+    private string staffSearchTerm = string.Empty;
+    private bool isSearchingStaff = false;
+    private bool isAssigningStaff = false;
+
+    // Types Modal state
+    private bool isTypesModalOpen = false;
+    private bool isEditTypeMode = false;
+    private int currentEditingTypeId;
+    private string typeFormName = string.Empty;
+    private string? typeFormNameKu;
+    private string typeFormCode = string.Empty;
+    private int typeFormLevel = 1;
+    private string? typeFormDesc;
+
+    // Delete Unit Modal state
+    private bool isDeleteModalOpen = false;
+    private int unitIdToDelete;
+    private string unitNameToDelete = string.Empty;
+
+    // Clear confirmation
+    private bool isClearConfirmOpen = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadDataAsync();
+    }
+
+    private async Task ReloadDataAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            unitTypes = await OrgService.GetUnitTypesAsync();
+            allUnitsFlat = await OrgService.GetAllUnitsFlatAsync();
+            treeRoots = await OrgService.GetHierarchyTreeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load organizational hierarchy.");
+            errorMessage = "حدث خطأ أثناء تحميل شجرة الهيكلية الإدارية.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task InspectLineageAsync(int unitId, string unitName)
+    {
+        selectedUnitName = unitName;
+        selectedLineage = await OrgService.GetLineageToRootAsync(unitId);
+        StateHasChanged();
+    }
+
+    private void ClearLineage()
+    {
+        selectedLineage = null;
+        selectedUnitName = string.Empty;
+    }
+
+    private void OpenAddModalForRoot()
+    {
+        isEditMode = false;
+        errorMessage = null;
+        formName = string.Empty;
+        formNameKu = null;
+        formCode = $"GOV-{DateTime.Now:fff}";
+        formUnitTypeId = unitTypes.FirstOrDefault()?.Id ?? 1;
+        formParentUnitId = null;
+        formManagerTitle = string.Empty;
+        formManagerEmployeeId = null;
+        formManagerEmployeeName = null;
+        formOrderIndex = allUnitsFlat.Count + 1;
+        formIsActive = true;
+        formNotes = string.Empty;
+        isModalOpen = true;
+    }
+
+    private void OpenAddModalForParent(int parentId)
+    {
+        isEditMode = false;
+        errorMessage = null;
+        formName = string.Empty;
+        formNameKu = null;
+        formCode = $"SEC-{DateTime.Now:fff}";
+        formUnitTypeId = unitTypes.Skip(2).FirstOrDefault()?.Id ?? unitTypes.FirstOrDefault()?.Id ?? 1;
+        formParentUnitId = parentId;
+        formManagerTitle = string.Empty;
+        formManagerEmployeeId = null;
+        formManagerEmployeeName = null;
+        formOrderIndex = allUnitsFlat.Count(u => u.ParentUnitId == parentId) + 1;
+        formIsActive = true;
+        formNotes = string.Empty;
+        isModalOpen = true;
+    }
+
+    private void OpenEditModal(int unitId)
+    {
+        isEditMode = true;
+        currentEditingId = unitId;
+        errorMessage = null;
+
+        var unit = allUnitsFlat.FirstOrDefault(u => u.Id == unitId);
+        if (unit == null) return;
+
+        formName = unit.Name;
+        formNameKu = unit.NameKu;
+        formCode = unit.Code;
+        formUnitTypeId = unit.UnitTypeId;
+        formParentUnitId = unit.ParentUnitId;
+        formManagerTitle = unit.ManagerTitle;
+        formManagerEmployeeId = unit.ManagerEmployeeId;
+
+        // Try find name from loaded treeRoots
+        HierarchyTreeNodeDto? foundNode = FindNodeInTree(treeRoots, unitId);
+        formManagerEmployeeName = foundNode?.ManagerName;
+
+        formOrderIndex = unit.OrderIndex;
+        formIsActive = unit.IsActive;
+        formNotes = unit.Notes;
+
+        isModalOpen = true;
+        StateHasChanged();
+    }
+
+    private static HierarchyTreeNodeDto? FindNodeInTree(IEnumerable<HierarchyTreeNodeDto> nodes, int id)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Id == id) return node;
+            var found = FindNodeInTree(node.Children, id);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+
+    /// <summary>
+    /// Escape closes the overlay. Every dialog owes the user a way out that is
+    /// not the mouse; these overlays predate the shared <see cref="Common.Modal"/>
+    /// and did not have one.
+    /// </summary>
+    private static void OnOverlayKey(KeyboardEventArgs e, Action close)
+    {
+        if (e.Key == "Escape")
+        {
+            close();
+        }
+    }
+
+    private void CloseDeleteModal() => isDeleteModalOpen = false;
+
+    private void CloseClearConfirm() => isClearConfirmOpen = false;
+
+    private void CloseModal()
+    {
+        isModalOpen = false;
+        errorMessage = null;
+    }
+
+    private async Task SaveUnitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(formName) || string.IsNullOrWhiteSpace(formCode))
+        {
+            errorMessage = "يرجى كتابة اسم التشكيل والرمز التعريفي.";
+            return;
+        }
+
+        isSaving = true;
+        errorMessage = null;
+
+        try
+        {
+            if (isEditMode)
+            {
+                await OrgService.UpdateUnitAsync(
+                    currentEditingId,
+                    formName,
+                    formNameKu,
+                    formCode,
+                    formUnitTypeId,
+                    formParentUnitId,
+                    formManagerTitle,
+                    formManagerEmployeeId,
+                    formIsActive,
+                    formNotes);
+            }
+            else
+            {
+                await OrgService.CreateUnitAsync(
+                    formName,
+                    formNameKu,
+                    formCode,
+                    formUnitTypeId,
+                    formParentUnitId,
+                    formManagerTitle,
+                    formManagerEmployeeId,
+                    formNotes);
+            }
+
+            CloseModal();
+            await ReloadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save unit.");
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void PromptDeleteUnit(int unitId, string unitName, int childrenCount)
+    {
+        if (childrenCount > 0)
+        {
+            errorMessage = "لا يمكن حذف هذا التشكيل الإداري لأنه يحتوي على فروع تابعة له. يرجى حذف الفروع أو نقلها أولاً.";
+            return;
+        }
+
+        unitIdToDelete = unitId;
+        unitNameToDelete = unitName;
+        isDeleteModalOpen = true;
+    }
+
+    private async Task ConfirmDeleteUnitAsync()
+    {
+        isDeleteModalOpen = false;
+        try
+        {
+            await OrgService.DeleteUnitAsync(unitIdToDelete);
+            if (selectedLineage != null && selectedLineage.Any(s => s.UnitId == unitIdToDelete))
+            {
+                ClearLineage();
+            }
+            await ReloadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete unit.");
+            errorMessage = ex.Message;
+        }
+    }
+
+    // ==================== MANAGER PICKER METHODS ====================
+    private async Task OpenManagerPickerModal()
+    {
+        isManagerPickerOpen = true;
+        managerSearchTerm = string.Empty;
+        isSearchingManagers = true;
+        try
+        {
+            managerCandidates = await OrgService.SearchEmployeesAsync(null, 20);
+        }
+        finally
+        {
+            isSearchingManagers = false;
+        }
+    }
+
+    private void CloseManagerPickerModal()
+    {
+        isManagerPickerOpen = false;
+    }
+
+    private async Task OnManagerSearchInput(ChangeEventArgs e)
+    {
+        managerSearchTerm = e.Value?.ToString() ?? string.Empty;
+        isSearchingManagers = true;
+        try
+        {
+            managerCandidates = await OrgService.SearchEmployeesAsync(managerSearchTerm, 20);
+        }
+        finally
+        {
+            isSearchingManagers = false;
+        }
+    }
+
+    private void SelectManager(HierarchyEmployeeDto emp)
+    {
+        formManagerEmployeeId = emp.EmployeeID;
+        formManagerEmployeeName = emp.Name;
+
+        if (string.IsNullOrWhiteSpace(formManagerTitle))
+        {
+            var unitType = unitTypes.FirstOrDefault(t => t.Id == formUnitTypeId);
+            formManagerTitle = unitType != null ? $"مسؤول {unitType.Name}" : (emp.JobTitle ?? "المسؤول");
+        }
+
+        isManagerPickerOpen = false;
+    }
+
+    private void ClearSelectedManager()
+    {
+        formManagerEmployeeId = null;
+        formManagerEmployeeName = null;
+    }
+
+    // ==================== STAFF ASSIGNMENT METHODS ====================
+    private async Task OpenStaffAssignModal(int unitId, string unitName)
+    {
+        staffModalUnitId = unitId;
+        staffModalUnitName = unitName;
+        staffSearchTerm = string.Empty;
+        isStaffModalOpen = true;
+        await LoadUnitStaffModalDataAsync();
+    }
+
+    private async Task LoadUnitStaffModalDataAsync()
+    {
+        currentUnitStaff = await OrgService.GetEmployeesByUnitAsync(staffModalUnitId);
+        staffCandidates = await OrgService.SearchEmployeesAsync(null, 15);
+    }
+
+    private void CloseStaffAssignModal()
+    {
+        isStaffModalOpen = false;
+    }
+
+    private async Task OnStaffSearchInput(ChangeEventArgs e)
+    {
+        staffSearchTerm = e.Value?.ToString() ?? string.Empty;
+        isSearchingStaff = true;
+        try
+        {
+            staffCandidates = await OrgService.SearchEmployeesAsync(staffSearchTerm, 20);
+        }
+        finally
+        {
+            isSearchingStaff = false;
+        }
+    }
+
+    private async Task AssignStaffToUnitAsync(string employeeId)
+    {
+        isAssigningStaff = true;
+        try
+        {
+            await OrgService.AssignEmployeeToUnitAsync(employeeId, staffModalUnitId);
+            await LoadUnitStaffModalDataAsync();
+            await ReloadDataAsync();
+        }
+        finally
+        {
+            isAssigningStaff = false;
+        }
+    }
+
+    private async Task RemoveStaffFromUnitAsync(string employeeId)
+    {
+        isAssigningStaff = true;
+        try
+        {
+            await OrgService.AssignEmployeeToUnitAsync(employeeId, null);
+            await LoadUnitStaffModalDataAsync();
+            await ReloadDataAsync();
+        }
+        finally
+        {
+            isAssigningStaff = false;
+        }
+    }
+
+    private async Task RemoveEmployeeFromUnit(string employeeId, int unitId)
+    {
+        await OrgService.AssignEmployeeToUnitAsync(employeeId, null);
+        await ReloadDataAsync();
+    }
+
+    // ==================== UNIT TYPES MANAGEMENT ====================
+    private void OpenTypesModal()
+    {
+        typeErrorMessage = null;
+        ResetTypeForm();
+        isTypesModalOpen = true;
+    }
+
+    private void OpenAddTypeSubModal()
+    {
+        OpenTypesModal();
+    }
+
+    private void CloseTypesModal()
+    {
+        isTypesModalOpen = false;
+        typeErrorMessage = null;
+    }
+
+    private void ResetTypeForm()
+    {
+        isEditTypeMode = false;
+        typeFormName = string.Empty;
+        typeFormNameKu = null;
+        typeFormCode = string.Empty;
+        typeFormLevel = (unitTypes.Count > 0 ? unitTypes.Max(t => t.HierarchyLevel) + 1 : 1);
+        typeFormDesc = string.Empty;
+    }
+
+    private void EditType(AdministrativeUnitType type)
+    {
+        isEditTypeMode = true;
+        currentEditingTypeId = type.Id;
+        typeFormName = type.Name;
+        typeFormNameKu = type.NameKu;
+        typeFormCode = type.Code;
+        typeFormLevel = type.HierarchyLevel;
+        typeFormDesc = type.Description;
+    }
+
+    private async Task SaveUnitTypeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(typeFormName) || string.IsNullOrWhiteSpace(typeFormCode))
+        {
+            typeErrorMessage = "يرجى كتابة اسم نوع الوحدة ورمزها.";
+            return;
+        }
+
+        // Same re-entry guard SaveUnitAsync uses: the button is disabled while
+        // the round trip is in flight, so a second click cannot create a
+        // duplicate record before the first one comes back.
+        if (isSavingType) return;
+
+        typeErrorMessage = null;
+        isSavingType = true;
+        try
+        {
+            if (isEditTypeMode)
+            {
+                await OrgService.UpdateUnitTypeAsync(currentEditingTypeId, typeFormName, typeFormNameKu, typeFormCode, typeFormLevel, typeFormDesc, true);
+            }
+            else
+            {
+                await OrgService.CreateUnitTypeAsync(typeFormName, typeFormNameKu, typeFormCode, typeFormLevel, typeFormDesc);
+            }
+
+            ResetTypeForm();
+            unitTypes = await OrgService.GetUnitTypesAsync();
+            await ReloadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            typeErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSavingType = false;
+        }
+    }
+
+    private async Task DeleteTypeAsync(int typeId)
+    {
+        if (isSavingType) return;
+
+        typeErrorMessage = null;
+        isSavingType = true;
+        try
+        {
+            await OrgService.DeleteUnitTypeAsync(typeId);
+            unitTypes = await OrgService.GetUnitTypesAsync();
+            await ReloadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            typeErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSavingType = false;
+        }
+    }
+
+    // ==================== CLEAR ALL UNITS ====================
+    private void ConfirmClearAllUnits()
+    {
+        isClearConfirmOpen = true;
+    }
+
+    private async Task ExecuteClearAllUnits()
+    {
+        isClearConfirmOpen = false;
+        ClearLineage();
+        await OrgService.ClearAllUnitsAsync();
+        await ReloadDataAsync();
+    }
+
+    private static string GetTypeBadgeClass(string code) => code.ToUpperInvariant() switch
+    {
+        "GOV" => "hr-badge hr-badge-ok",
+        "DEPT" => "hr-badge hr-badge-accent",
+        "DIR" => "hr-badge hr-badge-accent",
+        "DIV" => "hr-badge hr-badge-warn",
+        "SEC" => "hr-badge",
+        "UNIT" => "hr-badge",
+        "OFF" => "hr-badge hr-badge-ok",
+        _ => "hr-badge"
+    };
+
+    private static string GetTypeBadgeClassByLevel(int level) => level switch
+    {
+        1 => "hr-badge hr-badge-ok",
+        2 => "hr-badge hr-badge-accent",
+        3 => "hr-badge hr-badge-accent",
+        4 => "hr-badge hr-badge-warn",
+        _ => "hr-badge"
+    };
+}

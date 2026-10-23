@@ -1,0 +1,43 @@
+@*
+    The legend shared by the donut, waffle and stack. It carries the numbers
+    and is the control: each key toggles its value in the general filter.
+*@
+<ul class="hr-viz-legend @(Row ? "is-row" : null)" aria-label="@Label">
+    @for (var i = 0; i < Slices.Count; i++)
+    {
+        var s = Slices[i];
+        var index = i;
+        var on = Selected?.Contains(s.Name) == true;
+        <li @key="s.Name">
+            @if (OnPick.HasDelegate && s.Name != Viz.Other)
+            {
+                <button type="button" class="hr-viz-key @(on ? "is-on" : null)" aria-pressed="@(on ? "true" : "false")" @onclick="() => OnPick.InvokeAsync(s.Name)">
+                    @Key(s, index)
+                </button>
+            }
+            else
+            {
+                <span class="hr-viz-key">@Key(s, index)</span>
+            }
+        </li>
+    }
+</ul>
+
+@code {
+    /// <summary>Pins a value to a series index, so a field keeps its colours across charts.</summary>
+    [Parameter] public Func<string, int?>? SeriesOf { get; set; }
+    private string Tone(string name, int i) => Viz.Series(SeriesOf?.Invoke(name) ?? i);
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Slices { get; set; } = [];
+    [Parameter] public int Total { get; set; }
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public bool Row { get; set; }
+
+    private RenderFragment Key(StatItem s, int i) => @<text>
+        <span class="hr-viz-swatch @Tone(s.Name, i)" aria-hidden="true"></span>
+        <span class="hr-viz-key-name">@Viz.Display(s.Name, Lang.IsKurdish)</span>
+        <span class="hr-num">@s.Count.ToString("N0")</span>
+        <span class="hr-viz-key-pct hr-num">@Viz.Pct(s.Count, Total)</span>
+    </text>;
+}

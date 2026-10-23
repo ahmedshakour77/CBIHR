@@ -1,0 +1,93 @@
+﻿@page "/Account/Manage/PersonalData"
+
+@using Microsoft.AspNetCore.Identity
+@using API.HR.Node.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>البيانات الشخصية | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Two actions of very different weight sit on this page. They are split
+    into separate cards, and the irreversible one is given its own heading,
+    its own colour role and an explicit warning — rather than sitting as a
+    red link directly under a download button.
+*@
+
+<div class="hr-stack-sm">
+    <StatusMessage />
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div>
+                <h2 class="hr-h2">تنزيل بياناتك</h2>
+                <p class="hr-meta" style="margin-block-start:.25rem">نسخة من البيانات الشخصية المحفوظة في حسابك</p>
+            </div>
+        </div>
+
+        <div class="hr-card-body">
+            <p class="hr-body hr-measure">
+                يحتوي حسابك على بيانات شخصية زوّدتنا بها. يمكنك تنزيل نسخة منها بصيغة ملف
+                <span class="hr-num">JSON</span> للاطلاع أو للحفظ.
+            </p>
+        </div>
+
+        <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+            <form action="Account/Manage/DownloadPersonalData" method="post">
+                <AntiforgeryToken />
+                <button class="hr-btn hr-btn-primary" type="submit">
+                    <Icon Name="arrow-down-tray" Size="xs" />
+                    <span>تنزيل البيانات</span>
+                </button>
+            </form>
+        </div>
+    </section>
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate hr-iconplate-danger" aria-hidden="true">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                </span>
+                <div class="hr-idcell-text">
+                    <h2 class="hr-h2">حذف الحساب</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">إجراء نهائي لا يمكن التراجع عنه</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card-body">
+            <div class="hr-alert hr-alert-danger">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div>
+                    <p class="hr-alert-title">سيُحذف حسابك وبياناته نهائياً</p>
+                    <p style="margin-block-start:.25rem">
+                        لن يكون بالإمكان استرجاع الحساب أو البيانات المرتبطة به بعد الحذف.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+            <a href="Account/Manage/DeletePersonalData" class="hr-btn hr-btn-danger-quiet">
+                <Icon Name="trash" Size="xs" />
+                <span>حذف الحساب نهائياً</span>
+            </a>
+        </div>
+    </section>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user  = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+        }
+    }
+}

@@ -1,0 +1,71 @@
+@*
+    Ranked horizontal bars. Each row is a toggle that adds its value to the
+    page's general filter; aria-pressed and the filled mark carry the
+    selection, so it never rides on colour alone. Rows are keyed by value, so
+    a click keeps focus on the row that was pressed, and a picked value stays
+    in view even when it ranks below the cut.
+*@
+<div class="hr-viz-bars @(Dense ? "is-dense" : null)">
+    @if (Items.Count == 0)
+    {
+        <p class="hr-viz-empty">@(EmptyText ?? Viz.NoData(Lang.IsKurdish))</p>
+    }
+    else
+    {
+        var max = Math.Max(1, Items.Max(i => i.Count));
+        var total = Total > 0 ? Total : Items.Sum(i => i.Count);
+        <ol class="hr-viz-bars-list" aria-label="@Label">
+            @foreach (var item in Visible)
+            {
+                var on = Selected?.Contains(item.Name) == true;
+                <li @key="item.Name">
+                    @if (OnPick.HasDelegate)
+                    {
+                        <button type="button" class="hr-viz-bar @(on ? "is-on" : null)" aria-pressed="@(on ? "true" : "false")"
+                                @onclick="() => OnPick.InvokeAsync(item.Name)" title="@(on ? (Lang.IsKurdish ? "لابردن لە پاڵاوتن:" : "إزالة من التصفية:") : (Lang.IsKurdish ? "پاڵاوتن بەپێی" : "تصفية بحسب")) @item.Name">
+                            @Row(item, max, total)
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="hr-viz-bar">@Row(item, max, total)</div>
+                    }
+                </li>
+            }
+        </ol>
+        @if (Items.Count > Limit)
+        {
+            <button type="button" class="hr-viz-more" aria-expanded="@(expanded ? "true" : "false")" @onclick="() => expanded = !expanded">
+                @(expanded
+                    ? (Lang.IsKurdish ? "تەنها سەرەوەکان پیشان بدە" : "عرض الأعلى فقط")
+                    : (Lang.IsKurdish ? $"هەموو پیشان بدە ({Items.Count:N0})" : $"عرض الكل ({Items.Count:N0})"))
+                <Icon Name="@(expanded ? "chevron-up" : "chevron-down")" Size="xs" />
+            </button>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StatItem> Items { get; set; } = [];
+    /// <summary>Base for the percentages; left at zero, the bars' own sum.</summary>
+    [Parameter] public int Total { get; set; }
+    [Parameter] public IReadOnlySet<string>? Selected { get; set; }
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public int Limit { get; set; } = 8;
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public bool Dense { get; set; }
+    [Parameter] public string? EmptyText { get; set; }
+
+    private bool expanded;
+
+    // The top of the ranking, plus any picked value that ranks below it.
+    private IEnumerable<StatItem> Visible => expanded
+        ? Items
+        : Items.Where((item, i) => i < Limit || Selected?.Contains(item.Name) == true);
+
+    private RenderFragment Row(StatItem item, int max, int total) => @<text>
+        <span class="hr-viz-bar-name" title="@item.Name">@item.Name</span>
+        <span class="hr-viz-bar-value"><span class="hr-num">@item.Count.ToString("N0")</span><span class="hr-viz-bar-pct hr-num">@Viz.Pct(item.Count, total)</span></span>
+        <span class="hr-viz-bar-track" aria-hidden="true"><span class="hr-viz-bar-fill" style="--v:@Viz.Css((double)item.Count / max)"></span></span>
+    </text>;
+}

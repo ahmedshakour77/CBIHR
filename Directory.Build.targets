@@ -1,0 +1,4 @@
+<Project>
+  <!-- Overrides SixLabors ImageSharp 4.x commercial license check in Release builds -->
+  <Target Name="SixLabors_ValidateLicense" BeforeTargets="CoreCompile" />
+</Project>

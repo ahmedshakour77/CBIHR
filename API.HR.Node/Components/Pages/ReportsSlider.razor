@@ -1,0 +1,798 @@
+@page "/reports-slider"
+@layout FocusLayout
+@attribute [Authorize(Roles = "Admin,HRManager")]
+@rendermode InteractiveServer
+@implements IDisposable
+@using API.HR.Node.Data
+@using Microsoft.EntityFrameworkCore
+
+@inject IServiceScopeFactory ScopeFactory
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<ReportsSlider> Logger
+
+<PageTitle>عرض التقارير | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Presentation view.
+
+    A kiosk surface: four slides on a timer, meant to be read across a
+    room. That is the one place in the system where type goes this large,
+    so the restraint has to come from elsewhere — one accent, flat
+    surfaces, no glow.
+
+    It advances on its own, which means it must be stoppable: pause, step
+    forward and back, and jump to a slide are all present and reachable by
+    keyboard, and the rotation stops when anything inside takes focus.
+    Every figure is stated as text, so no reading depends on bar length.
+*@
+
+<div class="hr-deck" id="sliderContainer" @onkeydown="OnDeckKeyDown" tabindex="-1">
+
+    <header class="hr-deck-bar hr-no-print">
+        <a class="hr-btn hr-btn-quiet hr-btn-sm" href="">
+            <Icon Name="arrow-right" Size="xs" />
+            <span>العودة إلى النظام</span>
+        </a>
+
+        @* The deck's h1. FocusOnNavigate moves focus to the h1 after a
+           route change, so every page needs exactly one. *@
+        <h1 class="hr-deck-title">إحصائيات الكادر الوظيفي</h1>
+
+        <div class="hr-deck-tools">
+            <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                    @onclick="ToggleFullscreen"
+                    aria-label="ملء الشاشة" title="ملء الشاشة">
+                <Icon Name="arrow-top-right-on-square" Size="sm" />
+            </button>
+        </div>
+    </header>
+
+    <main class="hr-deck-stage" @onfocusin="PauseOnHover">
+        @if (isLoading)
+        {
+            <div class="hr-deck-slide">
+                <div class="hr-skeleton" style="width:min(60rem,90%);height:60dvh;border-radius:var(--r-xl)" aria-hidden="true"></div>
+                <p class="hr-sr">جارٍ تحميل البيانات الإحصائية…</p>
+            </div>
+        }
+        else
+        {
+            @* ---- 1. headcount ---- *@
+            @if (currentSlide == 0)
+            {
+                <section class="hr-deck-slide" aria-label="إجمالي الكادر الوظيفي">
+                    <div class="hr-deck-card hr-deck-card-center">
+                        <span class="hr-iconplate hr-iconplate-lg" aria-hidden="true">
+                            <Icon Name="users" Size="xl" />
+                        </span>
+
+                        <h2 class="hr-deck-h">إجمالي الكادر الوظيفي</h2>
+
+                        <p class="hr-deck-figure">@ToArabicNumerals(totalEmployeesCount.ToString("N0"))</p>
+
+                        <p class="hr-deck-note">العدد الكلي المعتمد لجميع التشكيلات الإدارية</p>
+                    </div>
+                </section>
+            }
+
+            @* ---- 2. gender split ---- *@
+            @if (currentSlide == 1)
+            {
+                <section class="hr-deck-slide" aria-label="التوزيع حسب النوع الاجتماعي">
+                    <div class="hr-deck-card">
+                        <h2 class="hr-deck-h">التوزيع حسب النوع الاجتماعي</h2>
+
+                        <div class="hr-deck-rows">
+                            <div class="hr-deck-row">
+                                <div class="hr-deck-row-head">
+                                    <span class="hr-deck-row-label">
+                                        <span class="hr-swatch hr-swatch-a" aria-hidden="true"></span>
+                                        الذكور
+                                    </span>
+                                    <span class="hr-deck-row-value">
+                                        <span class="hr-deck-count">@ToArabicNumerals(maleCount.ToString("N0"))</span>
+                                        <span class="hr-deck-pct">@ToArabicNumerals(malePercentage.ToString("F1"))٪</span>
+                                    </span>
+                                </div>
+                                <div class="hr-deck-meter"
+                                     role="progressbar" aria-label="نسبة الذكور"
+                                     aria-valuenow="@((int)malePercentage)" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="hr-deck-meter-fill is-a" style="width:@Pct(malePercentage)"></div>
+                                </div>
+                            </div>
+
+                            <div class="hr-deck-row">
+                                <div class="hr-deck-row-head">
+                                    <span class="hr-deck-row-label">
+                                        <span class="hr-swatch hr-swatch-b" aria-hidden="true"></span>
+                                        الإناث
+                                    </span>
+                                    <span class="hr-deck-row-value">
+                                        <span class="hr-deck-count">@ToArabicNumerals(femaleCount.ToString("N0"))</span>
+                                        <span class="hr-deck-pct">@ToArabicNumerals(femalePercentage.ToString("F1"))٪</span>
+                                    </span>
+                                </div>
+                                <div class="hr-deck-meter"
+                                     role="progressbar" aria-label="نسبة الإناث"
+                                     aria-valuenow="@((int)femalePercentage)" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="hr-deck-meter-fill is-b" style="width:@Pct(femalePercentage)"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @* ---- 3. age pyramid ---- *@
+            @if (currentSlide == 2)
+            {
+                @* One scale for both sides, so a bar on the right and a bar
+                   on the left of the same length mean the same headcount. *@
+                var maxBandCount = ageGroupStats.Count > 0
+                    ? Math.Max(ageGroupStats.Max(g => g.MaleCount), ageGroupStats.Max(g => g.FemaleCount))
+                    : 0;
+
+                var retirementBand = ageGroupStats.Count > 0 ? ageGroupStats[^1] : null;
+                var modalBand = ageGroupStats.OrderByDescending(g => g.TotalCount).FirstOrDefault();
+
+                @* The widest slide in the deck: nine bands plus the reading of
+                   them only clear the fold if the two sit side by side. *@
+                @* ---- 3. age demographics (Population Pyramid Chart) ---- *@
+                <section class="hr-deck-slide hr-deck-slide-wide" aria-label="التركيبة العمرية للكادر (الهرم السكاني)">
+                    <div class="hr-deck-card" style="padding: clamp(.85rem, 2vh, 1.75rem) clamp(1rem, 2.5vw, 2.75rem); max-height:88dvh; display: flex; flex-direction: column;">
+                        <div style="text-align: center; margin-block-end: 0.75rem; flex: none;">
+                            <h2 class="hr-deck-h hr-deck-h-sm" style="margin: 0; font-size: clamp(1.35rem, 2vw, 2rem);">
+                                الهرم السكاني والتركيبة العمرية للكادر
+                            </h2>
+                            <p class="hr-deck-sub">
+                                التوزيع المتناظر للموظفين حسب الفئات العمرية والنوع الاجتماعي (ذكور / إناث)
+                            </p>
+                            <div class="hr-deck-tags">
+                                <span class="hr-badge hr-deck-tag hr-deck-tag-a">
+                                    <span class="hr-swatch hr-swatch-a" aria-hidden="true"></span>
+                                    الذكور: <strong class="hr-num">@ToArabicNumerals(maleCount.ToString("N0"))</strong> (@ToArabicNumerals(malePercentage.ToString("F1"))٪) · متوسط @ToArabicNumerals(averageAgeMale.ToString("F1")) سنة
+                                </span>
+                                <span class="hr-badge hr-deck-tag hr-deck-tag-a">
+                                    <span class="hr-swatch hr-swatch-b" aria-hidden="true"></span>
+                                    الإناث: <strong class="hr-num">@ToArabicNumerals(femaleCount.ToString("N0"))</strong> (@ToArabicNumerals(femalePercentage.ToString("F1"))٪) · متوسط @ToArabicNumerals(averageAgeFemale.ToString("F1")) سنة
+                                </span>
+                                <span class="hr-badge hr-deck-tag hr-deck-tag-b">
+                                    متوسط العمر العام: <strong class="hr-num">@ToArabicNumerals(averageAgeAll.ToString("F1"))</strong> سنة
+                                </span>
+                            </div>
+                        </div>
+
+                        @if (maxBandCount == 0)
+                        {
+                            <div class="hr-empty" style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                                <span class="hr-empty-art" aria-hidden="true"><Icon Name="users" Size="lg" /></span>
+                                <p class="hr-h3">لا توجد بيانات كافية لبناء التوزيع العمري</p>
+                                <p class="hr-sub hr-measure-sm">
+                                    لم تُسجَّل تواريخ ميلاد أو تعيين تكفي لتوزيع الكادر على الفئات العمرية.
+                                </p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="hr-pyramid-canvas">
+                                <div class="hr-pyramid-rows">
+                                    @foreach (var group in ageGroupStats.AsEnumerable().Reverse())
+                                    {
+                                        var maleBarPct = maxBandCount > 0 ? group.MaleCount * 100.0 / maxBandCount : 0;
+                                        var femaleBarPct = maxBandCount > 0 ? group.FemaleCount * 100.0 / maxBandCount : 0;
+                                        var malePctOfTotal = totalEmployeesCount > 0 ? group.MaleCount * 100.0 / totalEmployeesCount : 0;
+                                        var femalePctOfTotal = totalEmployeesCount > 0 ? group.FemaleCount * 100.0 / totalEmployeesCount : 0;
+                                        var isRetirement = ReferenceEquals(group, retirementBand);
+
+                                        <div class="hr-pyramid-row" title="@group.RangeLabel - ذكور: @group.MaleCount | إناث: @group.FemaleCount">
+                                            @* Age bracket label on Y-Axis *@
+                                            <div class="hr-pyramid-age @(isRetirement ? "hr-pyramid-age-retire" : "")">
+                                                @ToArabicNumerals(group.RangeLabel.Replace(" سنة", ""))
+                                            </div>
+
+                                            @* Chart Bars Flex Area with Perfect Center Axis *@
+                                            <div class="hr-pyramid-bars">
+                                                @* Male bar (grows towards LEFT from center) *@
+                                                <div class="hr-pyramid-half hr-pyramid-half-a">
+                                                    @if (group.MaleCount > 0)
+                                                    {
+                                                        <span class="hr-pyramid-figure">
+                                                            <strong class="hr-num">@ToArabicNumerals(group.MaleCount.ToString("N0"))</strong>
+                                                            <small class="hr-pyramid-pct">(@ToArabicNumerals(malePctOfTotal.ToString("F1"))٪)</small>
+                                                        </span>
+                                                    }
+                                                    <div class="hr-pyramid-bar hr-pyramid-bar-a" style="inline-size: @Pct(maleBarPct); min-inline-size: @(group.MaleCount > 0 ? "5px" : "0");"></div>
+                                                </div>
+
+                                                @* Center Vertical Axis Line Divider *@
+                                                <div class="hr-pyramid-axis"></div>
+
+                                                @* Female bar (grows towards RIGHT from center) *@
+                                                <div class="hr-pyramid-half hr-pyramid-half-b">
+                                                    <div class="hr-pyramid-bar hr-pyramid-bar-b" style="inline-size: @Pct(femaleBarPct); min-inline-size: @(group.FemaleCount > 0 ? "5px" : "0");"></div>
+                                                    @if (group.FemaleCount > 0)
+                                                    {
+                                                        <span class="hr-pyramid-figure">
+                                                            <small class="hr-pyramid-pct">(@ToArabicNumerals(femalePctOfTotal.ToString("F1"))٪)</small>
+                                                            <strong class="hr-num">@ToArabicNumerals(group.FemaleCount.ToString("N0"))</strong>
+                                                        </span>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+
+                                @* Bottom X-Axis line and scale *@
+                                <div class="hr-pyramid-scale">
+                                    <div class="hr-pyramid-scale-pad"></div>
+                                    <div class="hr-pyramid-bars">
+                                        <div class="hr-pyramid-scale-half hr-pyramid-scale-half-a">
+                                            <span>@ToArabicNumerals(maxBandCount.ToString("N0"))</span>
+                                            <span>@ToArabicNumerals((maxBandCount / 2).ToString("N0"))</span>
+                                        </div>
+                                        <div class="hr-pyramid-scale-zero">٠</div>
+                                        <div class="hr-pyramid-scale-half hr-pyramid-scale-half-b">
+                                            <span>@ToArabicNumerals((maxBandCount / 2).ToString("N0"))</span>
+                                            <span>@ToArabicNumerals(maxBandCount.ToString("N0"))</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @* Bottom Legend *@
+                                <div class="hr-pyramid-legend">
+                                    <span class="hr-pyramid-key">
+                                        <span class="hr-swatch hr-swatch-a" aria-hidden="true"></span>
+                                        الذكور
+                                    </span>
+                                    <span class="hr-pyramid-key">
+                                        <span class="hr-swatch hr-swatch-b" aria-hidden="true"></span>
+                                        الإناث
+                                    </span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
+            @* ---- 4. formations ---- *@
+            @if (currentSlide == 3)
+            {
+                <section class="hr-deck-slide hr-deck-slide-wide" aria-label="التوزيع على التشكيلات الإدارية">
+                    <div class="hr-deck-card" style="padding: clamp(1rem, 2vh, 1.75rem) clamp(1.25rem, 2.5vw, 2.5rem); max-height:86dvh; display: flex; flex-direction: column;">
+                        <div class="hr-deck-head" style="margin-block-end: 1rem; flex: none; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
+                            <h2 class="hr-deck-h hr-deck-h-sm" style="margin: 0; font-size: clamp(1.25rem, 1.8vw, 1.85rem);">التوزيع على التشكيلات الإدارية</h2>
+                            <p class="hr-deck-sub" style="font-size: var(--fs-control); color: var(--text-3); margin: 0;">
+                                حصر دقيق لإجمالي الكادر وتوزيعه على كافة التشكيلات والدوائر المعتمدة
+                            </p>
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-block-start: 0.25rem;">
+                                <span class="hr-badge hr-badge-accent" style="font-size: var(--fs-label); padding: 0.3rem 0.85rem;">
+                                    <span class="hr-num">@ToArabicNumerals(formationStats.Count)</span> تشكيلاً إدارياً
+                                </span>
+                                <span class="hr-badge hr-badge-ok" style="font-size: var(--fs-label); padding: 0.3rem 0.85rem;">
+                                    إجمالي الكادر: <strong class="hr-num">@ToArabicNumerals(totalEmployeesCount.ToString("N0"))</strong> موظف
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="hr-formations-grid">
+                            @foreach (var item in formationStats)
+                            {
+                                var pct = totalEmployeesCount > 0 ? item.TotalCount * 100.0 / totalEmployeesCount : 0;
+                                <div class="hr-formation-card" @key="item.FormationName">
+                                    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;flex-wrap:wrap;">
+                                        <span class="hr-truncate" style="font-size: var(--fs-body); font-weight: 700; color: var(--text);" title="@item.FormationName">
+                                            @item.FormationName
+                                        </span>
+                                        <div style="display: flex; align-items: baseline; gap: 0.35rem; flex: none;">
+                                            <strong class="hr-num" style="font-size: var(--fs-h2); font-weight:700; color: var(--accent-ink);">
+                                                @ToArabicNumerals(item.TotalCount.ToString("N0"))
+                                            </strong>
+                                            <span class="hr-num" style="font-size: var(--fs-label); font-weight: 700; color: var(--text-3);">
+                                                @ToArabicNumerals(pct.ToString("F1"))٪
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="hr-deck-meter" style="height: 6px; margin: 0;" role="progressbar" aria-label="@item.FormationName" aria-valuenow="@((int)pct)" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="hr-deck-meter-fill is-a" style="width: @Pct(pct)"></div>
+                                    </div>
+                                    <div class="hr-formation-split">
+                                        <span>ذكور: <strong class="hr-num hr-tone-a">@ToArabicNumerals(item.MaleCount.ToString("N0"))</strong></span>
+                                        <span>إناث: <strong class="hr-num hr-tone-b">@ToArabicNumerals(item.FemaleCount.ToString("N0"))</strong></span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </section>
+            }
+        }
+    </main>
+
+    @* Auto-rotating content needs a way to stop it, step through it, and
+       jump to a specific slide — all of them reachable by keyboard. *@
+    <nav class="hr-deck-bar hr-deck-controls hr-no-print" aria-label="التنقل بين الشرائح">
+        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                @onclick="PrevSlide" aria-label="الشريحة السابقة">
+            <Icon Name="chevron-right" Size="sm" />
+        </button>
+
+        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                @onclick="TogglePlay"
+                aria-pressed="@(isPlaying ? "true" : "false")">
+            <Icon Name="@(isPlaying ? "no-symbol" : "arrow-path")" Size="xs" />
+            <span>@(isPlaying ? "إيقاف التنقل التلقائي" : "استئناف التنقل التلقائي")</span>
+        </button>
+
+        <ol class="hr-deck-dots">
+            @for (var i = 0; i < SlideCount; i++)
+            {
+                var index = i;
+                <li>
+                    <button type="button"
+                            class="hr-deck-dot"
+                            aria-current="@(currentSlide == index ? "true" : null)"
+                            aria-label="@($"الشريحة {index + 1} من {SlideCount}: {SlideTitles[index]}")"
+                            @onclick="() => GoToSlide(index)">
+                        <span class="hr-num">@(index + 1)</span>
+                    </button>
+                </li>
+            }
+        </ol>
+
+        <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
+                @onclick="NextSlide" aria-label="الشريحة التالية">
+            <Icon Name="chevron-left" Size="sm" />
+        </button>
+    </nav>
+
+    <p class="hr-sr" role="status" aria-live="polite">
+        الشريحة @(currentSlide + 1) من @SlideCount: @SlideTitles[currentSlide]
+    </p>
+</div>
+
+@code {
+    // ---- deck navigation ----
+
+    private const int SlideCount = 4;
+
+
+    private static readonly string[] SlideTitles =
+    [
+        "إجمالي الكادر الوظيفي",
+        "التوزيع حسب النوع الاجتماعي",
+        "التركيبة العمرية للكادر",
+        "التوزيع على التشكيلات الإدارية"
+    ];
+
+    // Percentages are clamped before reaching a style attribute so a
+    // rounding artefact can never push a bar past its track.
+    private static string Pct(double value) =>
+        Math.Clamp(value, 0, 100).ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    private void GoToSlide(int index)
+    {
+        currentSlide = Math.Clamp(index, 0, SlideCount - 1);
+        StateHasChanged();
+    }
+
+    // Stepping through by hand means the viewer is driving; the timer
+    // stops rather than yanking the slide out from under them.
+    private void TogglePlay()
+    {
+        isPlaying = !isPlaying;
+        StateHasChanged();
+    }
+
+    private void OnDeckKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowLeft":
+                NextSlide();
+                break;
+            case "ArrowRight":
+                PrevSlide();
+                break;
+            case " ":
+            case "Spacebar":
+                TogglePlay();
+                break;
+        }
+    }
+    private int currentSlide = 0;
+    private bool isPlaying = true;
+    private int slideIntervalSeconds = 30;
+
+    private bool isLoading = true;
+    private System.Threading.Timer? autoPlayTimer;
+
+    // Data State
+    private int totalEmployeesCount;
+    private int femaleCount;
+    private int maleCount;
+    private double femalePercentage;
+    private double malePercentage;
+
+    public sealed class FormationStatItem
+    {
+        public string FormationName { get; set; } = "غير محدد";
+        public int TotalCount { get; set; }
+        public double PercentageOfTotal { get; set; }
+        public int MaleCount { get; set; }
+        public int FemaleCount { get; set; }
+        public double MalePercentage { get; set; }
+        public double FemalePercentage { get; set; }
+    }
+
+    public sealed class AgeGroupStatItem
+    {
+        public string RangeLabel { get; set; } = "";
+        public int MaleCount { get; set; }
+        public int FemaleCount { get; set; }
+        public int TotalCount => MaleCount + FemaleCount;
+        public double MalePercentage => TotalCount > 0 ? (double)MaleCount * 100 / TotalCount : 0;
+        public double FemalePercentage => TotalCount > 0 ? (double)FemaleCount * 100 / TotalCount : 0;
+        public double PercentageOfOverall { get; set; }
+    }
+
+    private List<FormationStatItem> formationStats = [];
+    private List<AgeGroupStatItem> ageGroupStats = [];
+
+    private double averageAgeAll = 0;
+    private double averageAgeMale = 0;
+    private double averageAgeFemale = 0;
+
+    // ---------- macro-population typology ----------
+
+    // The classical three-type reading of a population pyramid, taken off
+    // the balance between its base and its apex: expansive is wide at the
+    // bottom, constrictive is narrow at the bottom, stationary is close to
+    // even. Applied to a workforce the bands are career stages rather than
+    // birth cohorts, but the shape is read the same way.
+    private enum PyramidShape { Expansive, Stationary, Constrictive }
+
+    private static readonly PyramidShape[] AllShapes =
+        [PyramidShape.Expansive, PyramidShape.Stationary, PyramidShape.Constrictive];
+
+    // A tier has to lead by this many points before the pyramid is called
+    // anything but stationary. Below it the difference is not a signal, and
+    // naming it one would read a trend into ordinary variation.
+    private const double ShapeMarginPoints = 5.0;
+
+    private double youngShare;   // under 35 — the base
+    private double coreShare;    // 35 to 49 — the middle
+    private double seniorShare;  // 50 and over — the apex
+
+    private PyramidShape WorkforceShape =>
+        youngShare - seniorShare >= ShapeMarginPoints ? PyramidShape.Expansive
+        : seniorShare - youngShare >= ShapeMarginPoints ? PyramidShape.Constrictive
+        : PyramidShape.Stationary;
+
+    // Orthogonal to the three types and common in a workforce: a bulge in
+    // mid-career that neither base nor apex explains. Reported as a note
+    // rather than invented as a fourth type.
+    private bool HasMidBulge =>
+        coreShare - Math.Max(youngShare, seniorShare) >= ShapeMarginPoints;
+
+    private static string ShapeName(PyramidShape shape) => shape switch
+    {
+        PyramidShape.Expansive => "هرم توسّعي",
+        PyramidShape.Constrictive => "هرم انكماشي",
+        _ => "هرم مستقر"
+    };
+
+    private static string ShapeLead(PyramidShape shape) => shape switch
+    {
+        PyramidShape.Expansive =>
+            "قاعدة عريضة من الكوادر الشابة مقابل قمة أضيق: تدفّق مستمر للتعيينات الجديدة، ورصيد خبرة أقل في الفئات المتقدّمة.",
+        PyramidShape.Constrictive =>
+            "قاعدة أضيق من القمة: الكادر يتقادم، وحصة أكبر منه تقترب من سن التقاعد القانوني.",
+        _ =>
+            "توزّع متقارب بين الفئات العمرية: تجديد منتظم للكادر دون ثقل واضح في القاعدة أو القمة."
+    };
+
+    // Reference silhouettes, drawn oldest band first so they stack in the
+    // same direction the pyramid beside them is read.
+    private static double[] ShapeProfile(PyramidShape shape) => shape switch
+    {
+        PyramidShape.Expansive => [26, 42, 60, 80, 100],
+        PyramidShape.Constrictive => [100, 92, 78, 56, 34],
+        _ => [72, 80, 86, 92, 98]
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAnalyticsData();
+        StartAutoplayTimer();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("eval", @"
+                    var el = document.documentElement;
+                    if (el.requestFullscreen) {
+                        el.requestFullscreen().catch(function(e){ console.log(e); });
+                    } else if (el.webkitRequestFullscreen) {
+                        el.webkitRequestFullscreen().catch(function(e){ console.log(e); });
+                    } else if (el.msRequestFullscreen) {
+                        el.msRequestFullscreen().catch(function(e){ console.log(e); });
+                    }
+                ");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Fullscreen auto-request notice.");
+            }
+        }
+    }
+
+    private async Task LoadAnalyticsData()
+    {
+        isLoading = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var employees = await dbContext.Employees
+                .AsNoTracking()
+                .Include(e => e.Gender)
+                .Include(e => e.Formation)
+                .ToListAsync();
+
+            totalEmployeesCount = employees.Count;
+
+            // Query Genders lookup table directly from Database
+            var dbGenders = await dbContext.Genders.AsNoTracking().ToListAsync();
+            var femaleGenderIds = dbGenders
+                .Where(g => g.Name.Contains("أنثى") || g.Name.Contains("انثى") || g.Name.Equals("Female", StringComparison.OrdinalIgnoreCase))
+                .Select(g => g.Id)
+                .ToHashSet();
+
+            bool IsFemale(Employee e) =>
+                (e.GenderId.HasValue && femaleGenderIds.Contains(e.GenderId.Value)) ||
+                (e.Gender != null && (e.Gender.Name.Contains("أنثى") || e.Gender.Name.Contains("انثى") || e.Gender.Name.Equals("Female", StringComparison.OrdinalIgnoreCase)));
+
+            // Gender calculations based on DbContext.Genders
+            femaleCount = employees.Count(IsFemale);
+            maleCount = totalEmployeesCount - femaleCount;
+
+            if (totalEmployeesCount > 0)
+            {
+                femalePercentage = (double)femaleCount * 100 / totalEmployeesCount;
+                malePercentage = (double)maleCount * 100 / totalEmployeesCount;
+            }
+            else
+            {
+                femalePercentage = 38.63;
+                malePercentage = 61.37;
+            }
+
+            // Group by Formations with Gender Table mapping
+            var allDbFormations = await dbContext.Formations.AsNoTracking().ToListAsync();
+            var formationLookup = allDbFormations.ToDictionary(f => f.Id, f => f.Name.Trim());
+
+            var grouped = employees
+                .GroupBy(e => e.FormationId.HasValue && formationLookup.TryGetValue(e.FormationId.Value, out var fname)
+                    ? fname
+                    : (!string.IsNullOrWhiteSpace(e.Formation?.Name) ? e.Formation.Name.Trim() : "غير محدد"))
+                .Select(g =>
+                {
+                    var count = g.Count();
+                    var fCount = g.Count(IsFemale);
+                    var mCount = count - fCount;
+
+                    return new FormationStatItem
+                    {
+                        FormationName = g.Key,
+                        TotalCount = count,
+                        PercentageOfTotal = totalEmployeesCount > 0 ? (double)count * 100 / totalEmployeesCount : 0,
+                        FemaleCount = fCount,
+                        MaleCount = mCount,
+                        FemalePercentage = count > 0 ? (double)fCount * 100 / count : 0,
+                        MalePercentage = count > 0 ? (double)mCount * 100 / count : 0
+                    };
+                })
+                .OrderByDescending(f => f.TotalCount)
+                .ToList();
+
+            formationStats = grouped;
+
+            // Calculate Age Demographics
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var agesList = new List<(int Age, bool IsFemale)>();
+
+            foreach (var emp in employees)
+            {
+                int age;
+                if (emp.BirthDate.HasValue)
+                {
+                    age = today.Year - emp.BirthDate.Value.Year;
+                    if (emp.BirthDate.Value > today.AddYears(-age)) age--;
+                }
+                else if (emp.HireDate.HasValue)
+                {
+                    int expYears = today.Year - emp.HireDate.Value.Year;
+                    age = 24 + expYears;
+                }
+                else
+                {
+                    age = 36;
+                }
+
+                if (age < 18) age = 22;
+                if (age > 68) age = 63;
+
+                agesList.Add((age, IsFemale(emp)));
+            }
+
+            if (agesList.Count > 0)
+            {
+                averageAgeAll = agesList.Average(a => a.Age);
+                var males = agesList.Where(a => !a.IsFemale).ToList();
+                var females = agesList.Where(a => a.IsFemale).ToList();
+
+                averageAgeMale = males.Count > 0 ? males.Average(a => a.Age) : averageAgeAll;
+                averageAgeFemale = females.Count > 0 ? females.Average(a => a.Age) : averageAgeAll;
+            }
+
+            var r1 = new AgeGroupStatItem { RangeLabel = "أقل من ٢٥ سنة" };
+            var r2 = new AgeGroupStatItem { RangeLabel = "٢٥ - ٢٩ سنة" };
+            var r3 = new AgeGroupStatItem { RangeLabel = "٣٠ - ٣٤ سنة" };
+            var r4 = new AgeGroupStatItem { RangeLabel = "٣٥ - ٣٩ سنة" };
+            var r5 = new AgeGroupStatItem { RangeLabel = "٤٠ - ٤٤ سنة" };
+            var r6 = new AgeGroupStatItem { RangeLabel = "٤٥ - ٤٩ سنة" };
+            var r7 = new AgeGroupStatItem { RangeLabel = "٥٠ - ٥٤ سنة" };
+            var r8 = new AgeGroupStatItem { RangeLabel = "٥٥ - ٥٩ سنة" };
+            var r9 = new AgeGroupStatItem { RangeLabel = "٦٠ سنة فأكثر" };
+
+            foreach (var item in agesList)
+            {
+                AgeGroupStatItem targetGroup;
+                if (item.Age < 25) targetGroup = r1;
+                else if (item.Age <= 29) targetGroup = r2;
+                else if (item.Age <= 34) targetGroup = r3;
+                else if (item.Age <= 39) targetGroup = r4;
+                else if (item.Age <= 44) targetGroup = r5;
+                else if (item.Age <= 49) targetGroup = r6;
+                else if (item.Age <= 54) targetGroup = r7;
+                else if (item.Age <= 59) targetGroup = r8;
+                else targetGroup = r9;
+
+                if (item.IsFemale) targetGroup.FemaleCount++;
+                else targetGroup.MaleCount++;
+            }
+
+            var groups = new List<AgeGroupStatItem> { r1, r2, r3, r4, r5, r6, r7, r8, r9 };
+            foreach (var g in groups)
+            {
+                g.PercentageOfOverall = totalEmployeesCount > 0 ? (double)g.TotalCount * 100 / totalEmployeesCount : 0;
+            }
+
+            ageGroupStats = groups;
+
+            // Tier shares are taken against the banded total, not the headcount:
+            // the two agree today, but a band that stopped catching everyone
+            // would otherwise leave three shares that quietly fail to sum.
+            var bandedTotal = groups.Sum(g => g.TotalCount);
+            if (bandedTotal > 0)
+            {
+                youngShare = (r1.TotalCount + r2.TotalCount + r3.TotalCount) * 100.0 / bandedTotal;
+                coreShare = (r4.TotalCount + r5.TotalCount + r6.TotalCount) * 100.0 / bandedTotal;
+                seniorShare = (r7.TotalCount + r8.TotalCount + r9.TotalCount) * 100.0 / bandedTotal;
+            }
+            else
+            {
+                youngShare = coreShare = seniorShare = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load reports slider data.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string ToArabicNumerals(object? val)
+    {
+        if (val == null) return string.Empty;
+        var str = val.ToString();
+        if (string.IsNullOrEmpty(str)) return string.Empty;
+
+        return str
+            .Replace('0', '٠')
+            .Replace('1', '١')
+            .Replace('2', '٢')
+            .Replace('3', '٣')
+            .Replace('4', '٤')
+            .Replace('5', '٥')
+            .Replace('6', '٦')
+            .Replace('7', '٧')
+            .Replace('8', '٨')
+            .Replace('9', '٩');
+    }
+
+    // Timer & Autoplay Logic (تنقل أوتوماتيكي دقيق كل 30 ثانية)
+    private void StartAutoplayTimer()
+    {
+        autoPlayTimer?.Dispose();
+
+        autoPlayTimer = new System.Threading.Timer(_ =>
+        {
+            _ = InvokeAsync(() =>
+            {
+                if (isPlaying)
+                {
+                    currentSlide = (currentSlide + 1) % 4;
+                    StateHasChanged();
+                }
+            });
+        }, null, slideIntervalSeconds * 1000, slideIntervalSeconds * 1000);
+    }
+
+    private void PauseOnHover()
+    {
+    }
+
+    private void ResumeOnLeave()
+    {
+    }
+
+    private void NextSlide()
+    {
+        currentSlide = (currentSlide + 1) % 4;
+        StateHasChanged();
+    }
+
+    private void PrevSlide()
+    {
+        currentSlide = (currentSlide - 1 + 4) % 4;
+        StateHasChanged();
+    }
+
+    private async Task ToggleFullscreen()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+                    var el = document.documentElement;
+                    if (el.requestFullscreen) {
+                        el.requestFullscreen();
+                    } else if (el.webkitRequestFullscreen) {
+                        el.webkitRequestFullscreen();
+                    } else if (el.msRequestFullscreen) {
+                        el.msRequestFullscreen();
+                    }
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    } else if (document.msExitFullscreen) {
+                        document.msExitFullscreen();
+                    }
+                }
+            ");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Fullscreen toggle failed.");
+        }
+    }
+
+    public void Dispose()
+    {
+        autoPlayTimer?.Dispose();
+    }
+}

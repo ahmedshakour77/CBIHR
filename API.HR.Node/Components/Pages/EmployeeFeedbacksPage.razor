@@ -1,0 +1,663 @@
+@page "/employee-feedbacks"
+@attribute [Authorize(Policy = AuthorizationPolicies.ManageFeedback)]
+@rendermode InteractiveServer
+
+@using System.Security.Claims
+@using API.HR.Node.Data.Feedback
+@using API.HR.Node.Security
+@using API.HR.Node.Services.Feedback
+@using API.HR.Node.Services.Localization
+@using API.HR.Node.Components.Layout
+@inject IEmployeeFeedbackService FeedbackService
+@inject ILanguageService Lang
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+
+<PageTitle>مشاركات الموظفين | إدارة الموارد البشرية</PageTitle>
+
+<div class="hr-stack">
+    <!-- Header -->
+    <div class="hr-pagehead">
+        <nav class="hr-crumbs" aria-label="مسار التنقل">
+            <a href="" class="hr-crumb">
+                <Icon Name="home" Size="xs" />
+                <span>الرئيسية</span>
+            </a>
+            <span class="hr-crumb-sep" aria-hidden="true">/</span>
+            <span class="hr-crumb is-current" aria-current="page">مشاركات الموظفين</span>
+        </nav>
+
+        <div class="hr-pagehead-actions">
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <a href="admin/features" class="hr-btn hr-btn-secondary hr-btn-sm" title="لوحة التحكم بالميزات وتلقي المشاركات">
+                        <Icon Name="adjustments-horizontal" Size="xs" />
+                        <span>إعدادات وتخصيص المشاركات</span>
+                    </a>
+                </Authorized>
+            </AuthorizeView>
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="LoadDataAsync" disabled="@isLoading">
+                <Icon Name="arrow-path" Size="xs" />
+                <span>تحديث البيانات</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Title and Lead -->
+    <div class="hr-card" style="background: color-mix(in srgb, var(--accent) 8%, transparent); border:1px solid color-mix(in srgb, var(--accent-text) 40%, var(--line));">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+            <div>
+                <h1 class="hr-h1" style="margin:0 0 0.25rem 0;">مشاركات الموظفين ومقترحات الكادر</h1>
+                <p class="hr-sub" style="margin:0;">
+                    متابعة واستعراض كافة الملاحظات، الأفكار، الاستفسارات، والشكاوى الوظيفية المرسلة من قبل الموظفين، مع إمكانية الرد وتحديث الحالة.
+                </p>
+            </div>
+            <span class="hr-badge hr-badge-accent" style="font-size:var(--fs-control); padding:0.4rem 0.85rem;">
+                <Icon Name="chat-bubble-left-right" Size="xs" />
+                <span>صلاحية إدارة التواصل</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    <div class="hr-grid-kpi">
+        <div class="hr-card hr-stat hr-stat-a">
+            <div class="hr-stat-label">
+                <span>إجمالي المشاركات</span>
+                <span class="hr-iconplate hr-plate-a" aria-hidden="true"><Icon Name="chat-bubble-left-right" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpis.TotalCount</strong>
+            <p class="hr-stat-foot">أفكار، ملاحظات، واستفسارات</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-warn">
+            <div class="hr-stat-label">
+                <span>بانتظار المراجعة</span>
+                <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true"><Icon Name="clock" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpis.PendingCount</strong>
+            <p class="hr-stat-foot">مشاركات جديدة لم تُعالج</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-b">
+            <div class="hr-stat-label">
+                <span>قيد المعالجة</span>
+                <span class="hr-iconplate hr-plate-b" aria-hidden="true"><Icon Name="arrow-path" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpis.InProgressCount</strong>
+            <p class="hr-stat-foot">قيد الإجراء والتدقيق</p>
+        </div>
+
+        <div class="hr-card hr-stat hr-stat-ok">
+            <div class="hr-stat-label">
+                <span>تمت المعالجة</span>
+                <span class="hr-iconplate hr-iconplate-ok" aria-hidden="true"><Icon Name="check-circle" Size="sm" /></span>
+            </div>
+            <strong class="hr-stat-figure">@kpis.ResolvedCount</strong>
+            <p class="hr-stat-foot">تم الرد والاعتماد</p>
+        </div>
+    </div>
+
+    <!-- Filter & Search Toolbar -->
+    <div class="hr-card">
+        <div style="display:flex; flex-wrap:wrap; gap:1rem; align-items:center; justify-content:space-between;">
+            <!-- Search Input -->
+            <div style="flex:1; min-width:min(240px, 100%); position:relative;">
+                <input aria-label="بحث باسم الموظف، رقمه الوظيفي، عنوان المشاركة، أو الكود المرجعي" type="text"
+                       class="hr-input"
+                       placeholder="بحث باسم الموظف، رقمه الوظيفي، عنوان المشاركة، أو الكود المرجعي..."
+                       @bind="searchTerm"
+                       @bind:event="oninput"
+                       @onkeyup="HandleSearchKeyUp" />
+            </div>
+
+            <!-- Type Filter Chips -->
+            <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                <button type="button"
+                        class="hr-btn hr-btn-sm @(selectedTypeFilter == "all" ? "hr-btn-primary" : "hr-btn-secondary")"
+                        @onclick='() => ChangeTypeFilter("all")'>
+                    الكل (@kpis.TotalCount)
+                </button>
+                <button type="button"
+                        class="hr-btn hr-btn-sm @(selectedTypeFilter == "فكرة" ? "hr-btn-primary" : "hr-btn-secondary")"
+                        @onclick='() => ChangeTypeFilter("فكرة")'>
+                    <Icon Name="light-bulb" Size="xs" />
+                    <span>فكرة (@kpis.IdeasCount)</span>
+                </button>
+                <button type="button"
+                        class="hr-btn hr-btn-sm @(selectedTypeFilter == "ملاحظة" ? "hr-btn-primary" : "hr-btn-secondary")"
+                        @onclick='() => ChangeTypeFilter("ملاحظة")'>
+                    <Icon Name="document-text" Size="xs" />
+                    <span>ملاحظة (@kpis.NotesCount)</span>
+                </button>
+                <button type="button"
+                        class="hr-btn hr-btn-sm @(selectedTypeFilter == "استفسار" ? "hr-btn-primary" : "hr-btn-secondary")"
+                        @onclick='() => ChangeTypeFilter("استفسار")'>
+                    <Icon Name="question-mark-circle" Size="xs" />
+                    <span>استفسار (@kpis.InquiriesCount)</span>
+                </button>
+                <button type="button"
+                        class="hr-btn hr-btn-sm @(selectedTypeFilter == "شكوى" ? "hr-btn-primary" : "hr-btn-secondary")"
+                        @onclick='() => ChangeTypeFilter("شكوى")'>
+                    <Icon Name="exclamation-triangle" Size="xs" />
+                    <span>شكوى (@kpis.ComplaintsCount)</span>
+                </button>
+                <button type="button"
+                        class="hr-btn hr-btn-sm @(selectedTypeFilter == "أخرى" ? "hr-btn-primary" : "hr-btn-secondary")"
+                        @onclick='() => ChangeTypeFilter("أخرى")'>
+                    <span>أخرى (@kpis.OthersCount)</span>
+                </button>
+            </div>
+
+            <!-- Status Filter Dropdown -->
+            <div>
+                <select class="hr-select" aria-label="تصفية حسب الحالة" style="min-width:160px;" value="@selectedStatusFilterString" @onchange="HandleStatusChanged">
+                    <option value="all">جميع الحالات</option>
+                    <option value="@((int)FeedbackStatus.Pending)">بانتظار المراجعة</option>
+                    <option value="@((int)FeedbackStatus.InProgress)">قيد المعالجة</option>
+                    <option value="@((int)FeedbackStatus.Resolved)">تمت المعالجة</option>
+                    <option value="@((int)FeedbackStatus.Rejected)">مرفوض / محفوظ</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedbacks Table -->
+    @if (isLoading)
+    {
+        <div class="hr-card" style="padding:3rem; text-align:center;">
+            <div class="hr-spinner hr-spinner-lg" style="margin:0 auto 1rem auto;" aria-hidden="true"></div>
+            <p class="hr-h3">جارٍ تحميل مشاركات وتواصل الموظفين…</p>
+        </div>
+    }
+    else if (pagedResult == null || pagedResult.Items.Count == 0)
+    {
+        <div class="hr-card">
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true">
+                    <Icon Name="chat-bubble-left-right" Size="lg" />
+                </span>
+                <p class="hr-h3">لا توجد مشاركات مطابقة</p>
+                <p class="hr-sub hr-measure-sm">
+                    لم يتم العثور على أي مقترحات أو استفسارات تطابق محددات البحث الحالية. يمكنك تعديل خيارات التصفية أو مسح عبارة البحث.
+                </p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="hr-card" style="padding:0; overflow:hidden;">
+            <div class="hr-tablewrap">
+                <table class="hr-table">
+                    <caption class="hr-sr">قائمة مشاركات وتواصل الموظفين</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col" style="min-width:210px;">الموظف المرسل</th>
+                            <th scope="col" style="min-width:130px;">نوع التواصل</th>
+                            <th scope="col" style="min-width:260px;">الموضوع والوصف</th>
+                            <th scope="col" style="min-width:150px;">الملف المرفق</th>
+                            <th scope="col" style="min-width:130px;">تاريخ الإرسال</th>
+                            <th scope="col" style="min-width:130px;">الحالة التنفيذية</th>
+                            <th scope="col" style="width:110px; text-align:center;">الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var fb in pagedResult.Items)
+                        {
+                            <tr @key="fb.Id">
+                                <!-- Employee Info with Avatar -->
+                                <td>
+                                    <div style="display:flex; align-items:center; gap:0.65rem;">
+                                        <UserAvatar EmployeeId="@(fb.Employee?.EmployeeID ?? fb.EmployeeId?.ToString())"
+                                                    UserName="@fb.SubmitterName"
+                                                    Size="md" />
+                                        <div class="hr-truncate" style="min-width:0;">
+                                            <strong class="hr-cell-strong hr-truncate" title="@fb.SubmitterName">
+                                                @(fb.Employee?.Name ?? fb.SubmitterName ?? "موظف")
+                                            </strong>
+                                            <div class="hr-meta" style="font-size:var(--fs-caption);">
+                                                @if (fb.Employee != null)
+                                                {
+                                                    <span>الرقم: <strong class="hr-num">@fb.Employee.EmployeeID</strong></span>
+                                                    @if (!string.IsNullOrWhiteSpace(fb.SubmitterDepartment))
+                                                    {
+                                                        <span> · @fb.SubmitterDepartment</span>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span>@(fb.SubmitterEmail ?? "حساب موظف")</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <!-- Feedback Type Badge -->
+                                <td>
+                                    @switch (fb.FeedbackType)
+                                    {
+                                        case "فكرة":
+                                            <span class="hr-badge hr-badge-accent" style="background: color-mix(in srgb, var(--accent) 12%, transparent); color:var(--accent-text); font-weight:700;">
+                                                <Icon Name="light-bulb" Size="xs" />
+                                                <span>فكرة / مقترح</span>
+                                            </span>
+                                            break;
+                                        case "ملاحظة":
+                                            <span class="hr-badge" style="background: color-mix(in srgb, var(--series-2) 12%, transparent); color:var(--series-2); font-weight:700;">
+                                                <Icon Name="document-text" Size="xs" />
+                                                <span>ملاحظة</span>
+                                            </span>
+                                            break;
+                                        case "استفسار":
+                                            <span class="hr-badge" style="background: color-mix(in srgb, var(--warn) 15%, transparent); color:var(--warn); font-weight:700;">
+                                                <Icon Name="question-mark-circle" Size="xs" />
+                                                <span>استفسار</span>
+                                            </span>
+                                            break;
+                                        case "شكوى":
+                                            <span class="hr-badge hr-badge-danger" style="background: color-mix(in srgb, var(--danger) 12%, transparent); color:var(--danger); font-weight:700;">
+                                                <Icon Name="exclamation-triangle" Size="xs" />
+                                                <span>شكوى</span>
+                                            </span>
+                                            break;
+                                        default:
+                                            <span class="hr-badge">
+                                                <Icon Name="chat-bubble-left-right" Size="xs" />
+                                                <span>@fb.FeedbackType</span>
+                                            </span>
+                                            break;
+                                    }
+                                    <div class="hr-meta hr-num" style="font-size:var(--fs-caption); margin-top:0.25rem;">
+                                        @fb.ReferenceNumber
+                                    </div>
+                                </td>
+
+                                <!-- Title and Description -->
+                                <td>
+                                    <div style="display:flex; flex-direction:column; gap:0.2rem;">
+                                        <strong class="hr-cell-strong" style="font-size:var(--fs-body);">@fb.Title</strong>
+                                        <p class="hr-meta hr-truncate" style="margin:0; max-width:380px;" title="@fb.Description">
+                                            @fb.Description
+                                        </p>
+                                        <span class="hr-meta" style="font-size:var(--fs-caption);">
+                                            عدد الكلمات: <span class="hr-num">@fb.WordCount</span> كلمة
+                                        </span>
+                                    </div>
+                                </td>
+
+                                <!-- Attachment -->
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(fb.AttachmentFileName))
+                                    {
+                                        <div style="display:flex; flex-direction:column; gap:0.25rem; align-items:flex-start;">
+                                            <a href="api/feedback/attachment/@fb.Id"
+                                               target="_blank"
+                                               class="hr-btn hr-btn-secondary hr-btn-xs"
+                                               title="تحميل الملف المرفق: @fb.AttachmentFileName">
+                                                <Icon Name="arrow-down-tray" Size="xs" />
+                                                <span class="hr-truncate" style="max-width:130px;">@fb.AttachmentFileName</span>
+                                            </a>
+                                            <span class="hr-meta" style="font-size:var(--fs-caption);">
+                                                @(fb.AttachmentSizeBytes.HasValue ? FormatFileSize(fb.AttachmentSizeBytes.Value) : "")
+                                            </span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-meta" style="font-size:var(--fs-label);">بدون مرفق</span>
+                                    }
+                                </td>
+
+                                <!-- Submission Date -->
+                                <td>
+                                    <span class="hr-cell-strong hr-num" style="font-size:var(--fs-label);">
+                                        @fb.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd")
+                                    </span>
+                                    <div class="hr-meta hr-num" style="font-size:var(--fs-caption);">
+                                        @fb.CreatedAt.ToLocalTime().ToString("HH:mm")
+                                    </div>
+                                </td>
+
+                                <!-- Status -->
+                                <td>
+                                    @switch (fb.Status)
+                                    {
+                                        case FeedbackStatus.Pending:
+                                            <span class="hr-badge hr-badge-warn">
+                                                <Icon Name="clock" Size="xs" />
+                                                <span>بانتظار المراجعة</span>
+                                            </span>
+                                            break;
+                                        case FeedbackStatus.InProgress:
+                                            <span class="hr-badge hr-badge-accent">
+                                                <Icon Name="arrow-path" Size="xs" />
+                                                <span>قيد المعالجة</span>
+                                            </span>
+                                            break;
+                                        case FeedbackStatus.Resolved:
+                                            <span class="hr-badge hr-badge-ok">
+                                                <Icon Name="check-circle" Size="xs" />
+                                                <span>تمت المعالجة</span>
+                                            </span>
+                                            break;
+                                        case FeedbackStatus.Rejected:
+                                            <span class="hr-badge hr-badge-danger">
+                                                <Icon Name="x-mark" Size="xs" />
+                                                <span>مرفوض / محفوظ</span>
+                                            </span>
+                                            break;
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(fb.AdminNotes))
+                                    {
+                                        <div class="hr-meta hr-truncate" style="font-size:var(--fs-caption); max-width:140px; margin-top:0.25rem;" title="@fb.AdminNotes">
+                                            الرد: @fb.AdminNotes
+                                        </div>
+                                    }
+                                </td>
+
+                                <!-- Action Buttons -->
+                                <td style="text-align:center;">
+                                    <button type="button"
+                                            class="hr-btn hr-btn-secondary hr-btn-xs"
+                                            @onclick="() => OpenDetailModal(fb)">
+                                        <span>تفاصيل / رد</span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            @if (pagedResult.TotalPages > 1)
+            {
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:1rem 1.5rem; border-top:1px solid var(--line);flex-wrap:wrap;gap:var(--s-2);">
+                    <span class="hr-meta">
+                        عرض الصفحة <strong class="hr-num">@pagedResult.Page</strong> من <strong class="hr-num">@pagedResult.TotalPages</strong> (إجمالي <strong class="hr-num">@pagedResult.TotalCount</strong> مشاركة)
+                    </span>
+                    <div style="display:flex; gap:0.5rem;">
+                        <button type="button"
+                                class="hr-btn hr-btn-secondary hr-btn-sm"
+                                disabled="@(pagedResult.Page <= 1)"
+                                @onclick="() => ChangePage(pagedResult.Page - 1)">
+                            السابق
+                        </button>
+                        <button type="button"
+                                class="hr-btn hr-btn-secondary hr-btn-sm"
+                                disabled="@(pagedResult.Page >= pagedResult.TotalPages)"
+                                @onclick="() => ChangePage(pagedResult.Page + 1)">
+                            التالي
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Modal: View Details & Update Status -->
+@if (activeFeedback != null)
+{
+    <div class="hr-feedback-backdrop" @onclick="CloseDetailModal">
+        <div class="hr-feedback-modal" @onclick:stopPropagation="true" style="max-width:720px;" role="dialog" aria-modal="true" aria-labelledby="feedback-modal-title" tabindex="-1" @onkeydown="OnModalKeyDown">
+            <div class="hr-feedback-head">
+                <div class="hr-feedback-lead">
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true">
+                        <Icon Name="chat-bubble-left-right" Size="sm" />
+                    </span>
+                    <div>
+                        <h2 id="feedback-modal-title" class="hr-h2" style="margin:0;">تفاصيل المشاركة: @activeFeedback.ReferenceNumber</h2>
+                        <span class="hr-meta">تاريخ الإرسال: @activeFeedback.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</span>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm" @onclick="CloseDetailModal" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            <div class="hr-feedback-body">
+                <!-- Submitter Info Banner -->
+                <div class="hr-card" style="background:var(--surface-sunken); padding:1rem;">
+                    <div style="display:flex; align-items:center; gap:0.85rem;">
+                        <UserAvatar EmployeeId="@(activeFeedback.Employee?.EmployeeID ?? activeFeedback.EmployeeId?.ToString())"
+                                    UserName="@activeFeedback.SubmitterName"
+                                    Size="lg" />
+                        <div>
+                            <strong class="hr-cell-strong" style="font-size:var(--fs-lead);">
+                                @(activeFeedback.Employee?.Name ?? activeFeedback.SubmitterName ?? "موظف")
+                            </strong>
+                            <div class="hr-meta" style="margin-top:0.15rem;">
+                                @if (activeFeedback.Employee != null)
+                                {
+                                    <span>الرقم الوظيفي: <strong class="hr-num">@activeFeedback.Employee.EmployeeID</strong></span>
+                                    <span> · @activeFeedback.SubmitterJobTitle</span>
+                                    <span> · @activeFeedback.SubmitterDepartment</span>
+                                }
+                                else
+                                {
+                                    <span>البريد: @activeFeedback.SubmitterEmail</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Type & Title -->
+                <div>
+                    <span class="hr-meta" style="display:block; margin-bottom:0.25rem;">نوع المشاركة والموضوع:</span>
+                    <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                        <span class="hr-badge hr-badge-accent">@activeFeedback.FeedbackType</span>
+                        <h3 class="hr-h3" style="margin:0;">@activeFeedback.Title</h3>
+                    </div>
+                </div>
+
+                <!-- Description Full -->
+                <div style="background:var(--surface-inset); padding:1rem; border-radius:var(--r-md); border:1px solid var(--line);">
+                    <span class="hr-meta" style="display:block; margin-bottom:0.4rem; font-weight:700;">الوصف الكامل:</span>
+                    <p style="white-space:pre-wrap; line-height:1.7; margin:0; color:var(--text);">@activeFeedback.Description</p>
+                    <div class="hr-meta" style="margin-top:0.75rem; text-align:left;">
+                        عدد الكلمات: <span class="hr-num">@activeFeedback.WordCount</span> كلمة
+                    </div>
+                </div>
+
+                <!-- Attachment (if any) -->
+                @if (!string.IsNullOrWhiteSpace(activeFeedback.AttachmentFileName))
+                {
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem 1rem; border:1px solid var(--line); border-radius:var(--r-md);flex-wrap:wrap;gap:var(--s-2);">
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <span class="hr-iconplate hr-plate-b" aria-hidden="true"><Icon Name="document-text" Size="xs" /></span>
+                            <div>
+                                <strong class="hr-cell-strong">@activeFeedback.AttachmentFileName</strong>
+                                <span class="hr-meta"> · @(activeFeedback.AttachmentSizeBytes.HasValue ? FormatFileSize(activeFeedback.AttachmentSizeBytes.Value) : "")</span>
+                            </div>
+                        </div>
+                        <a href="api/feedback/attachment/@activeFeedback.Id" target="_blank" class="hr-btn hr-btn-primary hr-btn-xs">
+                            <Icon Name="arrow-down-tray" Size="xs" />
+                            <span>تحميل المرفق</span>
+                        </a>
+                    </div>
+                }
+
+                <hr style="border:0; border-top:1px solid var(--line); margin:0.5rem 0;" />
+
+                <!-- Status Update Section -->
+                <div class="hr-feedback-field">
+                    <label class="hr-label" for="update-status">تحديث الحالة الإدارية</label>
+                    <select id="update-status" class="hr-input" @bind="modalStatus">
+                        <option value="@FeedbackStatus.Pending">بانتظار المراجعة</option>
+                        <option value="@FeedbackStatus.InProgress">قيد المعالجة والدراسة</option>
+                        <option value="@FeedbackStatus.Resolved">تمت المعالجة والرد</option>
+                        <option value="@FeedbackStatus.Rejected">مرفوض أو محفوظ</option>
+                    </select>
+                </div>
+
+                <div class="hr-feedback-field">
+                    <label class="hr-label" for="admin-reply">ملاحظات الإدارة أو الرد على الموظف</label>
+                    <textarea id="admin-reply"
+                              class="hr-input"
+                              rows="3"
+                              placeholder="اكتب رد الإدارة أو التوجيهات الصادرة بخصوص هذه المشاركة..."
+                              @bind="modalAdminNotes"></textarea>
+                </div>
+
+                @if (activeFeedback.RespondedAt.HasValue)
+                {
+                    <p class="hr-meta" style="font-size:var(--fs-caption);">
+                        آخر رد بواسطة: <strong>@activeFeedback.RespondedByUserName</strong> في @activeFeedback.RespondedAt.Value.ToLocalTime().ToString("yyyy/MM/dd HH:mm")
+                    </p>
+                }
+            </div>
+
+            <div class="hr-feedback-foot">
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CloseDetailModal">إلغاء</button>
+                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="SaveStatusUpdateAsync" disabled="@isSavingStatus">
+                    @if (isSavingStatus)
+                    {
+                        <span class="hr-spinner hr-spinner-xs" aria-hidden="true"></span>
+                        <span>جارٍ الحفظ…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="check" Size="xs" />
+                        <span>حفظ التعديلات والرد</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool isSavingStatus = false;
+    private string searchTerm = string.Empty;
+    private string selectedTypeFilter = "all";
+    private string selectedStatusFilterString = "all";
+    private int currentPage = 1;
+    private const int PageSize = 20;
+
+    private FeedbackPagedResult<EmployeeFeedback>? pagedResult;
+    private FeedbackKpisDto kpis = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    private EmployeeFeedback? activeFeedback;
+    private FeedbackStatus modalStatus;
+    private string modalAdminNotes = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            kpis = await FeedbackService.GetFeedbackKpisAsync();
+
+            FeedbackStatus? statusFilter = null;
+            if (int.TryParse(selectedStatusFilterString, out var sInt) && Enum.IsDefined(typeof(FeedbackStatus), sInt))
+            {
+                statusFilter = (FeedbackStatus)sInt;
+            }
+
+            var filter = new FeedbackFilterDto(
+                Type: selectedTypeFilter == "all" ? null : selectedTypeFilter,
+                Status: statusFilter,
+                SearchTerm: string.IsNullOrWhiteSpace(searchTerm) ? null : searchTerm.Trim(),
+                Page: currentPage,
+                PageSize: PageSize
+            );
+
+            pagedResult = await FeedbackService.GetFeedbacksForAdminAsync(filter);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ChangeTypeFilter(string type)
+    {
+        selectedTypeFilter = type;
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task HandleStatusChanged(ChangeEventArgs e)
+    {
+        selectedStatusFilterString = e.Value?.ToString() ?? "all";
+        currentPage = 1;
+        await LoadDataAsync();
+    }
+
+    private async Task HandleSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            currentPage = 1;
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task ChangePage(int newPage)
+    {
+        currentPage = newPage;
+        await LoadDataAsync();
+    }
+
+    private void OpenDetailModal(EmployeeFeedback fb)
+    {
+        activeFeedback = fb;
+        modalStatus = fb.Status;
+        modalAdminNotes = fb.AdminNotes ?? string.Empty;
+    }
+
+    private void CloseDetailModal()
+    {
+        activeFeedback = null;
+    }
+
+    private void OnModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseDetailModal();
+    }
+
+    private async Task SaveStatusUpdateAsync()
+    {
+        if (activeFeedback == null || isSavingStatus) return;
+
+        isSavingStatus = true;
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var success = await FeedbackService.UpdateFeedbackStatusAsync(
+                activeFeedback.Id,
+                modalStatus,
+                modalAdminNotes,
+                auth.User);
+
+            if (success)
+            {
+                activeFeedback.Status = modalStatus;
+                activeFeedback.AdminNotes = modalAdminNotes;
+                activeFeedback = null;
+                await LoadDataAsync();
+            }
+        }
+        finally
+        {
+            isSavingStatus = false;
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{(bytes / 1024.0):F1} KB";
+        return $"{(bytes / (1024.0 * 1024.0)):F2} MB";
+    }
+}

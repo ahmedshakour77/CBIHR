@@ -1,0 +1,34 @@
+@using API.HR.Node.Components.Account.Shared
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized Context="authContext">
+                @if (authContext.User.Identity?.IsAuthenticated == true)
+                {
+                    <LayoutView Layout="typeof(Layout.EmployeeLayout)">
+                        <div class="hr-stack" style="max-width:560px; margin:3rem auto; text-align:center;">
+                            <div class="hr-card" style="padding:2.5rem 1.5rem;">
+                                <div class="hr-empty-art hr-empty-art-danger" style="margin-inline: auto; margin-block-end: var(--s-4);" aria-hidden="true">
+                                    <Icon Name="shield-exclamation" Size="lg" />
+                                </div>
+                                <h1 class="hr-h2" style="margin-bottom:.5rem;">غير مصرّح لك بالوصول لهذه الصفحة</h1>
+                                <p class="hr-sub" style="margin-bottom:1.5rem;">
+                                    هذه الصفحة تتطلب صلاحيات إدارية خاصة غير مسندة إلى حسابك الحالي.
+                                </p>
+                                <a href="portal" class="hr-btn hr-btn-primary">
+                                    <Icon Name="home" Size="sm" />
+                                    <span>الذهاب إلى بوابة الموظف</span>
+                                </a>
+                            </div>
+                        </div>
+                    </LayoutView>
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

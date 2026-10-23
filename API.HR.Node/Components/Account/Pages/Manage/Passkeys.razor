@@ -1,0 +1,221 @@
+﻿@page "/Account/Manage/Passkeys"
+
+@using API.HR.Node.Data
+@using Microsoft.AspNetCore.Identity
+@using System.Buffers.Text
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>مفاتيح المرور | منظومة الموارد البشرية</PageTitle>
+
+@*
+    Rename and delete sit on the same row. They are separated and given
+    different weight, because the scaffolded pair — two same-sized buttons
+    side by side, one of them destructive — is easy to hit by momentum.
+
+    The cap on registered passkeys is stated as a count next to the heading,
+    so reaching it is expected rather than discovered when the add control
+    disappears.
+*@
+
+<div class="hr-stack-sm">
+    <StatusMessage />
+
+    <section class="hr-card">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true"><Icon Name="finger-print" Size="sm" /></span>
+                <div class="hr-idcell-text">
+                    <h2 class="hr-h2">مفاتيح المرور</h2>
+                    <p class="hr-meta" style="margin-block-start:.25rem">
+                        <span class="hr-num">@(currentPasskeys?.Count ?? 0)</span>
+                        من <span class="hr-num">@MaxPasskeyCount</span> مفاتيح مسجّلة
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card-body">
+            @if (currentPasskeys is { Count: > 0 })
+            {
+                <ul class="hr-contactlist">
+                    @foreach (var passkey in currentPasskeys)
+                    {
+                        var credentialId = Base64Url.EncodeToString(passkey.CredentialId);
+                        <li class="hr-contactrow" @key="credentialId">
+                            <span class="hr-contactrow-value">@(passkey.Name ?? "مفتاح بلا اسم")</span>
+
+                            <form @formname="@($"update-passkey-{credentialId}")" @onsubmit="UpdatePasskey" method="post">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="CredentialId" value="@credentialId" />
+
+                                <div class="hr-rowactions">
+                                    <button type="submit" name="Action" value="rename" class="hr-btn hr-btn-secondary hr-btn-sm">
+                                        <Icon Name="pencil-square" Size="xs" />
+                                        <span>إعادة تسمية</span>
+                                    </button>
+
+                                    <span class="hr-rowactions-sep" aria-hidden="true"></span>
+
+                                    <button type="submit" name="Action" value="delete"
+                                            class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
+                                            aria-label="@($"حذف المفتاح {passkey.Name ?? "بلا اسم"}")"
+                                            title="حذف المفتاح">
+                                        <Icon Name="trash" Size="xs" />
+                                    </button>
+                                </div>
+                            </form>
+                        </li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <p class="hr-contactempty">لا توجد مفاتيح مرور مسجّلة على حسابك.</p>
+            }
+        </div>
+
+        <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
+            <form @formname="add-passkey" @onsubmit="AddPasskey" method="post">
+                <AntiforgeryToken />
+                @if (currentPasskeys is { Count: >= MaxPasskeyCount })
+                {
+                    <p class="hr-error">
+                        <Icon Name="exclamation-circle" Size="xs" />
+                        <span>بلغت الحد الأقصى للمفاتيح. احذف مفتاحاً قبل إضافة آخر.</span>
+                    </p>
+                }
+                else
+                {
+                    <PasskeySubmit Operation="PasskeyOperation.Create" Name="Input" class="hr-btn hr-btn-primary">
+                        إضافة مفتاح مرور
+                    </PasskeySubmit>
+                }
+            </form>
+        </div>
+    </section>
+</div>
+
+@code {
+    private const int MaxPasskeyCount = 100;
+
+    private ApplicationUser? user;
+    private IList<UserPasskeyInfo>? currentPasskeys;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private string? Action { get; set; }
+
+    [SupplyParameterFromForm]
+    private string? CredentialId { get; set; }
+
+    [SupplyParameterFromForm(FormName = "add-passkey")]
+    private PasskeyInputModel Input { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+        currentPasskeys = await UserManager.GetPasskeysAsync(user);
+    }
+
+    private async Task AddPasskey()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(Input.Error))
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus($"Error: {Input.Error}", HttpContext);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(Input.CredentialJson))
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: لم يقدّم المتصفح مفتاح مرور.", HttpContext);
+            return;
+        }
+
+        if (currentPasskeys!.Count >= MaxPasskeyCount)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: بلغت الحد الأقصى لعدد مفاتيح المرور المسموح بها.", HttpContext);
+            return;
+        }
+
+        var attestationResult = await SignInManager.PerformPasskeyAttestationAsync(Input.CredentialJson);
+        if (!attestationResult.Succeeded)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus($"Error: تعذّرت إضافة مفتاح المرور: {attestationResult.Failure.Message}", HttpContext);
+            return;
+        }
+
+        var addPasskeyResult = await UserManager.AddOrUpdatePasskeyAsync(user, attestationResult.Passkey);
+        if (!addPasskeyResult.Succeeded)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: تعذّرت إضافة مفتاح المرور إلى حسابك.", HttpContext);
+            return;
+        }
+
+        // Immediately prompt the user to enter a name for the credential
+        var credentialIdBase64Url = Base64Url.EncodeToString(attestationResult.Passkey.CredentialId);
+        RedirectManager.RedirectTo($"Account/Manage/RenamePasskey/{credentialIdBase64Url}");
+    }
+
+    private async Task UpdatePasskey()
+    {
+        switch (Action)
+        {
+            case "rename":
+                RedirectManager.RedirectTo($"Account/Manage/RenamePasskey/{CredentialId}");
+                break;
+            case "delete":
+                await DeletePasskey();
+                break;
+            default:
+                RedirectManager.RedirectToCurrentPageWithStatus($"Error: إجراء غير معروف: {Action}.", HttpContext);
+                break;
+        }
+    }
+
+    private async Task DeletePasskey()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        byte[] credentialId;
+        try
+        {
+            credentialId = Base64Url.DecodeFromChars(CredentialId);
+        }
+        catch (FormatException)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: صيغة معرّف مفتاح المرور غير صحيحة.", HttpContext);
+            return;
+        }
+
+        var result = await UserManager.RemovePasskeyAsync(user, credentialId);
+        if (!result.Succeeded)
+        {
+            RedirectManager.RedirectToCurrentPageWithStatus("Error: تعذّر حذف مفتاح المرور.", HttpContext);
+            return;
+        }
+
+        RedirectManager.RedirectToCurrentPageWithStatus("تم حذف مفتاح المرور.", HttpContext);
+    }
+}

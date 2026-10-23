@@ -1,0 +1,434 @@
+@page "/my-feedback"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using System.Security.Claims
+@using API.HR.Node.Data
+@using API.HR.Node.Data.Feedback
+@using API.HR.Node.Services.Features
+@using API.HR.Node.Services.Feedback
+@using API.HR.Node.Services.Localization
+@inject IEmployeeFeedbackService FeedbackService
+@inject ISystemFeatureService FeatureService
+@inject ILanguageService Lang
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject API.HR.Node.Services.Feedback.IFeedbackModalState FeedbackModal
+
+@*
+    مشاركاتي — the employee's own feedback tracker.
+
+    One job: send something to HR and follow it to an answer. So the page is
+    a single list with one primary action. The status counts are the filter
+    tabs (a count you can't act on is decoration); every submission shows
+    where it is on a three-step track and HR's reply sits under it as a
+    reply, not as another card. The list reloads by itself when the feedback
+    dialog closes, so a new submission appears without a manual refresh.
+*@
+
+<PageTitle>مشاركاتي | مقترحات واستفسارات وشكاوى</PageTitle>
+
+<div class="hr-stack">
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
+                <a href="portal" class="hr-crumb">
+                    <Icon Name="user-circle" Size="xs" />
+                    <span>الملف الشخصي</span>
+                </a>
+                <span class="hr-crumb-sep" aria-hidden="true">/</span>
+                <span class="hr-crumb is-current" aria-current="page">مشاركاتي</span>
+            </nav>
+            <h1 class="hr-h1" style="margin-block-start: var(--s-2)">مشاركاتي</h1>
+            <p class="hr-sub hr-measure" style="margin-block-start: var(--s-1)">
+                اقتراحاتك وملاحظاتك واستفساراتك وشكاواك في مكان واحد: أرسل مشاركة جديدة، وتابع حالة كل مشاركة وردّ الموارد البشرية عليها.
+            </p>
+        </div>
+
+        <div class="hr-pagehead-actions">
+            <button type="button"
+                    class="hr-btn hr-btn-secondary"
+                    @onclick="LoadFeedbacksAsync"
+                    disabled="@isLoading"
+                    aria-busy="@(isLoading ? "true" : "false")">
+                <Icon Name="arrow-path" Size="xs" />
+                <span>تحديث</span>
+            </button>
+            @if (featureSettings.EnableMyFeedback)
+            {
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="() => FeedbackModal.Open()">
+                    <Icon Name="plus" Size="xs" />
+                    <span>مشاركة جديدة</span>
+                </button>
+            }
+        </div>
+    </header>
+
+    @if (!featureSettings.EnableMyFeedback)
+    {
+        <div class="hr-alert" style="margin-block-end: var(--s-3); display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-3); border-radius: var(--r-md); background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); color: var(--text);">
+            <Icon Name="information-circle" Size="sm" />
+            <div>
+                <div style="font-weight: 700; margin-bottom: 2px;">تنويه إداري: استقبال المشاركات متوقف حالياً</div>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--text-muted);">
+                    @(string.IsNullOrWhiteSpace(featureSettings.DisabledMessage) ? "تم إيقاف استقبال المشاركات والمقترحات مؤقتاً بقرار من الإدارة. يمكنك متابعة حالة مشاركاتك السابقة أدناه." : featureSettings.DisabledMessage)
+                </p>
+            </div>
+        </div>
+    }
+
+    <section class="hr-card" aria-labelledby="fb-list-title" aria-busy="@(isLoading ? "true" : "false")">
+        <div class="hr-card-head hr-fbk-head">
+            <div>
+                <h2 id="fb-list-title" class="hr-h2">سجل المشاركات</h2>
+                <p class="hr-meta">
+                    @if (isLoading)
+                    {
+                        <span>جارٍ تحميل مشاركاتك…</span>
+                    }
+                    else
+                    {
+                        <span><span class="hr-num">@feedbacks.Count</span> @(feedbacks.Count == 1 ? "مشاركة" : "مشاركات") أرسلتها</span>
+                    }
+                </p>
+            </div>
+
+            @if (!isLoading && feedbacks.Count > 0)
+            {
+                <div class="hr-search hr-fbk-search">
+                    <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                    <input type="search"
+                           class="hr-input"
+                           placeholder="ابحث بالعنوان أو رقم المتابعة"
+                           aria-label="البحث في مشاركاتي بالعنوان أو رقم المتابعة"
+                           value="@searchText"
+                           @oninput="e => searchText = e.Value?.ToString() ?? string.Empty" />
+                </div>
+            }
+        </div>
+
+        @if (!isLoading && feedbacks.Count > 0)
+        {
+            <div class="hr-fbk-tabs">
+                <div class="hr-tabs" role="tablist" aria-label="تصفية المشاركات حسب الحالة">
+                    @foreach (var tab in Tabs)
+                    {
+                        var count = CountFor(tab.Status);
+                        <button type="button"
+                                role="tab"
+                                class="hr-tab"
+                                id="fb-tab-@tab.Key"
+                                aria-controls="fb-list"
+                                aria-selected="@(activeTab == tab.Key ? "true" : "false")"
+                                @onclick="() => activeTab = tab.Key">
+                            <span>@tab.Label</span>
+                            <span class="hr-tab-badge hr-num" aria-label="@($"{count} مشاركة")">@count</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="hr-threads" aria-hidden="true">
+                <div class="hr-skeleton hr-skeleton-card"></div>
+                <div class="hr-skeleton hr-skeleton-card"></div>
+                <div class="hr-skeleton hr-skeleton-card"></div>
+            </div>
+            <p class="hr-sr" role="status">جارٍ تحميل مشاركاتك</p>
+        }
+        else if (loadFailed)
+        {
+            <div class="hr-empty" role="alert">
+                <span class="hr-empty-art hr-empty-art-danger" aria-hidden="true"><Icon Name="exclamation-triangle" Size="lg" /></span>
+                <h3 class="hr-h3">تعذّر تحميل مشاركاتك</h3>
+                <p class="hr-sub hr-measure-sm">حدث خطأ أثناء جلب السجل. تحقق من اتصالك ثم أعد المحاولة.</p>
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadFeedbacksAsync">
+                    <Icon Name="arrow-path" Size="xs" />
+                    <span>إعادة المحاولة</span>
+                </button>
+            </div>
+        }
+        else if (feedbacks.Count == 0)
+        {
+            <div class="hr-empty">
+                <span class="hr-empty-art" aria-hidden="true"><Icon Name="chat-bubble-left-right" Size="lg" /></span>
+                <h3 class="hr-h3">لم ترسل أي مشاركة بعد</h3>
+                <p class="hr-sub hr-measure-sm">
+                    فكرة لتطوير العمل، ملاحظة، استفسار أو شكوى — كلها تصل إلى الموارد البشرية مباشرة، وتجد هنا حالتها والرد عليها.
+                </p>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="() => FeedbackModal.Open()">
+                    <Icon Name="plus" Size="xs" />
+                    <span>أرسل أول مشاركة</span>
+                </button>
+            </div>
+        }
+        else
+        {
+            var visible = Visible().ToList();
+
+            @if (visible.Count == 0)
+            {
+                <div class="hr-empty" id="fb-list" role="tabpanel" aria-labelledby="fb-tab-@activeTab">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="funnel" Size="lg" /></span>
+                    <h3 class="hr-h3">لا توجد مشاركات مطابقة</h3>
+                    <p class="hr-sub hr-measure-sm">جرّب حالة أخرى أو امسح نص البحث.</p>
+                    <button type="button" class="hr-btn hr-btn-secondary" @onclick="ClearFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>عرض كل المشاركات</span>
+                    </button>
+                </div>
+            }
+            else
+            {
+                <ol class="hr-threads" id="fb-list" role="tabpanel" aria-labelledby="fb-tab-@activeTab">
+                    @foreach (var fb in visible)
+                    {
+                        var type = TypeOf(fb.FeedbackType);
+                        var step = StepOf(fb.Status);
+                        var isLong = fb.Description.Length > ClampChars || fb.Description.Count(c => c == '\n') > 3;
+                        var isOpen = expanded.Contains(fb.Id);
+
+                        <li>
+                            <article class="hr-thread" aria-labelledby="fb-@fb.Id-title">
+                                <header class="hr-thread__head">
+                                    <span class="@($"hr-iconplate hr-tone-{type.Tone}")" aria-hidden="true">
+                                        <Icon Name="@type.Icon" Size="sm" />
+                                    </span>
+
+                                    <div class="hr-thread__titles">
+                                        <h3 id="fb-@fb.Id-title" class="hr-thread__title">@fb.Title</h3>
+                                        <p class="hr-thread__meta">
+                                            <span>@type.Label</span>
+                                            <span>رقم المتابعة <span class="hr-num">@fb.ReferenceNumber</span></span>
+                                            <time class="hr-num" datetime="@fb.CreatedAt.ToString("o")">@fb.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</time>
+                                        </p>
+                                    </div>
+
+                                    <span class="hr-thread__status">
+                                        @switch (fb.Status)
+                                        {
+                                            case FeedbackStatus.Pending:
+                                                <span class="hr-badge hr-badge-warn"><Icon Name="clock" Size="xs" /><span>بانتظار المراجعة</span></span>
+                                                break;
+                                            case FeedbackStatus.InProgress:
+                                                <span class="hr-badge hr-badge-accent"><Icon Name="arrow-path" Size="xs" /><span>قيد المعالجة</span></span>
+                                                break;
+                                            case FeedbackStatus.Resolved:
+                                                <span class="hr-badge hr-badge-ok"><Icon Name="check-circle" Size="xs" /><span>تمت المعالجة</span></span>
+                                                break;
+                                            case FeedbackStatus.Rejected:
+                                                <span class="hr-badge"><Icon Name="lock-closed" Size="xs" /><span>مغلقة</span></span>
+                                                break;
+                                        }
+                                    </span>
+                                </header>
+
+                                <ol class="hr-track" aria-label="مسار المشاركة">
+                                    <li class="hr-track__step @(step > 1 ? "is-done" : "is-current")" aria-current="@(step == 1 ? "step" : null)">
+                                        <span>أُرسلت</span>
+                                    </li>
+                                    <li class="hr-track__step @(step > 2 ? "is-done" : step == 2 ? "is-current" : null)" aria-current="@(step == 2 ? "step" : null)">
+                                        <span>قيد المعالجة</span>
+                                    </li>
+                                    <li class="hr-track__step @(step == 3 ? (fb.Status == FeedbackStatus.Rejected ? "is-closed" : "is-current is-final") : null)" aria-current="@(step == 3 ? "step" : null)">
+                                        <span>@(fb.Status == FeedbackStatus.Rejected ? "أُغلقت" : "تم الرد")</span>
+                                    </li>
+                                </ol>
+
+                                <div class="hr-thread__body">
+                                    <p class="hr-thread__text @(isLong && !isOpen ? "is-clamped" : null)" id="fb-@fb.Id-text">@fb.Description</p>
+                                    @if (isLong)
+                                    {
+                                        <button type="button"
+                                                class="hr-linklike hr-thread__more"
+                                                aria-expanded="@(isOpen ? "true" : "false")"
+                                                aria-controls="fb-@fb.Id-text"
+                                                @onclick="() => ToggleExpanded(fb.Id)">
+                                            <span>@(isOpen ? "عرض أقل" : "عرض المزيد")</span>
+                                            <Icon Name="@(isOpen ? "chevron-up" : "chevron-down")" Size="xs" />
+                                        </button>
+                                    }
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(fb.AttachmentFileName))
+                                {
+                                    <div class="hr-thread__foot">
+                                        <a href="api/feedback/attachment/@fb.Id" target="_blank" rel="noopener" class="hr-btn hr-btn-secondary hr-btn-sm hr-thread__file">
+                                            <Icon Name="arrow-down-tray" Size="xs" />
+                                            <span class="hr-truncate">@fb.AttachmentFileName</span>
+                                            <span class="hr-sr">(تنزيل المرفق في تبويب جديد)</span>
+                                        </a>
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(fb.AdminNotes))
+                                {
+                                    <section class="hr-reply" aria-label="رد الموارد البشرية">
+                                        <div class="hr-reply__head">
+                                            <span class="hr-reply__from">
+                                                <Icon Name="chat-bubble-left-right" Size="xs" />
+                                                <span>رد الموارد البشرية</span>
+                                            </span>
+                                            @if (fb.RespondedAt.HasValue)
+                                            {
+                                                <time class="hr-reply__time" datetime="@fb.RespondedAt.Value.ToString("o")">@fb.RespondedAt.Value.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</time>
+                                            }
+                                        </div>
+                                        <p class="hr-reply__text">@fb.AdminNotes</p>
+                                    </section>
+                                }
+                                else if (fb.Status is FeedbackStatus.Pending or FeedbackStatus.InProgress)
+                                {
+                                    <p class="hr-thread__waiting">
+                                        <Icon Name="clock" Size="xs" />
+                                        <span>لم يصل رد الموارد البشرية بعد — ستجده هنا فور إرساله.</span>
+                                    </p>
+                                }
+                            </article>
+                        </li>
+                    }
+                </ol>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    private const int ClampChars = 280;
+
+    private sealed record TypeInfo(string Label, string Icon, int Tone);
+    private sealed record TabInfo(string Key, string Label, FeedbackStatus? Status);
+
+    private static readonly TabInfo[] Tabs =
+    {
+        new("all", "الكل", null),
+        new("pending", "بانتظار المراجعة", FeedbackStatus.Pending),
+        new("progress", "قيد المعالجة", FeedbackStatus.InProgress),
+        new("resolved", "تمت المعالجة", FeedbackStatus.Resolved),
+        new("closed", "مغلقة", FeedbackStatus.Rejected),
+    };
+
+    private bool isLoading = true;
+    private bool loadFailed;
+    private List<EmployeeFeedback> feedbacks = new();
+    private string activeTab = "all";
+    private string searchText = string.Empty;
+    private readonly HashSet<int> expanded = new();
+    private bool modalWasOpen;
+    private SystemFeatureSettings featureSettings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        featureSettings = await FeatureService.GetSettingsAsync();
+        FeatureService.OnSettingsChanged += OnFeatureSettingsChanged;
+        FeedbackModal.OnChanged += OnModalChanged;
+        await LoadFeedbacksAsync();
+    }
+
+    private void OnFeatureSettingsChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            featureSettings = await FeatureService.GetSettingsAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task LoadFeedbacksAsync()
+    {
+        isLoading = true;
+        loadFailed = false;
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = auth.User;
+            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int? empId = null;
+            if (int.TryParse(user.FindFirst("employee_id")?.Value, out var idVal))
+            {
+                empId = idVal;
+            }
+
+            var list = await FeedbackService.GetFeedbacksForEmployeeAsync(empId, userId);
+            feedbacks = list.OrderByDescending(f => f.CreatedAt).ToList();
+        }
+        catch
+        {
+            loadFailed = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // The dialog lives in the layout. When it closes after being opened, a
+    // submission may have just been made: reload so it shows up in the list.
+    private void OnModalChanged()
+    {
+        if (FeedbackModal.IsOpen)
+        {
+            modalWasOpen = true;
+            return;
+        }
+        if (!modalWasOpen) return;
+        modalWasOpen = false;
+        _ = InvokeAsync(async () =>
+        {
+            await LoadFeedbacksAsync();
+            StateHasChanged();
+        });
+    }
+
+    private int CountFor(FeedbackStatus? status) =>
+        status is null ? feedbacks.Count : feedbacks.Count(f => f.Status == status);
+
+    private IEnumerable<EmployeeFeedback> Visible()
+    {
+        var status = Tabs.First(t => t.Key == activeTab).Status;
+        var q = searchText.Trim();
+        return feedbacks.Where(f =>
+            (status is null || f.Status == status) &&
+            (q.Length == 0 ||
+             f.Title.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+             f.ReferenceNumber.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+             f.Description.Contains(q, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void ClearFilters()
+    {
+        activeTab = "all";
+        searchText = string.Empty;
+    }
+
+    private void ToggleExpanded(int id)
+    {
+        if (!expanded.Remove(id)) expanded.Add(id);
+    }
+
+    // 1 = sent, 2 = being handled, 3 = answered or closed.
+    private static int StepOf(FeedbackStatus status) => status switch
+    {
+        FeedbackStatus.Pending => 1,
+        FeedbackStatus.InProgress => 2,
+        _ => 3,
+    };
+
+    private static TypeInfo TypeOf(string type) => type switch
+    {
+        "فكرة" => new("فكرة / مقترح", "light-bulb", 1),
+        "ملاحظة" => new("ملاحظة", "document-text", 2),
+        "استفسار" => new("استفسار", "question-mark-circle", 4),
+        "شكوى" => new("شكوى إدارية", "exclamation-triangle", 5),
+        _ => new(type, "chat-bubble-left-right", 6),
+    };
+
+    public void Dispose()
+    {
+        FeedbackModal.OnChanged -= OnModalChanged;
+        FeatureService.OnSettingsChanged -= OnFeatureSettingsChanged;
+    }
+}
