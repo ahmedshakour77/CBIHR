@@ -28,6 +28,9 @@
     var lang = Pick(cookies?["hr-lang"], "ar", "ar", "ku");
     var htmlLang = lang == "ku" ? "ckb" : "ar";
     var theme = mode == "system" ? null : mode;
+
+    var isAccountPage = http?.Request.Path.StartsWithSegments("/Account") ?? false;
+    IComponentRenderMode? pageRenderMode = isAccountPage ? null : new InteractiveServerRenderMode(prerender: false);
 }
 <!DOCTYPE html>
 <html lang="@htmlLang" dir="rtl" class="h-full"
@@ -72,11 +75,11 @@
     <link rel="stylesheet" href="@Assets["API.HR.Node.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <HeadOutlet />
+    <HeadOutlet @rendermode="pageRenderMode" />
 </head>
 
 <body class="hr-root">
-    <Routes />
+    <Routes @rendermode="pageRenderMode" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     @* Fingerprinted, so browsers cache them for good and still pick up every deploy.
