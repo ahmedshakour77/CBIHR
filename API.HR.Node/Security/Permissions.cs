@@ -13,6 +13,8 @@ public static class Permissions
     public const string ManageWorkflows = "Workflows.Manage";
     public const string ImportEmployees = "Employees.Import";
     public const string ImportAppreciationLetters = "AppreciationLetters.Import";
+    public const string ImportJobTitles = "JobTitles.Import";
+    public const string ImportLastAllowanceDate = "LastAllowanceDate.Import";
     public const string ManageFeedback = "EmployeeFeedback.Manage";
     public const string ViewFormationDashboard = "Formation.Dashboard.View";
 }

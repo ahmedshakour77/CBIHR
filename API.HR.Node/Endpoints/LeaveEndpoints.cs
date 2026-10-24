@@ -542,6 +542,7 @@ public static class LeaveEndpoints
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "تم تحديث سجل الإجازة بنجاح." });
         })
+        .RequireAuthorization(AuthorizationPolicies.Staff)
         .WithName("UpdateLeave")
         .WithSummary("تعديل بيانات إجازة مسجلة");
 
@@ -555,6 +556,7 @@ public static class LeaveEndpoints
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "تم حذف سجل الإجازة بنجاح." });
         })
+        .RequireAuthorization(AuthorizationPolicies.Staff)
         .WithName("DeleteLeave")
         .WithSummary("حذف سجل إجازة");
 
@@ -572,6 +574,7 @@ public static class LeaveEndpoints
             }
             return Results.Ok(response);
         })
+        .RequireAuthorization(AuthorizationPolicies.Staff)
         .WithName("ImportLeavesFromJson")
         .WithSummary("استيراد إجازات الموظفين دفعة واحدة عبر JSON");
 
@@ -627,6 +630,7 @@ public static class LeaveEndpoints
             }
         })
         .DisableAntiforgery()
+        .RequireAuthorization(AuthorizationPolicies.Staff)
         .WithName("ImportLeavesFromExcel")
         .WithSummary("استيراد إجازات الموظفين عبر رفع ملف Excel (.xlsx)");
 

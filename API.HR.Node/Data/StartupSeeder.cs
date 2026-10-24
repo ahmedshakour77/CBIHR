@@ -34,6 +34,8 @@ public static class StartupSeeder
         Permissions.ManageWorkflows,
         Permissions.ImportEmployees,
         Permissions.ImportAppreciationLetters,
+        Permissions.ImportJobTitles,
+        Permissions.ImportLastAllowanceDate,
         Permissions.ManageFeedback,
         Permissions.ViewFormationDashboard
     ];

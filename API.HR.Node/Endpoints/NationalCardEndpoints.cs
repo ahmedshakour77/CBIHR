@@ -13,7 +13,8 @@ public static class NationalCardEndpoints
     public static IEndpointRouteBuilder MapNationalCardEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/national-cards")
-            .WithTags("NationalIdentityCards");
+            .WithTags("NationalIdentityCards")
+            .RequireAuthorization(AuthorizationPolicies.ApiBearer);
 
         // 1. Search card by Document Number or National ID (12-digit)
         group.MapGet("/by-document/{query}", async (
@@ -29,53 +30,38 @@ public static class NationalCardEndpoints
         .WithSummary("البحث عن البطاقة الموحدة بواسطة رقم الوثيقة أو الرقم الوطني الموحد");
 
         // 2. Stream DG2 Biometric Face Image
-        group.MapGet("/{id:int}/biometric-photo", async (
+        group.MapGet("/{id:int}/biometric-photo", (
             int id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db,
             INationalCardService cardService,
-            CancellationToken ct) =>
-        {
-            var result = await cardService.GetImageAsync(id, "biometric-photo", ct);
-            if (result == null || result.Value.Stream == null)
-            {
-                return Results.NotFound(new { message = "الصورة البيومترية غير متوفرة لهذه البطاقة." });
-            }
-
-            return Results.File(result.Value.Stream, result.Value.ContentType);
-        })
+            CancellationToken ct) => GetNationalCardImageAsync(id, "biometric-photo", principal, userManager, db, cardService, ct))
+        .RequireAuthorization(AuthorizationPolicies.ApiBearer)
         .WithName("GetNationalCardBiometricPhoto")
         .WithSummary("استرجاع وعرض الصورة الشخصية البيومترية المستخرجة من شريحة البطاقة (DG2 Face Image)");
 
         // 3. Stream Front Image
-        group.MapGet("/{id:int}/front-image", async (
+        group.MapGet("/{id:int}/front-image", (
             int id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db,
             INationalCardService cardService,
-            CancellationToken ct) =>
-        {
-            var result = await cardService.GetImageAsync(id, "front-image", ct);
-            if (result == null || result.Value.Stream == null)
-            {
-                return Results.NotFound(new { message = "صورة واجهة البطاقة غير متوفرة." });
-            }
-
-            return Results.File(result.Value.Stream, result.Value.ContentType);
-        })
+            CancellationToken ct) => GetNationalCardImageAsync(id, "front-image", principal, userManager, db, cardService, ct))
+        .RequireAuthorization(AuthorizationPolicies.ApiBearer)
         .WithName("GetNationalCardFrontImage")
         .WithSummary("استرجاع وعرض صورة واجهة البطاقة الموحدة من الأمام");
 
         // 4. Stream Back Image
-        group.MapGet("/{id:int}/back-image", async (
+        group.MapGet("/{id:int}/back-image", (
             int id,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db,
             INationalCardService cardService,
-            CancellationToken ct) =>
-        {
-            var result = await cardService.GetImageAsync(id, "back-image", ct);
-            if (result == null || result.Value.Stream == null)
-            {
-                return Results.NotFound(new { message = "صورة ظهر البطاقة غير متوفرة." });
-            }
-
-            return Results.File(result.Value.Stream, result.Value.ContentType);
-        })
+            CancellationToken ct) => GetNationalCardImageAsync(id, "back-image", principal, userManager, db, cardService, ct))
+        .RequireAuthorization(AuthorizationPolicies.ApiBearer)
         .WithName("GetNationalCardBackImage")
         .WithSummary("استرجاع وعرض صورة ظهر البطاقة الموحدة من الخلف");
 
@@ -330,6 +316,56 @@ public static class NationalCardEndpoints
         .WithSummary("استرجاع بيانات البطاقة الوطنية الموحدة للموظف بواسطة رقمه الوظيفي");
 
         return endpoints;
+    }
+
+    /// <summary>
+    /// استرجاع صورة البطاقة الوطنية مع التحقق الصارم من صلاحية الموظف (Staff) أو ملكية صاحب البطاقة
+    /// </summary>
+    private static async Task<IResult> GetNationalCardImageAsync(
+        int id,
+        string imageType,
+        ClaimsPrincipal principal,
+        UserManager<ApplicationUser> userManager,
+        ApplicationDbContext db,
+        INationalCardService cardService,
+        CancellationToken ct)
+    {
+        var card = await db.EmployeeNationalCards
+            .AsNoTracking()
+            .Include(c => c.Employee)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        if (card is null)
+        {
+            return Results.NotFound(new { message = "سجل البطاقة الوطنية غير موجود." });
+        }
+
+        var isStaffUser = StaffRoles.IsStaff(principal);
+        if (!isStaffUser)
+        {
+            var currentEmployee = await ResolveCurrentEmployeeAsync(principal, userManager, db, ct);
+            if (currentEmployee is null ||
+                (card.Employee is not null && !string.Equals(card.Employee.EmployeeID, currentEmployee.EmployeeID, StringComparison.OrdinalIgnoreCase)) ||
+                card.EmployeeId != currentEmployee.Id)
+            {
+                return Results.Forbid();
+            }
+        }
+
+        var result = await cardService.GetImageAsync(id, imageType, ct);
+        if (result == null || result.Value.Stream == null)
+        {
+            var notFoundMsg = imageType switch
+            {
+                "biometric-photo" => "الصورة البيومترية غير متوفرة لهذه البطاقة.",
+                "front-image" => "صورة واجهة البطاقة غير متوفرة.",
+                "back-image" => "صورة ظهر البطاقة غير متوفرة.",
+                _ => "الصورة غير متوفرة لهذه البطاقة."
+            };
+            return Results.NotFound(new { message = notFoundMsg });
+        }
+
+        return Results.File(result.Value.Stream, result.Value.ContentType);
     }
 
     /// <summary>

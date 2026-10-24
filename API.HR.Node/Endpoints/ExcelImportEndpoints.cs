@@ -361,6 +361,8 @@ public static class ExcelImportEndpoints
                     statusCode: StatusCodes.Status500InternalServerError);
             }
         })
+        .DisableAntiforgery()
+        .RequireAuthorization(AuthorizationPolicies.ImportJobTitles)
         .WithName("ImportJobTitlesExcel")
         .WithSummary("استيراد وتحديث وتصنيف العناوين الوظيفية والعوائل والدرجات من ملف Excel");
 
@@ -424,6 +426,8 @@ public static class ExcelImportEndpoints
                     statusCode: StatusCodes.Status500InternalServerError);
             }
         })
+        .DisableAntiforgery()
+        .RequireAuthorization(AuthorizationPolicies.ImportLastAllowanceDate)
         .WithName("ImportLastAllowanceDateExcel")
         .WithSummary("استيراد وتحديث تاريخ آخر علاوة سنوية للموظفين من ملف Excel");
 

@@ -14,6 +14,8 @@ public static class AuthorizationPolicies
     public const string ManageWorkflows = "ManageWorkflows";
     public const string ImportEmployees = "ImportEmployees";
     public const string ImportAppreciationLetters = "ImportAppreciationLetters";
+    public const string ImportJobTitles = "ImportJobTitles";
+    public const string ImportLastAllowanceDate = "ImportLastAllowanceDate";
     public const string ManageFeedback = "ManageFeedback";
     public const string AdminOnly = "AdminOnly";
     public const string Staff = "Staff";

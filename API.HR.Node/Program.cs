@@ -377,6 +377,24 @@ builder.Services.AddAuthorizationBuilder()
         policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
         policy.AddRequirements(new PermissionRequirement(Permissions.ImportAppreciationLetters));
     })
+    .AddPolicy(AuthorizationPolicies.ImportJobTitles, policy =>
+    {
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("Admin") ||
+            ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") &&
+                                   (c.Value.Equals(Permissions.ImportJobTitles, StringComparison.OrdinalIgnoreCase) ||
+                                    c.Value.Equals(Permissions.ImportEmployees, StringComparison.OrdinalIgnoreCase))));
+    })
+    .AddPolicy(AuthorizationPolicies.ImportLastAllowanceDate, policy =>
+    {
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole("Admin") ||
+            ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") &&
+                                   (c.Value.Equals(Permissions.ImportLastAllowanceDate, StringComparison.OrdinalIgnoreCase) ||
+                                    c.Value.Equals(Permissions.ImportEmployees, StringComparison.OrdinalIgnoreCase))));
+    })
     .AddPolicy(AuthorizationPolicies.ManageFeedback, policy =>
     {
         policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
