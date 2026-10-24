@@ -15,6 +15,95 @@
 
 <PageTitle>استحقاق العناوين والترقيات الوظيفية | منظومة الموارد البشرية</PageTitle>
 
+<style>
+    .hr-timeline-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.25rem;
+        background: var(--surface-sunken);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        margin-bottom: 1.25rem;
+    }
+    .hr-timeline-flow {
+        display: flex;
+        align-items: stretch;
+        gap: 0.65rem;
+        overflow-x: auto;
+        padding-bottom: 0.75rem;
+        padding-top: 0.25rem;
+    }
+    .hr-timeline-node {
+        flex: 1 1 180px;
+        min-width: 175px;
+        max-width: 240px;
+        background: var(--surface-raised);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        box-shadow: var(--shadow-sm);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .hr-timeline-node:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+    .hr-timeline-node--current {
+        border: 2px solid var(--color-primary);
+        background: rgba(59, 130, 246, 0.05);
+    }
+    .hr-timeline-node--qualifying {
+        border: 2px solid #8b5cf6;
+        background: rgba(139, 92, 246, 0.05);
+    }
+    .hr-timeline-node--bonus {
+        border: 2px dashed var(--color-success);
+        background: rgba(16, 185, 129, 0.06);
+    }
+    .hr-timeline-node--penalty {
+        border: 2px dashed var(--color-danger);
+        background: rgba(239, 68, 68, 0.06);
+    }
+    .hr-timeline-node--target {
+        border: 2px solid var(--color-success);
+        background: rgba(16, 185, 129, 0.08);
+    }
+    .hr-timeline-node--blocked {
+        border: 2px solid var(--color-danger);
+        background: rgba(239, 68, 68, 0.1);
+    }
+    .hr-timeline-arrow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 1.15rem;
+        flex-shrink: 0;
+        opacity: 0.7;
+    }
+    .hr-stage-bar {
+        display: flex;
+        gap: 3px;
+        align-items: center;
+        margin-top: 4px;
+        width: 100%;
+        max-width: 120px;
+    }
+    .hr-stage-segment {
+        height: 6px;
+        flex: 1;
+        border-radius: 2px;
+        background: var(--border-subtle);
+    }
+    .hr-stage-segment--active {
+        background: var(--color-primary);
+    }
+</style>
+
 <div class="hr-stack">
     @* Page Header *@
     <header class="hr-pagehead">
@@ -57,6 +146,79 @@
             </a>
         </div>
     </header>
+
+    @* Employee Status Target Selection Panel (اختيار حسب حالة الموظف أولاً ثم الاحتساب) *@
+    <div class="hr-card" style="padding: 1.25rem; margin-block-end: var(--s-3); border-inline-start: 4px solid var(--color-primary); background: var(--surface-raised); box-shadow: var(--shadow-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.85rem;">
+                <div style="width: 42px; height: 42px; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.12); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+                    <Icon Name="users" Size="md" />
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <span style="font-weight: 700; font-size: 1.05rem; color: var(--text-base);">
+                            اختيار واحتساب حسب حالة الموظف
+                        </span>
+                        <span class="hr-badge hr-badge--primary" style="font-size: var(--fs-caption);">
+                            خطوة أساسية أولى
+                        </span>
+                    </div>
+                    <div style="font-size: var(--fs-caption); color: var(--text-muted); margin-top: 0.2rem;">
+                        اختر حالة الموظف المستهدفة بالاحتساب (مثل: مستمر بالخدمة، مجاز، منسب) ليتم احتساب استحقاقات الترقية والعناوين والمراحل لهذا الكادر.
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                    <label for="emp-status-select" style="font-size: var(--fs-caption); font-weight: 600; color: var(--text-base); white-space: nowrap;">
+                        حالة الموظف:
+                    </label>
+                    <select id="emp-status-select"
+                            class="hr-input"
+                            style="min-width: 230px; font-weight: 600; padding: 0.45rem 0.75rem;"
+                            value="@(selectedEmployeeStatusId?.ToString() ?? "")"
+                            @onchange="OnEmployeeStatusDropdownChanged"
+                            disabled="@isLoading">
+                        <option value="">جميع حالات الموظفين (الكل: @cachedEmployees.Count)</option>
+                        @foreach (var st in availableEmployeeStatuses)
+                        {
+                            int count = cachedEmployees.Count(e => e.EmployeeStatusId == st.Id);
+                            <option value="@st.Id">@st.Name (@count موظف)</option>
+                        }
+                    </select>
+                </div>
+
+                <button type="button"
+                        class="hr-btn hr-btn-primary"
+                        @onclick="OnEmployeeStatusChanged"
+                        disabled="@isLoading"
+                        title="تنفيذ الاحتساب لكادر الحالة المحددة">
+                    <Icon Name="calculator" Size="sm" />
+                    <span>احتساب الكادر</span>
+                </button>
+            </div>
+        </div>
+
+        @* Calculation Status & Regulatory Rules Reminder *@
+        <div style="margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; font-size: var(--fs-caption);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted);">
+                <Icon Name="information-circle" Size="xs" Class="text-info" />
+                <span>
+                    الحالة المعتمدة للاحتساب: <strong style="color: var(--color-primary);">@SelectedStatusDisplayName</strong>
+                    (العدد: <strong>@predictionsList.Count</strong> موظفاً مشمولاً)
+                </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <span class="hr-badge hr-badge--accent" title="الدرجات العليا 1 و2 و3 و4 و5 تتطلب إكمال 5 مراحل للترفيع">
+                    الدرجات العليا (1 - 5): استحقاق بعد 5 مراحل
+                </span>
+                <span class="hr-badge hr-badge--subtle" title="الدرجات 6 و7 و8 و9 و10 تتطلب إكمال 4 مراحل للترفيع">
+                    الدرجات (6 - 10): استحقاق بعد 4 مراحل
+                </span>
+            </div>
+        </div>
+    </div>
 
     @* KPI Stat Cards *@
     <div class="hr-stat-grid" style="margin-block-end: var(--s-4);">
@@ -276,8 +438,9 @@
                                                 @p.EmployeeName
                                             </a>
                                         </div>
-                                        <div style="display: flex; gap: 0.4rem; align-items: center; margin-block-start: 0.15rem; font-size: var(--fs-caption); color: var(--text-muted);">
+                                        <div style="display: flex; gap: 0.4rem; align-items: center; margin-block-start: 0.15rem; font-size: var(--fs-caption); color: var(--text-muted); flex-wrap: wrap;">
                                             <span class="hr-badge" style="padding: 0.1rem 0.35rem; font-family: var(--font-mono, monospace);">@p.EmployeeID</span>
+                                            <span class="hr-badge hr-badge--subtle" style="font-size: 0.7rem;">@p.EmployeeStatusName</span>
                                             @if (!string.IsNullOrWhiteSpace(p.FormationName))
                                             {
                                                 <span class="hr-truncate" style="max-width: 130px;" title="@p.FormationName">@p.FormationName</span>
@@ -290,7 +453,17 @@
                                         <div style="font-weight: 500;">@p.JobTitleName</div>
                                         <div style="display: flex; gap: 0.25rem; align-items: center; margin-block-start: 0.15rem; font-size: var(--fs-caption);">
                                             <span class="hr-badge">@p.GradeName</span>
-                                            <span class="hr-badge hr-badge--subtle">@p.StageName</span>
+                                            <span class="hr-badge hr-badge--subtle">المرحلة @(p.CurrentStageNum > 0 ? p.CurrentStageNum.ToString() : p.StageName)</span>
+                                        </div>
+                                        <div class="hr-stage-bar" title="المرحلة @p.CurrentStageNum من @p.RequiredServiceYears (المطلوبة للترقية)">
+                                            @for (int i = 1; i <= p.RequiredServiceYears; i++)
+                                            {
+                                                var isFilled = i <= p.CurrentStageNum;
+                                                <span class="hr-stage-segment @(isFilled ? "hr-stage-segment--active" : "")"></span>
+                                            }
+                                        </div>
+                                        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">
+                                            @p.CurrentStageNum / @p.RequiredServiceYears مراحل
                                         </div>
                                     </td>
 
@@ -436,9 +609,9 @@
                                         <button type="button"
                                                 class="hr-btn hr-btn-secondary hr-btn-xs"
                                                 @onclick="() => OpenCalculationDetails(p)"
-                                                title="عرض التقرير الرياضي وتفاصيل الاحتساب للموظف">
-                                            <Icon Name="eye" Size="xs" />
-                                            <span>الاحتساب</span>
+                                                title="عرض رسم التايم لاين والتقرير الرياضي للاحتساب">
+                                            <Icon Name="arrow-trending-up" Size="xs" />
+                                            <span>التايم لاين</span>
                                         </button>
                                     </td>
                                 </tr>
@@ -599,11 +772,87 @@
 
             @* Technical Blocks *@
             <div style="display: grid; gap: 1rem;">
-                @* 1. Scale and Target *@
+                @* 1. Stage-by-Stage Visual Timeline Diagram (رسم تايم لاين من المرحلة الحالية) *@
+                <div class="hr-timeline-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div style="font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary); font-size: 1rem;">
+                            <Icon Name="arrow-trending-up" Size="sm" />
+                            <span>رسم التايم لاين لاحتساب الاستحقاق (من المرحلة الحالية @p.CurrentStageNum إلى الترفيع)</span>
+                        </div>
+                        <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                            <span class="hr-badge @(p.CurrentGradeNum <= 5 ? "hr-badge--accent" : "hr-badge--subtle")">
+                                @(p.CurrentGradeNum <= 5 ? "درجات عليا (1-5): استحقاق بعد 5 مراحل" : "درجات (6-10): استحقاق بعد 4 مراحل")
+                            </span>
+                            <span class="hr-badge hr-badge--subtle">حالة الموظف: @p.EmployeeStatusName</span>
+                        </div>
+                    </div>
+
+                    <div style="font-size: var(--fs-caption); color: var(--text-muted);">
+                        رسم بياني زمني يوضح كيفية احتساب الاستحقاق مرحلة بمرحلة انطلاقاً من المرحلة التي يشغلها الموظف حالياً (@p.CurrentStageNum) وحتى بلوغ المرحلة المؤهلة للترفيع (@p.RequiredServiceYears مراحل)، مع تطبيق أثر كتب الشكر والعقوبات حتى الموعد النهائي.
+                    </div>
+
+                    @* Timeline Flow *@
+                    <div class="hr-timeline-flow">
+                        @for (int i = 0; i < p.TimelineSteps.Count; i++)
+                        {
+                            var step = p.TimelineSteps[i];
+                            var nodeClass = step.StepType switch
+                            {
+                                "current" => "hr-timeline-node--current",
+                                "qualifying" => "hr-timeline-node--qualifying",
+                                "bonus" => "hr-timeline-node--bonus",
+                                "penalty" => "hr-timeline-node--penalty",
+                                "target" => "hr-timeline-node--target",
+                                "blocked" => "hr-timeline-node--blocked",
+                                _ => ""
+                            };
+
+                            <div class="hr-timeline-node @nodeClass">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.25rem;">
+                                    <span class="hr-badge @step.BadgeClass" style="font-size: 0.7rem; padding: 0.1rem 0.4rem;">
+                                        @step.BadgeText
+                                    </span>
+                                    <span style="color: var(--text-muted);"><Icon Name="@step.IconName" Size="xs" /></span>
+                                </div>
+
+                                <div style="font-weight: 700; font-size: 0.85rem; color: var(--text-base); margin-top: 0.2rem;">
+                                    @step.Title
+                                </div>
+
+                                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                                    @step.Subtitle
+                                </div>
+
+                                @if (step.EstimatedDate.HasValue)
+                                {
+                                    <div style="margin-top: auto; padding-top: 0.4rem; border-top: 1px dashed var(--border-subtle); display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono, monospace); font-size: 0.8rem; font-weight: 600;">
+                                        <span style="color: var(--text-muted); font-size: 0.7rem;">التاريخ:</span>
+                                        <span style="color: @(step.IsTarget ? "var(--color-success)" : "var(--text-base)");">
+                                            @step.EstimatedDate.Value.ToString("yyyy/MM/dd")
+                                        </span>
+                                    </div>
+                                }
+
+                                <div style="font-size: 0.7rem; color: var(--text-muted); line-height: 1.25;">
+                                    @step.Description
+                                </div>
+                            </div>
+
+                            @if (i < p.TimelineSteps.Count - 1)
+                            {
+                                <div class="hr-timeline-arrow" aria-hidden="true">
+                                    <span style="font-weight: bold; opacity: 0.6;">←</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                @* 2. Scale and Target *@
                 <div style="background: var(--surface-sunken); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
                     <div style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary);">
                         <Icon Name="chart-bar" Size="xs" />
-                        <span>1. متطلبات السلم الوظيفي والعنوان القادم</span>
+                        <span>2. متطلبات السلم الوظيفي والعنوان القادم</span>
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; font-size: var(--fs-caption);">
                         <div>سنوات الخدمة المقررة بالدرجة: <strong>@p.RequiredServiceYears سنوات</strong></div>
@@ -613,12 +862,12 @@
                     </div>
                 </div>
 
-                @* 2. Appreciation Letters (Active Allowance Year) *@
+                @* 3. Appreciation Letters (Active Allowance Year) *@
                 <div style="background: var(--surface-sunken); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <div style="font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-success);">
                             <Icon Name="document-text" Size="xs" />
-                            <span>2. كتب الشكر والقِدم (السنة الوظيفية الحالية)</span>
+                            <span>3. كتب الشكر والقِدم (السنة الوظيفية الحالية)</span>
                         </div>
                         <span class="hr-badge hr-badge--ok">
                             القِدم المعتمد: @p.EffectiveSeniorityMonths أشهر
@@ -677,12 +926,12 @@
                     }
                 </div>
 
-                @* 3. Penalties (Job Title Period) *@
+                @* 4. Penalties (Job Title Period) *@
                 <div style="background: var(--surface-sunken); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <div style="font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-danger);">
                             <Icon Name="shield-exclamation" Size="xs" />
-                            <span>3. العقوبات والتأخير (فترة العنوان الوظيفي الحالي)</span>
+                            <span>4. العقوبات والتأخير (فترة العنوان الوظيفي الحالي)</span>
                         </div>
                         <span class="hr-badge @(p.IsDismissed || p.DelayMonths > 0 ? "hr-badge--danger" : "hr-badge--subtle")">
                             @(p.IsDismissed ? "حرمان عزل" : $"تأخير {p.DelayMonths} شهر")
@@ -739,11 +988,11 @@
                     }
                 </div>
 
-                @* 4. Final Equation Walkthrough *@
+                @* 5. Final Equation Walkthrough *@
                 <div style="background: var(--surface-raised); border: 2px solid var(--color-primary); padding: 1.25rem; border-radius: var(--radius-md);">
                     <div style="font-weight: 700; margin-bottom: 0.75rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
                         <Icon Name="calculator" Size="sm" />
-                        <span>4. المعادلة الرياضية والنتيجة النهائية</span>
+                        <span>5. المعادلة الرياضية والنتيجة النهائية</span>
                     </div>
 
                     @if (p.IsDismissed)
@@ -805,6 +1054,11 @@
     private List<JobTitle> jobTitlesList = new();
     private List<SalaryScale> salaryScalesList = new();
     private List<EmployeePrediction> predictionsList = new();
+    private List<Employee> cachedEmployees = new();
+    private List<EmployeeStatus> availableEmployeeStatuses = new();
+    private int? selectedEmployeeStatusId;
+    private bool statusInitialized = false;
+
     private string activeTab = "predictions";
     private bool isLoading = true;
 
@@ -834,17 +1088,36 @@
         !string.IsNullOrWhiteSpace(formationFilter) ||
         sortBy != "due_asc";
 
+    public sealed class TimelineStageStep
+    {
+        public int StageNumber { get; set; }
+        public string Title { get; set; } = "";
+        public string Subtitle { get; set; } = "";
+        public DateOnly? EstimatedDate { get; set; }
+        public string StepType { get; set; } = "normal"; // "current", "upcoming", "qualifying", "bonus", "penalty", "target", "blocked"
+        public string BadgeText { get; set; } = "";
+        public string BadgeClass { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string IconName { get; set; } = "clock";
+        public bool IsCurrent { get; set; }
+        public bool IsQualifying { get; set; }
+        public bool IsTarget { get; set; }
+    }
+
     public sealed class EmployeePrediction
     {
         public Employee Employee { get; set; } = null!;
         public string EmployeeName => Employee.Name;
         public string EmployeeID => Employee.EmployeeID;
         public string FormationName => Employee.Formation?.Name ?? Employee.FirstDepartment ?? "";
+        public string EmployeeStatusName => Employee.EmployeeStatus?.Name ?? "مستمر بالخدمة";
         public string JobTitleName { get; set; } = "";
         public string NextJobTitleName { get; set; } = "";
         public string NextGradeName { get; set; } = "";
         public string GradeName { get; set; } = "";
         public string StageName { get; set; } = "";
+        public int CurrentGradeNum { get; set; }
+        public int CurrentStageNum { get; set; }
         public DateOnly? LastJobTitleDate { get; set; }
         public DateOnly? LastAllowanceDate { get; set; }
         public DateOnly? HireDate { get; set; }
@@ -875,9 +1148,17 @@
         public DateOnly? PredictedDueDate { get; set; }
         public string Status { get; set; } = "";
 
+        // Visual Timeline steps
+        public List<TimelineStageStep> TimelineSteps { get; set; } = new();
+
         public bool IsDueNow => Status.Contains("مستحق الآن");
         public bool IsNearDue => Status.Contains("قريب الاستحقاق");
     }
+
+    private string SelectedStatusDisplayName =>
+        selectedEmployeeStatusId.HasValue
+            ? availableEmployeeStatuses.FirstOrDefault(s => s.Id == selectedEmployeeStatusId.Value)?.Name ?? "الحالة المحددة"
+            : "جميع حالات الموظفين (الكل)";
 
     protected override async Task OnInitializedAsync()
     {
@@ -915,9 +1196,25 @@
                 .Include(j => j.Employees)
                 .ToListAsync();
 
-            var employees = await context.Employees
+            availableEmployeeStatuses = await context.EmployeeStatuses
+                .AsNoTracking()
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+
+            if (!statusInitialized)
+            {
+                var defaultStatus = availableEmployeeStatuses.FirstOrDefault(s => s.Name.Contains("مستمر") || s.Name.Contains("فعال"));
+                if (defaultStatus != null)
+                {
+                    selectedEmployeeStatusId = defaultStatus.Id;
+                }
+                statusInitialized = true;
+            }
+
+            cachedEmployees = await context.Employees
                 .AsNoTracking()
                 .Where(e => !e.IsArchived)
+                .Include(e => e.EmployeeStatus)
                 .Include(e => e.JobTitle)
                     .ThenInclude(j => j!.JobFamily)
                 .Include(e => e.JobTitle)
@@ -931,23 +1228,7 @@
                     .ThenInclude(p => p.PenaltyType)
                 .ToListAsync();
 
-            CalculatePredictions(employees);
-
-            // Populate filters
-            availableGrades = predictionsList
-                .Select(p => p.GradeName)
-                .Where(g => !string.IsNullOrWhiteSpace(g) && g != "غير محدد")
-                .Distinct()
-                .OrderBy(g => g)
-                .ToList();
-
-            availableFormations = predictionsList
-                .Select(p => p.FormationName)
-                .Where(f => !string.IsNullOrWhiteSpace(f))
-                .Distinct()
-                .OrderBy(f => f)
-                .ToList();
-
+            ExecuteCalculation();
             currentPage = 1;
         }
         catch (Exception ex)
@@ -958,6 +1239,51 @@
         {
             isLoading = false;
         }
+    }
+
+    private void OnEmployeeStatusDropdownChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (int.TryParse(val, out var id))
+        {
+            selectedEmployeeStatusId = id;
+        }
+        else
+        {
+            selectedEmployeeStatusId = null;
+        }
+        OnEmployeeStatusChanged();
+    }
+
+    private void OnEmployeeStatusChanged()
+    {
+        ExecuteCalculation();
+        currentPage = 1;
+        StateHasChanged();
+    }
+
+    private void ExecuteCalculation()
+    {
+        var targetEmployees = selectedEmployeeStatusId.HasValue
+            ? cachedEmployees.Where(e => e.EmployeeStatusId == selectedEmployeeStatusId.Value).ToList()
+            : cachedEmployees;
+
+        CalculatePredictions(targetEmployees);
+
+        // Populate filters
+        availableGrades = predictionsList
+            .Select(p => p.GradeName)
+            .Where(g => !string.IsNullOrWhiteSpace(g) && g != "غير محدد")
+            .Distinct()
+            .OrderBy(g => g)
+            .ToList();
+
+        availableFormations = predictionsList
+            .Select(p => p.FormationName)
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Distinct()
+            .OrderBy(f => f)
+            .ToList();
     }
 
     private void CalculatePredictions(List<Employee> employees)
@@ -982,26 +1308,32 @@
             // 1. تحديد الدرجة الحالية والمرحلة الحالية كأرقام
             int currentGradeNum = ParseGradeNumber(emp.Grade?.Code ?? emp.JobTitle?.Grade?.Code ?? pred.GradeName);
             int currentStageNum = ParseStageNumber(emp.Stage?.Code ?? emp.Stage?.Name);
+            pred.CurrentGradeNum = currentGradeNum;
+            pred.CurrentStageNum = currentStageNum;
 
-            // 2. سنوات الخدمة المقررة في الدرجة من السلم الوظيفي (المرحلة المؤهلة للترفيع)
-            int reqYears = 4;
-            var scale = salaryScalesList.FirstOrDefault(s =>
-                (emp.GradeId.HasValue && s.GradeId == emp.GradeId.Value) ||
-                (!string.IsNullOrWhiteSpace(emp.Grade?.Code) && s.GradeCode == emp.Grade.Code) ||
-                (currentGradeNum > 0 && s.GradeCode == currentGradeNum.ToString()));
-
-            if (scale?.RequiredServiceYears.HasValue == true)
+            // 2. سنوات الخدمة والمراحل المقررة في الدرجة (استحقاق العنوان):
+            // يكون بعد خمس مراحل في الدرجات العليا من 1-5، ويكون 4 مراحل في الدرجات من 6-10
+            int reqYears;
+            if (currentGradeNum >= 1 && currentGradeNum <= 5)
             {
-                reqYears = scale.RequiredServiceYears.Value;
-            }
-            else if (currentGradeNum >= 2 && currentGradeNum <= 5)
-            {
+                // الدرجات العليا 1 - 5: خمس مراحل (5 سنوات)
                 reqYears = 5;
+            }
+            else if (currentGradeNum >= 6 && currentGradeNum <= 10)
+            {
+                // الدرجات من 6 - 10: أربع مراحل (4 سنوات)
+                reqYears = 4;
             }
             else
             {
-                reqYears = 4;
+                var scale = salaryScalesList.FirstOrDefault(s =>
+                    (emp.GradeId.HasValue && s.GradeId == emp.GradeId.Value) ||
+                    (!string.IsNullOrWhiteSpace(emp.Grade?.Code) && s.GradeCode == emp.Grade.Code) ||
+                    (currentGradeNum > 0 && s.GradeCode == currentGradeNum.ToString()));
+
+                reqYears = (scale?.RequiredServiceYears.HasValue == true) ? scale.RequiredServiceYears.Value : 4;
             }
+
             pred.RequiredServiceYears = reqYears;
             int qualifyingStage = reqYears;
 
@@ -1127,7 +1459,9 @@
             pred.IsDismissed = isDismissed;
             pred.PenaltiesSummary = string.Join(" | ", penSummaryList);
 
-            // 6. احتساب موعد الاستحقاق المتوقع
+            // 6. احتساب موعد الاستحقاق المتوقع ورسم التايم لاين
+            DateOnly? baseDueDate = null;
+
             if (isDismissed)
             {
                 pred.BaseDueDate = null;
@@ -1136,8 +1470,6 @@
             }
             else
             {
-                DateOnly? baseDueDate = null;
-
                 // أ) إذا توفر تاريخ آخر علاوة:
                 if (emp.LastAllowanceDate.HasValue)
                 {
@@ -1212,7 +1544,162 @@
                 }
             }
 
+            // 7. بناء تايم لاين واضح من المرحلة الحالية للموظف
+            BuildTimeline(pred, currentGradeNum, currentStageNum, qualifyingStage, baseDueDate, today);
+
             predictionsList.Add(pred);
+        }
+    }
+
+    private static void BuildTimeline(
+        EmployeePrediction pred,
+        int currentGradeNum,
+        int currentStageNum,
+        int qualifyingStage,
+        DateOnly? baseDueDate,
+        DateOnly today)
+    {
+        pred.TimelineSteps.Clear();
+        var emp = pred.Employee;
+
+        // 1. Current stage step (نقطة البداية: المرحلة الحالية للموظف)
+        var currentStartDate = emp.LastAllowanceDate ?? emp.LastJobTitleDate ?? emp.HireDate;
+        var currentStep = new TimelineStageStep
+        {
+            StageNumber = currentStageNum,
+            Title = currentStageNum > 0 ? $"المرحلة {currentStageNum} (أنت هنا)" : "المرحلة الحالية (غير محددة)",
+            Subtitle = currentGradeNum > 0 ? $"الدرجة {currentGradeNum} - {pred.JobTitleName}" : pred.JobTitleName,
+            EstimatedDate = currentStartDate,
+            StepType = "current",
+            IconName = "home",
+            BadgeText = currentStageNum >= qualifyingStage ? "مستوفٍ للمراحل" : "المرحلة الحالية",
+            BadgeClass = "hr-badge--primary",
+            Description = currentStartDate.HasValue
+                ? $"تاريخ نيل المرحلة الحالية: {currentStartDate.Value:yyyy/MM/dd}"
+                : "تاريخ نيل المرحلة غير مثبت بالسجل",
+            IsCurrent = true
+        };
+        pred.TimelineSteps.Add(currentStep);
+
+        // 2. إذا كان الموظف أقل من المرحلة المؤهلة: نرسم كل مرحلة من مرحلته الحالية حتى المرحلة المؤهلة
+        if (currentStageNum > 0 && currentStageNum < qualifyingStage)
+        {
+            for (int stage = currentStageNum + 1; stage <= qualifyingStage; stage++)
+            {
+                int diffYears = stage - currentStageNum;
+                DateOnly? stageDate = currentStartDate?.AddYears(diffYears);
+                bool isQualifying = (stage == qualifyingStage);
+
+                var nextStep = new TimelineStageStep
+                {
+                    StageNumber = stage,
+                    Title = isQualifying ? $"المرحلة {stage} (المؤهلة للترقية)" : $"المرحلة {stage}",
+                    Subtitle = isQualifying ? $"إكمال شرط الدرجة ({qualifyingStage} مراحل)" : "علاوة سنوية دورية",
+                    EstimatedDate = stageDate,
+                    StepType = isQualifying ? "qualifying" : "upcoming",
+                    IconName = isQualifying ? "sparkles" : "arrow-trending-up",
+                    BadgeText = isQualifying ? "المرحلة المؤهلة" : $"+سنة (+{diffYears})",
+                    BadgeClass = isQualifying ? "hr-badge--accent" : "hr-badge--subtle",
+                    Description = isQualifying
+                        ? (currentGradeNum <= 5
+                            ? "استيفاء شرط الـ 5 مراحل المقررة للدرجات العليا (1-5)"
+                            : "استيفاء شرط الـ 4 مراحل المقررة للدرجات (6-10)")
+                        : "علاوة سنوية بعد اجتياز سنة خدمة إضافية",
+                    IsQualifying = isQualifying
+                };
+                pred.TimelineSteps.Add(nextStep);
+            }
+        }
+        else if (currentStageNum >= qualifyingStage)
+        {
+            // الموظف بالفعل بالمرحلة المؤهلة أو تجاوزها
+            DateOnly? nextAllowanceYear = currentStartDate?.AddYears(1);
+            pred.TimelineSteps.Add(new TimelineStageStep
+            {
+                StageNumber = currentStageNum,
+                Title = "إكمال السنة بالدرجة الحالية",
+                Subtitle = $"مستوفٍ لشرط الـ {qualifyingStage} مراحل",
+                EstimatedDate = nextAllowanceYear,
+                StepType = "qualifying",
+                IconName = "check-circle",
+                BadgeText = "مراحل مستوفاة",
+                BadgeClass = "hr-badge--ok",
+                Description = $"الموظف استوفى متطلب السلم الوظيفي ({qualifyingStage} مراحل) وبانتظار الترفيع",
+                IsQualifying = true
+            });
+        }
+
+        // 3. أثر كتب الشكر (تسريع الموعد)
+        if (pred.EffectiveSeniorityMonths > 0)
+        {
+            pred.TimelineSteps.Add(new TimelineStageStep
+            {
+                StageNumber = 0,
+                Title = $"تقديم بالقِدم: -{pred.EffectiveSeniorityMonths} شهر",
+                Subtitle = $"{pred.LettersCount} كتب شكر بسنة العلاوة",
+                EstimatedDate = null,
+                StepType = "bonus",
+                IconName = "document-text",
+                BadgeText = $"-{pred.EffectiveSeniorityMonths} شهر",
+                BadgeClass = "hr-badge--ok",
+                Description = pred.IsSeniorityCapped
+                    ? $"تم احتساب {pred.EffectiveSeniorityMonths} أشهر كحد أقصى (سقف قانوني من أصل {pred.RawSeniorityMonths} شهر)"
+                    : $"تم اعتماد كامل القِدم البالغ {pred.EffectiveSeniorityMonths} شهر لعدم تجاوزه السقف"
+            });
+        }
+
+        // 4. أثر العقوبات (تأخير الموعد)
+        if (pred.DelayMonths > 0 && !pred.IsDismissed)
+        {
+            pred.TimelineSteps.Add(new TimelineStageStep
+            {
+                StageNumber = 0,
+                Title = $"تأخير بالعقوبات: +{pred.DelayMonths} شهر",
+                Subtitle = $"{pred.PenaltiesCount} عقوبة ضمن فترة العنوان",
+                EstimatedDate = null,
+                StepType = "penalty",
+                IconName = "shield-exclamation",
+                BadgeText = $"+{pred.DelayMonths} شهر",
+                BadgeClass = "hr-badge--danger",
+                Description = $"إرجاء موعد الاستحقاق بمقدار {pred.DelayMonths} شهر بسبب العقوبات الانضباطية"
+            });
+        }
+
+        // 5. عقوبة عزل تمنع الترفيع
+        if (pred.IsDismissed)
+        {
+            pred.TimelineSteps.Add(new TimelineStageStep
+            {
+                StageNumber = 0,
+                Title = "حظر وتجميد (عقوبة عزل)",
+                Subtitle = "حرمان نهائي من الترفيع",
+                EstimatedDate = null,
+                StepType = "blocked",
+                IconName = "no-symbol",
+                BadgeText = "عقوبة عزل",
+                BadgeClass = "hr-badge--danger",
+                Description = "الموظف محروم من الترفيع وتغيير العنوان بصورة نهائية بسبب صدور عقوبة عزل"
+            });
+        }
+        else if (pred.PredictedDueDate.HasValue)
+        {
+            // 6. المحطة الختامية (الاستحقاق والترفيع للعنوان الجديد)
+            bool isDue = (today >= pred.PredictedDueDate.Value);
+            pred.TimelineSteps.Add(new TimelineStageStep
+            {
+                StageNumber = qualifyingStage + 1,
+                Title = $"استحقاق: {pred.NextJobTitleName}",
+                Subtitle = $"{pred.NextGradeName}",
+                EstimatedDate = pred.PredictedDueDate.Value,
+                StepType = "target",
+                IconName = "sparkles",
+                BadgeText = isDue ? "مستحق الآن!" : pred.IsNearDue ? "قريب الاستحقاق" : "الموعد النهائي",
+                BadgeClass = isDue ? "hr-badge--ok" : pred.IsNearDue ? "hr-badge--warn" : "hr-badge--primary",
+                Description = isDue
+                    ? "اكتملت جميع المتطلبات والمراحل! الموظف مستحق الآن للترفيع وتغيير العنوان رسمياً."
+                    : $"الموعد النهائي المتوقع للترقية: {pred.PredictedDueDate.Value:yyyy/MM/dd} ({pred.Status})",
+                IsTarget = true
+            });
         }
     }
 
@@ -1367,7 +1854,7 @@
 
             var sb = new System.Text.StringBuilder();
             sb.Append('\uFEFF'); // UTF-8 BOM
-            sb.AppendLine("الرقم الوظيفي,اسم الموظف,التشكيل,العنوان الحالي,الدرجة الحالية,المرحلة الحالية,العنوان القادم,الدرجة القادمة,تاريخ آخر علاوة,تاريخ آخر عنوان,كتب الشكر بعد العلاوة,القِدم الفعلي (شهر),القِدم المعتمد (سقف 3 أشهر),العقوبات بعد العنوان,التأخير بالعقوبات (شهر),موعد الاستحقاق المتوقع,حالة الاستحقاق");
+            sb.AppendLine("الرقم الوظيفي,اسم الموظف,حالة الموظف,التشكيل,العنوان الحالي,الدرجة الحالية,المرحلة الحالية,المراحل المقررة,العنوان القادم,الدرجة القادمة,تاريخ آخر علاوة,تاريخ آخر عنوان,كتب الشكر بعد العلاوة,القِدم الفعلي (شهر),القِدم المعتمد (سقف 3 أشهر),العقوبات بعد العنوان,التأخير بالعقوبات (شهر),موعد الاستحقاق المتوقع,حالة الاستحقاق");
 
             foreach (var item in list)
             {
@@ -1375,10 +1862,12 @@
                 {
                     EscapeCsv(item.EmployeeID),
                     EscapeCsv(item.EmployeeName),
+                    EscapeCsv(item.EmployeeStatusName),
                     EscapeCsv(item.FormationName),
                     EscapeCsv(item.JobTitleName),
                     EscapeCsv(item.GradeName),
                     EscapeCsv(item.StageName),
+                    item.RequiredServiceYears.ToString(),
                     EscapeCsv(item.NextJobTitleName),
                     EscapeCsv(item.NextGradeName),
                     item.LastAllowanceDate?.ToString("yyyy/MM/dd") ?? "",
