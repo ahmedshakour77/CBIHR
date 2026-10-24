@@ -933,6 +933,8 @@ button.hr-viz-col-hit:disabled { cursor: default; }
 .hr-viz-col.is-on .hr-viz-col-value { color: var(--accent-ink); }
 .hr-viz-col-label { font-size: var(--fs-caption); color: var(--text-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hr-viz-col-label.is-quiet { visibility: hidden; }
+/* Sparse axis: the label is centred on its column and spills evenly into the unlabelled neighbours. */
+.hr-viz-cols.is-sparse .hr-viz-col-label { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
 .hr-viz-col-hit:hover .hr-viz-col-value.is-quiet, .hr-viz-col-hit:focus-visible .hr-viz-col-value.is-quiet { visibility: visible; }
 
 .hr-viz-fc-plot { block-size: 11rem; }
@@ -974,7 +976,19 @@ button.hr-viz-col-hit:disabled { cursor: default; }
 .hr-viz-heat-table { inline-size: 100%; min-inline-size: 44rem; border-collapse: separate; border-spacing: 3px; }
 .hr-viz-heat-table th { font-size: var(--fs-caption); font-weight: 600; color: var(--text-muted); text-align: center; padding: var(--s-1); white-space: nowrap; }
 .hr-viz-heat-table tbody th { text-align: start; color: var(--text-2); padding-inline-end: var(--s-3); }
-.hr-viz-heat-table td { padding: 0; }
+/* The cells carry no padding or rule of their own: the button is the cell, and the 3px
+   spacing is the grid. These selectors outrank the generic ".hr-app table:not(.hr-table)"
+   rules in hr-ui.css, whose 16px of inline padding squeezed every count into a 17px
+   sliver on a phone. */
+.hr-viz-heat > .hr-tablewrap .hr-viz-heat-table { border-spacing: 3px; }
+.hr-viz-heat > .hr-tablewrap .hr-viz-heat-table td { padding: 0; border: 0; }
+/* Eleven stages never fit a phone, so the grid scrolls sideways; the grade column stays put,
+   so a count is never read without knowing whose it is. */
+.hr-viz-heat-table th:first-child { position: sticky; inset-inline-start: 0; z-index: 1; }
+.hr-viz-heat-hint { display: none; margin: var(--s-2) 0 0; font-size: var(--fs-caption); color: var(--text-muted); }
+@container (max-width: 46rem) {
+    .hr-viz-heat-hint { display: block; }
+}
 .hr-viz-heat-cell { display: grid; place-items: center; inline-size: 100%; min-block-size: 2.25rem; border-radius: var(--r-xs); font-size: var(--fs-caption); font-weight: 600; }
 .hr-viz-heat-cell.is-d0 { background: var(--surface-sunken); }
 /* Steps are mixes of --accent into the surface, so the ramp reads the same way in both themes. */
@@ -984,7 +998,7 @@ button.hr-viz-col-hit:disabled { cursor: default; }
 .hr-viz-heat-cell.is-d4 { background: color-mix(in srgb, var(--accent) 68%, var(--surface)); color: var(--text-on-accent); }
 .hr-viz-heat-cell.is-d5 { background: var(--accent); color: var(--text-on-accent); }
 button.hr-viz-heat-cell:hover { box-shadow: 0 0 0 2px var(--accent); }
-.hr-viz-heat-table td.hr-viz-heat-total { font-size: var(--fs-caption); font-weight: 700; text-align: center; color: var(--text); padding-inline: var(--s-2); }
+.hr-viz-heat > .hr-tablewrap .hr-viz-heat-table td.hr-viz-heat-total { font-size: var(--fs-caption); font-weight: 700; text-align: center; color: var(--text); padding-inline: var(--s-2); }
 
 /* Treemap */
 .hr-viz-tree { position: relative; inline-size: 100%; min-block-size: 14rem; }

@@ -34,6 +34,28 @@
 .home-filter-more-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .home-filter-list { min-block-size: 44px; justify-content: center; }
 
+/* From tablet up the fields are always out and the wrapper steps aside, so its children stay
+   items of the filter row's grid. */
+.home-filter-fields { display: contents; }
+.home-filter-toggle { display: none; }
+
+/* Phone: one row of two controls, "Filter (n)" and the employee list; the fields open below it. */
+@media (max-width: 767px) {
+    .home-filter-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+    .home-filter-toggle, .home-filter-row > .home-filter-list { flex: 1 1 0; min-inline-size: 0; }
+    .home-filter-toggle {
+        display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); min-block-size: 44px; padding-inline: var(--s-3);
+        font: inherit; font-size: var(--fs-control); font-weight: 600; color: var(--accent-ink);
+        background: var(--accent-tint); border: 1px solid var(--accent-tint-2); border-radius: var(--r); cursor: pointer;
+        transition: background-color var(--t-state) var(--ease);
+    }
+    .home-filter-toggle:hover, .home-filter-toggle[aria-expanded="true"] { background: var(--accent-tint-2); }
+    .home-filter-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .home-filter-fields { order: 1; flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-2); }
+    .home-filter-fields[data-open="false"] { display: none; }
+    .home-filter:has(.home-filter-fields[data-open="false"]) .home-filter-more { display: none; }
+}
+
 .home-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
 .home-chips ul { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
 .home-chip {

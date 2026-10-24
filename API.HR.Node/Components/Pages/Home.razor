@@ -90,6 +90,20 @@
     @* ==================== GENERAL FILTER ==================== *@
     <section class="home-filter" aria-label="@L("التصفية العامة", "پاڵاوتنی گشتی")">
         <div class="home-filter-row">
+            @* Phones only (CSS hides it from 768px): the fields fold behind one control, so the
+               briefing is on the first screen instead of four dropdowns. The chips below stay
+               visible, so what is applied is never hidden with the controls. *@
+            <button type="button" class="home-filter-toggle" aria-expanded="@(filtersOpen ? "true" : "false")" aria-controls="home-filter-fields"
+                    @onclick="() => filtersOpen = !filtersOpen">
+                <Icon Name="funnel" Size="sm" />
+                <span>@L("التصفية", "پاڵاوتن")</span>
+                @if (!filter.IsEmpty)
+                {
+                    <span class="hr-badge hr-badge-accent hr-num">@filter.Count</span>
+                }
+                <Icon Name="@(filtersOpen ? "chevron-up" : "chevron-down")" Size="xs" />
+            </button>
+            <div id="home-filter-fields" class="home-filter-fields" data-open="@(filtersOpen ? "true" : "false")">
             @foreach (var d in PrimaryDimensions)
             {
                 @FilterControl(d)
@@ -104,6 +118,7 @@
                 }
                 <Icon Name="@(moreFilters ? "chevron-up" : "chevron-down")" Size="xs" />
             </button>
+            </div>
             <button type="button" class="hr-btn hr-btn-secondary home-filter-list" @onclick='() => OpenDrill("scope")' disabled="@(stats is null || stats.Total == 0)">
                 <Icon Name="table-cells" Size="sm" />
                 <span>@L("قائمة الموظفين", "لیستی فەرمانبەران")</span>
@@ -681,6 +696,7 @@
     private bool isLoading = true;
     private bool loadFailed;
     private bool moreFilters;
+    private bool filtersOpen;
     private DateTime? lastRefreshedAt;
     private string loadedScopeDescription = "جميع الموظفين";
     private ElementReference reportResultsHeading;
