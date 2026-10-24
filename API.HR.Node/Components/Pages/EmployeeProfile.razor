@@ -316,9 +316,10 @@
                     <span class="hr-iconplate hr-plate-a" aria-hidden="true"><Icon Name="clock" Size="sm" /></span>
                 </div>
                 <strong class="hr-stat-figure hr-stat-figure-text">@FormatServiceLength(employee.HireDate)</strong>
-                <p class="hr-stat-foot">
-                    تاريخ التعيين <span class="hr-num">@D(employee.HireDate)</span>
-                </p>
+                <div class="hr-stat-foot">
+                    <span>تاريخ التعيين</span>
+                    <strong class="hr-num">@D(employee.HireDate)</strong>
+                </div>
             </button>
 
             <button type="button" class="hr-card hr-stat hr-stat-warn hr-stat-link" @onclick="() => SetTab(ProfileTab.Basic)" title="انتقل إلى البيانات الشخصية وتاريخ التقاعد">
@@ -327,7 +328,10 @@
                     <span class="hr-iconplate hr-iconplate-warn" aria-hidden="true"><Icon Name="calendar-days" Size="sm" /></span>
                 </div>
                 <strong class="hr-stat-figure hr-stat-figure-text">@FormatAge(employee.BirthDate)</strong>
-                <p class="hr-stat-foot">@RetirementHorizon(employee.BirthDate)</p>
+                <div class="hr-stat-foot" title="@RetirementHorizon(employee.BirthDate)">
+                    <span>المتبقي للتقاعد</span>
+                    <strong class="hr-cell-strong hr-num">@FormatRetirementCompact(employee.BirthDate)</strong>
+                </div>
             </button>
 
             <button type="button" class="hr-card hr-stat hr-stat-ok hr-stat-link" @onclick="() => SetTab(ProfileTab.Letters)" title="انتقل إلى تبويب كتب الشكر والتقدير">
@@ -345,20 +349,22 @@
                         @N(appreciationLetters.Count)<span class="hr-stat-unit"> @FormatBooksUnit(appreciationLetters.Count)</span>
                     }
                 </strong>
-                <p class="hr-stat-foot">
-                    إجمالي القِدم: <span class="hr-num">@FormatTotalSeniority()</span>
-                </p>
+                <div class="hr-stat-foot">
+                    <span>إجمالي القِدم</span>
+                    <strong class="hr-num hr-cell-strong" style="color:var(--color-success);">@FormatTotalSeniority()</strong>
+                </div>
             </button>
 
-            <button type="button" class="hr-card hr-stat hr-stat-d hr-stat-link" @onclick="() => SetTab(ProfileTab.Basic)" title="انتقل إلى تفاصيل الدرجة والمرحلة والسلم الوظيفي">
+            <button type="button" class="hr-card hr-stat hr-stat-d hr-stat-link" @onclick="() => SetTab(ProfileTab.Basic)" title="انتقل إلى تفاصيل الدرجة والمرحلة بالسلم">
                 <div class="hr-stat-label">
                     <span>الدرجة والمرحلة بالسلم</span>
                     <span class="hr-iconplate hr-plate-d" aria-hidden="true"><Icon Name="square-3-stack-3d" Size="sm" /></span>
                 </div>
                 <strong class="hr-stat-figure hr-stat-figure-text">@Or(employee.Grade?.Name) / @Or(employee.Stage?.Name)</strong>
-                <p class="hr-stat-foot">
-                    تاريخ العنوان الحالي <span class="hr-num">@D(employee.LastJobTitleDate)</span>
-                </p>
+                <div class="hr-stat-foot">
+                    <span>تاريخ العنوان الحالي</span>
+                    <strong class="hr-num">@D(employee.LastJobTitleDate)</strong>
+                </div>
             </button>
 
             <button type="button" class="hr-card hr-stat hr-stat-b hr-stat-link" @onclick="() => SetTab(ProfileTab.Leaves)" title="انتقل إلى تبويب الإجازات والدوام">
@@ -369,21 +375,21 @@
                 <strong class="hr-stat-figure">
                     @(employee.LeaveBalance.HasValue ? $"{employee.LeaveBalance.Value:G29}" : "—")<span class="hr-stat-unit">@(employee.LeaveBalance.HasValue ? "يوم متبقي" : "يوم")</span>
                 </strong>
-                <p class="hr-stat-foot">
-                    المتخذ: <span class="hr-num">@N(GetTotalLeaveDays()) يوم</span>
+                <div class="hr-stat-foot">
+                    <span>المتخذ: <strong class="hr-num">@N(GetTotalLeaveDays())</strong> يوم</span>
                     @if (GetCurrentActiveLeave() is { } curLeave)
                     {
-                        <span class="hr-badge hr-badge-warn" style="font-size:var(--fs-caption); margin-inline-start:0.35rem;">
-                            <Icon Name="clock" Size="xs" /> مجاز حتى @D(curLeave.EndDate)
+                        <span class="hr-badge hr-badge-warn" style="font-size:0.7rem; padding:0.1rem 0.4rem;" title="مجاز حتى @D(curLeave.EndDate)">
+                            <Icon Name="clock" Size="xs" /> مجاز
                         </span>
                     }
                     else
                     {
-                        <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption); margin-inline-start:0.35rem;">
-                            <Icon Name="check-circle" Size="xs" /> مستمر بالدوام
+                        <span class="hr-badge hr-badge-ok" style="font-size:0.7rem; padding:0.1rem 0.4rem;">
+                            <Icon Name="check-circle" Size="xs" /> مستمر
                         </span>
                     }
-                </p>
+                </div>
             </button>
 
             <button type="button" class="hr-card hr-stat hr-stat-c hr-stat-link" @onclick="() => SetTab(ProfileTab.Movements)" title="انتقل إلى تبويب حركة التنقلات والخدمة">
@@ -394,9 +400,10 @@
                 <strong class="hr-stat-figure">
                     @N(careerMovements.Count)<span class="hr-stat-unit">محطة</span>
                 </strong>
-                <p class="hr-stat-foot">
-                    خدمة التقاعد: <span class="hr-num">@GetNetPensionServiceText()</span>
-                </p>
+                <div class="hr-stat-foot">
+                    <span>خدمة التقاعد</span>
+                    <strong class="hr-num">@GetNetPensionServiceText()</strong>
+                </div>
             </button>
 
             <button type="button" class="hr-card hr-stat @(employeePenalties.Count > 0 ? "hr-stat-danger" : "hr-stat-ok") hr-stat-link" @onclick="() => SetTab(ProfileTab.Penalties)" title="انتقل إلى تبويب العقوبات الانضباطية">
@@ -407,17 +414,22 @@
                 <strong class="hr-stat-figure">
                     @N(employeePenalties.Count)<span class="hr-stat-unit">عقوبة</span>
                 </strong>
-                <p class="hr-stat-foot">
+                <div class="hr-stat-foot">
                     @if (employeePenalties.Count > 0)
                     {
                         var lastPen = employeePenalties.First();
-                        <span>آخرها: <span class="hr-cell-strong">@(lastPen.PenaltyType?.Name ?? "عقوبة")</span> (@D(lastPen.PenaltyDate))</span>
+                        <span class="hr-truncate" title="@(lastPen.PenaltyType?.Name ?? "عقوبة") (@D(lastPen.PenaltyDate))">
+                            آخرها: <strong class="hr-cell-strong">@(lastPen.PenaltyType?.Name ?? "عقوبة")</strong>
+                        </span>
+                        <span class="hr-num hr-text-muted" style="font-size:0.72rem;">@D(lastPen.PenaltyDate)</span>
                     }
                     else
                     {
-                        <span class="hr-badge hr-badge-ok"><Icon Name="check-circle" Size="xs" /> السجل نظيف (خالٍ من العقوبات)</span>
+                        <span class="hr-badge hr-badge-ok" style="font-size:0.72rem; padding:0.1rem 0.5rem; width:100%; justify-content:center;">
+                            <Icon Name="check-circle" Size="xs" /> سجل نظيف بدون عقوبات
+                        </span>
                     }
-                </p>
+                </div>
             </button>
 
             <button type="button" class="hr-card hr-stat hr-stat-a hr-stat-link" @onclick="() => SetTab(ProfileTab.Courses)" title="انتقل إلى تبويب الدورات التدريبية والتطوير">
@@ -428,17 +440,19 @@
                 <strong class="hr-stat-figure">
                     @N(employeeCourses.Count)<span class="hr-stat-unit">@(employeeCourses.Count is >= 3 and <= 10 ? "دورات" : "دورة")</span>
                 </strong>
-                <p class="hr-stat-foot">
+                <div class="hr-stat-foot">
                     @if (employeeCourses.Count > 0)
                     {
                         var lastCourse = employeeCourses.OrderByDescending(c => c.StartDate ?? DateOnly.MinValue).First();
-                        <span title="@lastCourse.CourseName">آخرها: <span class="hr-cell-strong hr-truncate">@lastCourse.CourseName</span></span>
+                        <span class="hr-truncate" title="@lastCourse.CourseName">
+                            آخرها: <strong class="hr-cell-strong">@lastCourse.CourseName</strong>
+                        </span>
                     }
                     else
                     {
-                        <span>لا توجد دورات مسجلة بعد</span>
+                        <span class="hr-text-muted">لا توجد دورات مسجلة</span>
                     }
-                </p>
+                </div>
             </button>
 
             <a href="my-feedback" class="hr-card hr-stat hr-stat-b hr-stat-link" title="انتقل إلى صفحة مشاركاتي والتواصل">
@@ -449,17 +463,19 @@
                 <strong class="hr-stat-figure">
                     @N(employeeFeedbacks.Count)<span class="hr-stat-unit">@(employeeFeedbacks.Count is >= 3 and <= 10 ? "مشاركات" : "مشاركة")</span>
                 </strong>
-                <p class="hr-stat-foot">
+                <div class="hr-stat-foot">
                     @if (employeeFeedbacks.Count > 0)
                     {
                         var lastFb = employeeFeedbacks.OrderByDescending(f => f.CreatedAt).First();
-                        <span title="@lastFb.Title">آخرها: <span class="hr-cell-strong hr-truncate">@lastFb.Title</span> (@lastFb.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd"))</span>
+                        <span class="hr-truncate" title="@lastFb.Title">
+                            آخرها: <strong class="hr-cell-strong">@lastFb.Title</strong>
+                        </span>
                     }
                     else
                     {
-                        <span>لا توجد مشاركات مسجلة بعد</span>
+                        <span class="hr-text-muted">لا توجد مشاركات مسجلة</span>
                     }
-                </p>
+                </div>
             </a>
         </div>
 
@@ -5672,6 +5688,28 @@
         }
 
         return $"متبقٍ للتقاعد {remainingYears.ToString(CultureInfo.InvariantCulture)} سنة و {remainingMonths.ToString(CultureInfo.InvariantCulture)} شهر";
+    }
+
+    private static string FormatRetirementCompact(DateOnly? birthDate, int targetAge = RetirementAge)
+    {
+        if (birthDate is null) return "غير متوفر";
+
+        var retirementDate = birthDate.Value.AddYears(targetAge);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        if (today >= retirementDate) return $"مستحق ({targetAge}+)";
+
+        var remainingYears = retirementDate.Year - today.Year;
+        var remainingMonths = retirementDate.Month - today.Month;
+        if (remainingMonths < 0)
+        {
+            remainingYears--;
+            remainingMonths += 12;
+        }
+
+        if (remainingYears <= 0) return $"{remainingMonths.ToString(CultureInfo.InvariantCulture)} شهر";
+        if (remainingMonths == 0) return $"{remainingYears.ToString(CultureInfo.InvariantCulture)} سنة";
+        return $"{remainingYears.ToString(CultureInfo.InvariantCulture)} س و {remainingMonths.ToString(CultureInfo.InvariantCulture)} ش";
     }
 
     // Deterministic across restarts: string.GetHashCode is randomized per
