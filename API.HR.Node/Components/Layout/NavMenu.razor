@@ -11,7 +11,7 @@
         @{
             var user = context.User;
             var isStaff = user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
-            var groupsToRender = Groups ?? (isStaff ? NavCatalog.All : NavCatalog.EmployeeCatalog);
+            var groupsToRender = Groups ?? NavCatalog.All;
             var groupIndex = 0;
         }
 

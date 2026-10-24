@@ -22,23 +22,7 @@ public static class StartupSeeder
 
     private static readonly string[] AllRoles = ["Admin", "HRManager", "FormationManager", "Supervisor", "Employee"];
 
-    private static readonly string[] AllPermissions =
-    [
-        Permissions.ProfilePhotoRead,
-        Permissions.ProfilePhotoUpload,
-        Permissions.ProfilePhotoReplace,
-        Permissions.ProfilePhotoDelete,
-        Permissions.ManageUsers,
-        Permissions.ManageDevices,
-        Permissions.ViewAuditLogs,
-        Permissions.ManageWorkflows,
-        Permissions.ImportEmployees,
-        Permissions.ImportAppreciationLetters,
-        Permissions.ImportJobTitles,
-        Permissions.ImportLastAllowanceDate,
-        Permissions.ManageFeedback,
-        Permissions.ViewFormationDashboard
-    ];
+    private static readonly string[] AllPermissions = FeaturePermissionCatalog.AllPermissionCodes.ToArray();
 
     public static async Task RunAsync(WebApplication app)
     {

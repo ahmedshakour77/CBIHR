@@ -492,7 +492,7 @@
        Title="الأدوار والصلاحيات"
        Subtitle="@selectedUserForRoles?.UserName"
        Icon="shield-check"
-       Size="lg"
+       Size="xl"
        OnClose="CloseModals">
     <Body>
         <fieldset class="hr-fieldset">
@@ -515,22 +515,116 @@
         </fieldset>
 
         <fieldset class="hr-fieldset" style="margin-block-start:1.5rem">
-            <legend class="hr-legend-title">الصلاحيات التفصيلية</legend>
-            <p class="hr-help" style="margin-block-end:.75rem">
-                أذونات دقيقة تُضاف فوق الأدوار، لحالات لا يغطيها الدور وحده.
-            </p>
-            <div class="hr-optiongrid">
-                @foreach (var perm in availablePermissions)
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);margin-block-end:.75rem">
+                <div>
+                    <legend class="hr-legend-title" style="margin:0">الصلاحيات التفصيلية (رؤية وتعديل لكل ميزة وتاب)</legend>
+                    <p class="hr-help" style="margin-block-start:.25rem">
+                        حدد صلاحيات الرؤية والتعديل لكل قسم وتبويب في النظام. تتيح للمستخدم الوصول وإجراء العمليات بدقة.
+                    </p>
+                </div>
+                <div style="display:flex;align-items:center;gap:var(--s-1);flex-wrap:wrap">
+                    <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllPermissions">
+                        <Icon Name="check-badge" Size="xs" />
+                        <span>منح الكل (رؤية وتعديل)</span>
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllViewPermissions">
+                        <Icon Name="eye" Size="xs" />
+                        <span>منح الرؤية فقط للجميع</span>
+                    </button>
+                    <button type="button" class="hr-btn hr-btn-sm hr-btn-quiet" @onclick="ClearAllPermissions">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>إلغاء التحديد</span>
+                    </button>
+                </div>
+            </div>
+
+            <div style="margin-block-end:1rem">
+                <input type="search" class="hr-input" placeholder="بحث سريع في الصلاحيات والميزات..."
+                       @bind="permissionSearchTerm" @bind:event="oninput" />
+            </div>
+
+            <div class="hr-stack" style="gap:var(--s-3)">
+                @foreach (var group in GetFilteredPermissionGroups())
                 {
-                    var isChecked = editingClaims.Contains(perm.Key);
-                    <label class="hr-optioncard @(isChecked ? "is-selected" : "")">
-                        <input type="checkbox" checked="@isChecked"
-                               @onchange='(e) => ToggleClaimSelection(perm.Key, (bool)e.Value!)' />
-                        <span class="hr-optioncard-text">
-                            <span class="hr-optioncard-title">@perm.Value</span>
-                            <span class="hr-optioncard-code hr-num hr-wrap-any">@perm.Key</span>
-                        </span>
-                    </label>
+                    <div class="hr-card" style="padding:var(--s-3);background:var(--surface-raised);border:1px solid var(--line);border-radius:var(--r-md)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);padding-block-end:var(--s-2);border-block-end:1px solid var(--line-subtle);margin-block-end:var(--s-2)">
+                            <div style="display:flex;align-items:center;gap:var(--s-2)">
+                                <span class="hr-iconplate" aria-hidden="true" style="width:28px;height:28px">
+                                    <Icon Name="@group.Icon" Size="xs" />
+                                </span>
+                                <strong>@group.GroupTitle</strong>
+                                <span class="hr-meta">(@group.Features.Count ميزة)</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, false)">
+                                    تحديد المجموعة
+                                </button>
+                                <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, true)">
+                                    رؤية فقط
+                                </button>
+                                <button type="button" class="hr-btn hr-btn-xs hr-btn-quiet" @onclick="() => ClearGroupPermissions(group)">
+                                    إلغاء
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="hr-table-container" style="background:transparent;border:none">
+                            <table class="hr-table" style="font-size:0.875rem">
+                                <thead>
+                                    <tr>
+                                        <th style="width:38%">الميزة / التبويب</th>
+                                        <th style="width:23%">صلاحية الرؤية (View)</th>
+                                        <th style="width:23%">صلاحية التعديل (Edit)</th>
+                                        <th style="width:16%">الحالة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var feat in group.Features)
+                                    {
+                                        var hasView = editingClaims.Contains(feat.ViewPermission.Code);
+                                        var hasEdit = editingClaims.Contains(feat.EditPermission.Code);
+                                        <tr>
+                                            <td>
+                                                <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                                    <Icon Name="@feat.Icon" Size="xs" />
+                                                    <span class="hr-cell-strong">@feat.FeatureName</span>
+                                                </div>
+                                                <small class="hr-meta" style="display:block;font-size:0.75rem">@feat.ViewPermission.Description</small>
+                                            </td>
+                                            <td>
+                                                <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
+                                                    <input type="checkbox" checked="@hasView"
+                                                           @onchange="(e) => ToggleClaimSelection(feat.ViewPermission.Code, (bool)e.Value!)" />
+                                                    <span>رؤية</span>
+                                                </label>
+                                            </td>
+                                            <td>
+                                                <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
+                                                    <input type="checkbox" checked="@hasEdit"
+                                                           @onchange="(e) => ToggleEditClaimSelection(feat, (bool)e.Value!)" />
+                                                    <span style="color:var(--accent-text);font-weight:600">تعديل</span>
+                                                </label>
+                                            </td>
+                                            <td>
+                                                @if (hasEdit)
+                                                {
+                                                    <span class="hr-badge hr-badge-accent" style="font-size:0.7rem">رؤية + تعديل</span>
+                                                }
+                                                else if (hasView)
+                                                {
+                                                    <span class="hr-badge hr-badge-neutral" style="font-size:0.7rem">رؤية فقط</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="hr-meta" style="font-size:0.75rem">معطل</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 }
             </div>
         </fieldset>
@@ -882,6 +976,41 @@
         { Permissions.ViewFormationDashboard, "تصفح لوحة مؤشرات التشكيل الإداري" }
     };
 
+    private string? permissionSearchTerm;
+
+    private IEnumerable<MenuGroupDefinition> GetFilteredPermissionGroups()
+    {
+        if (string.IsNullOrWhiteSpace(permissionSearchTerm))
+        {
+            return FeaturePermissionCatalog.Groups;
+        }
+
+        var term = permissionSearchTerm.Trim();
+        var result = new List<MenuGroupDefinition>();
+
+        foreach (var group in FeaturePermissionCatalog.Groups)
+        {
+            var matchedFeatures = group.Features.Where(f =>
+                f.FeatureName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                f.ViewPermission.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                f.EditPermission.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                f.ViewPermission.Code.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                f.EditPermission.Code.Contains(term, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+
+            if (matchedFeatures.Any() || group.GroupTitle.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(new MenuGroupDefinition(
+                    group.GroupKey,
+                    group.GroupTitle,
+                    group.Icon,
+                    matchedFeatures.Any() ? matchedFeatures : group.Features));
+            }
+        }
+
+        return result;
+    }
+
     // Modal States
     private UserViewModel? selectedUserForRoles;
     private HashSet<string> editingRoles = new();
@@ -1095,6 +1224,66 @@
     {
         if (isChecked) editingClaims.Add(claimValue);
         else editingClaims.Remove(claimValue);
+    }
+
+    private void ToggleEditClaimSelection(FeatureDefinition feat, bool isChecked)
+    {
+        if (isChecked)
+        {
+            editingClaims.Add(feat.EditPermission.Code);
+            editingClaims.Add(feat.ViewPermission.Code); // Editing naturally implies viewing
+        }
+        else
+        {
+            editingClaims.Remove(feat.EditPermission.Code);
+        }
+    }
+
+    private void SelectAllPermissions()
+    {
+        foreach (var code in FeaturePermissionCatalog.AllPermissionCodes)
+        {
+            editingClaims.Add(code);
+        }
+    }
+
+    private void SelectAllViewPermissions()
+    {
+        foreach (var feat in FeaturePermissionCatalog.AllFeatures)
+        {
+            editingClaims.Add(feat.ViewPermission.Code);
+            editingClaims.Remove(feat.EditPermission.Code);
+        }
+    }
+
+    private void ClearAllPermissions()
+    {
+        editingClaims.Clear();
+    }
+
+    private void SelectGroupPermissions(MenuGroupDefinition group, bool viewOnly = false)
+    {
+        foreach (var feat in group.Features)
+        {
+            editingClaims.Add(feat.ViewPermission.Code);
+            if (viewOnly)
+            {
+                editingClaims.Remove(feat.EditPermission.Code);
+            }
+            else
+            {
+                editingClaims.Add(feat.EditPermission.Code);
+            }
+        }
+    }
+
+    private void ClearGroupPermissions(MenuGroupDefinition group)
+    {
+        foreach (var feat in group.Features)
+        {
+            editingClaims.Remove(feat.ViewPermission.Code);
+            editingClaims.Remove(feat.EditPermission.Code);
+        }
     }
 
     private void ToggleNewUserRole(string roleName, bool isChecked)
