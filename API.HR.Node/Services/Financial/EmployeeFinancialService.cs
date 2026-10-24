@@ -139,8 +139,16 @@ public sealed class EmployeeFinancialService : IEmployeeFinancialService
             _db.EmployeeBalanceTransactions.Add(trx);
         }
 
-        await _db.SaveChangesAsync(ct);
-        return MapToDto(account);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+            return MapToDto(account);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Financial concurrency conflict on employee account {EmployeeId}", employeeId);
+            throw new InvalidOperationException("FINANCIAL_CONCURRENCY_CONFLICT: تم تعديل السجل المالي بالتزامن من قِبل عملية أخرى. يرجى إعادة المحاولة.", ex);
+        }
     }
 
     public async Task<EmployeeBalanceTransactionDto> AddTransactionAsync(
@@ -151,6 +159,7 @@ public sealed class EmployeeFinancialService : IEmployeeFinancialService
         string? referenceNumber = null,
         DateTime? transactionDate = null,
         string? createdBy = null,
+        string? idempotencyKey = null,
         CancellationToken ct = default)
     {
         if (amount < 0)
@@ -158,85 +167,121 @@ public sealed class EmployeeFinancialService : IEmployeeFinancialService
             throw new ArgumentException("قيمة المبلغ يجب أن تكون موجبة.", nameof(amount));
         }
 
-        var account = await _db.EmployeeFinancialAccounts
-            .Include(a => a.Employee)
-            .FirstOrDefaultAsync(a => a.EmployeeId == employeeId, ct);
-
-        var now = DateTime.UtcNow;
-        var effectiveTxDate = transactionDate ?? now;
-
-        if (account is null)
+        // 1. Idempotency Check
+        if (!string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId, ct)
-                ?? throw new InvalidOperationException($"الموظف بالمعرّف {employeeId} غير موجود.");
-
-            account = new EmployeeFinancialAccount
+            var existingTx = await _db.EmployeeBalanceTransactions
+                .FirstOrDefaultAsync(t => t.IdempotencyKey == idempotencyKey, ct);
+            if (existingTx != null)
             {
+                _logger.LogInformation("Returning existing transaction {TransactionId} for idempotency key '{Key}'", existingTx.Id, idempotencyKey);
+                return new EmployeeBalanceTransactionDto(
+                    existingTx.Id,
+                    existingTx.EmployeeFinancialAccountId,
+                    existingTx.EmployeeId,
+                    existingTx.TransactionType,
+                    existingTx.Amount,
+                    existingTx.BalanceBefore,
+                    existingTx.BalanceAfter,
+                    existingTx.TransactionDate,
+                    existingTx.Description,
+                    existingTx.ReferenceNumber,
+                    existingTx.CreatedBy,
+                    existingTx.CreatedAt);
+            }
+        }
+
+        await using var dbTx = await _db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            var account = await _db.EmployeeFinancialAccounts
+                .Include(a => a.Employee)
+                .FirstOrDefaultAsync(a => a.EmployeeId == employeeId, ct);
+
+            var now = DateTime.UtcNow;
+            var effectiveTxDate = transactionDate ?? now;
+
+            if (account is null)
+            {
+                var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId, ct)
+                    ?? throw new InvalidOperationException($"الموظف بالمعرّف {employeeId} غير موجود.");
+
+                account = new EmployeeFinancialAccount
+                {
+                    EmployeeId = employeeId,
+                    Employee = employee,
+                    Balance = 0m,
+                    CreatedAt = now
+                };
+                _db.EmployeeFinancialAccounts.Add(account);
+                await _db.SaveChangesAsync(ct);
+            }
+
+            var balanceBefore = account.Balance;
+            decimal balanceAfter;
+
+            switch (type)
+            {
+                case FinancialTransactionType.Deposit:
+                    balanceAfter = balanceBefore + amount;
+                    break;
+                case FinancialTransactionType.Withdrawal:
+                    balanceAfter = balanceBefore - amount;
+                    break;
+                case FinancialTransactionType.InitialBalance:
+                case FinancialTransactionType.Adjustment:
+                    balanceAfter = amount;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), "نوع الحركة المالية غير مدعوم.");
+            }
+
+            account.Balance = balanceAfter;
+            account.BalanceLastUpdatedAt = effectiveTxDate;
+            account.UpdatedAt = now;
+            account.LastUpdatedBy = createdBy;
+
+            var transaction = new EmployeeBalanceTransaction
+            {
+                EmployeeFinancialAccountId = account.Id,
+                FinancialAccount = account,
                 EmployeeId = employeeId,
-                Employee = employee,
-                Balance = 0m,
+                TransactionType = type,
+                Amount = amount,
+                BalanceBefore = balanceBefore,
+                BalanceAfter = balanceAfter,
+                TransactionDate = effectiveTxDate,
+                Description = description,
+                ReferenceNumber = referenceNumber,
+                IdempotencyKey = idempotencyKey,
+                CreatedBy = createdBy,
                 CreatedAt = now
             };
-            _db.EmployeeFinancialAccounts.Add(account);
+
+            _db.EmployeeBalanceTransactions.Add(transaction);
             await _db.SaveChangesAsync(ct);
+            await dbTx.CommitAsync(ct);
+
+            return new EmployeeBalanceTransactionDto(
+                transaction.Id,
+                transaction.EmployeeFinancialAccountId,
+                transaction.EmployeeId,
+                transaction.TransactionType,
+                transaction.Amount,
+                transaction.BalanceBefore,
+                transaction.BalanceAfter,
+                transaction.TransactionDate,
+                transaction.Description,
+                transaction.ReferenceNumber,
+                transaction.CreatedBy,
+                transaction.CreatedAt);
         }
-
-        var balanceBefore = account.Balance;
-        decimal balanceAfter;
-
-        switch (type)
+        catch (DbUpdateConcurrencyException ex)
         {
-            case FinancialTransactionType.Deposit:
-                balanceAfter = balanceBefore + amount;
-                break;
-            case FinancialTransactionType.Withdrawal:
-                balanceAfter = balanceBefore - amount;
-                break;
-            case FinancialTransactionType.InitialBalance:
-            case FinancialTransactionType.Adjustment:
-                balanceAfter = amount;
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(type), "نوع الحركة المالية غير مدعوم.");
+            await dbTx.RollbackAsync(ct);
+            _logger.LogWarning(ex, "Financial balance concurrency conflict on Employee #{EmployeeId}", employeeId);
+            throw new InvalidOperationException("FINANCIAL_CONCURRENCY_CONFLICT: حدث تعارض تزامني أثناء تحديث الرصيد المالي للموظف. يرجى إعادة المحاولة.", ex);
         }
-
-        account.Balance = balanceAfter;
-        account.BalanceLastUpdatedAt = effectiveTxDate;
-        account.UpdatedAt = now;
-        account.LastUpdatedBy = createdBy;
-
-        var transaction = new EmployeeBalanceTransaction
-        {
-            EmployeeFinancialAccountId = account.Id,
-            FinancialAccount = account,
-            EmployeeId = employeeId,
-            TransactionType = type,
-            Amount = amount,
-            BalanceBefore = balanceBefore,
-            BalanceAfter = balanceAfter,
-            TransactionDate = effectiveTxDate,
-            Description = description,
-            ReferenceNumber = referenceNumber,
-            CreatedBy = createdBy,
-            CreatedAt = now
-        };
-
-        _db.EmployeeBalanceTransactions.Add(transaction);
-        await _db.SaveChangesAsync(ct);
-
-        return new EmployeeBalanceTransactionDto(
-            transaction.Id,
-            transaction.EmployeeFinancialAccountId,
-            transaction.EmployeeId,
-            transaction.TransactionType,
-            transaction.Amount,
-            transaction.BalanceBefore,
-            transaction.BalanceAfter,
-            transaction.TransactionDate,
-            transaction.Description,
-            transaction.ReferenceNumber,
-            transaction.CreatedBy,
-            transaction.CreatedAt);
     }
 
     public async Task<IReadOnlyList<EmployeeBalanceTransactionDto>> GetTransactionsAsync(int employeeId, int take = 100, CancellationToken ct = default)

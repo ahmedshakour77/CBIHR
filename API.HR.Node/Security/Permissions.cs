@@ -53,6 +53,12 @@ public static class Permissions
     public const string BirthdaysView = "Birthdays.View";
     public const string BirthdaysEdit = "Birthdays.Edit";
 
+    public const string NationalCardsView = "NationalCards.View";
+    public const string NationalCardsEdit = "NationalCards.Edit";
+
+    public const string PassportsView = "Passports.View";
+    public const string PassportsEdit = "Passports.Edit";
+
     // ==========================================
     // 4. الهيكل والرواتب (Structure)
     // ==========================================

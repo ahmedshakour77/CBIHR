@@ -37,24 +37,31 @@ public sealed record NavEntry(
             return true;
         }
 
-        // 1. التحقق من الصلاحيات التفصيلية (إذن الرؤية أو إذن التعديل يمنح حق استعراض التاب في القائمة)
-        if (!string.IsNullOrWhiteSpace(ViewPermission) && user.HasPermission(ViewPermission))
+        // 1. إذا كان العنصر محدداً بصلاحية دقيقة (ViewPermission أو EditPermission)، يتم الاعتماد حصراً على الصلاحيات
+        var hasSpecificPermissionDefined = !string.IsNullOrWhiteSpace(ViewPermission) || !string.IsNullOrWhiteSpace(EditPermission);
+        if (hasSpecificPermissionDefined)
         {
-            return true;
+            if (!string.IsNullOrWhiteSpace(ViewPermission) && user.HasPermission(ViewPermission))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(EditPermission) && user.HasPermission(EditPermission))
+            {
+                return true;
+            }
+
+            // فحص التوافق مع الصلاحيات القديمة
+            if (CheckLegacyPermissions(user))
+            {
+                return true;
+            }
+
+            // Deny-by-default: لا يتم التراجع إطلاقاً للأدوار (Roles) إذا كان العنصر يملك صلاحيات دقيقة
+            return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(EditPermission) && user.HasPermission(EditPermission))
-        {
-            return true;
-        }
-
-        // فحص التوافق مع الصلاحيات القديمة
-        if (CheckLegacyPermissions(user))
-        {
-            return true;
-        }
-
-        // 2. التحقق من الأدوار الكلاسيكية في حال عدم تعيين صلاحية مخصصة
+        // 2. التحقق من الأدوار الكلاسيكية فقط للعناصر القديمة التي لا تملك صلاحية مخصصة
         if (Roles != null && Roles.Length > 0)
         {
             foreach (var role in Roles)
@@ -68,7 +75,7 @@ public sealed record NavEntry(
         }
 
         // التبويبات العامة لجميع الموظفين المسجلين (مثل الملف الشخصي ومشاركاتي)
-        return string.IsNullOrWhiteSpace(ViewPermission) && string.IsNullOrWhiteSpace(EditPermission);
+        return true;
     }
 
     private bool CheckLegacyPermissions(ClaimsPrincipal user)

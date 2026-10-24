@@ -1038,7 +1038,8 @@
                 UserId: username,
                 Comment: actionComment,
                 RowVersion: selectedInstance.RowVersion,
-                IdempotencyKey: Guid.NewGuid().ToString("N"));
+                IdempotencyKey: Guid.NewGuid().ToString("N"),
+                User: authState.User);
 
             var result = await WorkflowEngine.ExecuteActionAsync(command);
 
@@ -1385,7 +1386,8 @@
                 UserId: username,
                 Comment: simActionComment,
                 RowVersion: Convert.FromBase64String(simRowVersion ?? ""),
-                IdempotencyKey: Guid.NewGuid().ToString("N"));
+                IdempotencyKey: Guid.NewGuid().ToString("N"),
+                User: authState.User);
 
             var result = await WorkflowEngine.ExecuteActionAsync(command);
             simHttpResponseJson = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });

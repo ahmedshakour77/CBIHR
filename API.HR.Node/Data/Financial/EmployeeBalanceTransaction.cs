@@ -59,6 +59,12 @@ public sealed class EmployeeBalanceTransaction
     public string? ReferenceNumber { get; set; }
 
     /// <summary>
+    /// مفتاح عدم التكرار (Idempotency Key) لمنع تكرار الحركة عند محاولات الإرسال المتعددة
+    /// </summary>
+    [MaxLength(128)]
+    public string? IdempotencyKey { get; set; }
+
+    /// <summary>
     /// منفذ الحركة
     /// </summary>
     [MaxLength(150)]

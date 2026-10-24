@@ -275,8 +275,12 @@ public static class NationalCardEndpoints
             ApplicationDbContext db,
             CancellationToken ct) =>
         {
-            // If not staff, verify user is requesting their own card
-            if (!StaffRoles.IsStaff(principal))
+            var hasCardViewPerm = principal.IsInRole("Admin") ||
+                                  principal.HasPermission(Permissions.NationalCardsView) ||
+                                  principal.HasPermission(Permissions.NationalCardsEdit);
+
+            // If not admin or holder of NationalCardsView permission, verify user is requesting their own card
+            if (!hasCardViewPerm)
             {
                 var currentEmployee = await ResolveCurrentEmployeeAsync(principal, userManager, db, ct);
                 if (currentEmployee is null || currentEmployee.Id != employeeId)
@@ -300,7 +304,11 @@ public static class NationalCardEndpoints
             ApplicationDbContext db,
             CancellationToken ct) =>
         {
-            if (!StaffRoles.IsStaff(principal))
+            var hasCardViewPerm = principal.IsInRole("Admin") ||
+                                  principal.HasPermission(Permissions.NationalCardsView) ||
+                                  principal.HasPermission(Permissions.NationalCardsEdit);
+
+            if (!hasCardViewPerm)
             {
                 var currentEmployee = await ResolveCurrentEmployeeAsync(principal, userManager, db, ct);
                 if (currentEmployee is null || !string.Equals(currentEmployee.EmployeeID, employeeNumber, StringComparison.OrdinalIgnoreCase))
@@ -319,7 +327,7 @@ public static class NationalCardEndpoints
     }
 
     /// <summary>
-    /// استرجاع صورة البطاقة الوطنية مع التحقق الصارم من صلاحية الموظف (Staff) أو ملكية صاحب البطاقة
+    /// استرجاع صورة البطاقة الوطنية مع التحقق الصارم من صلاحية الموظف (NationalCards.View) أو ملكية صاحب البطاقة
     /// </summary>
     private static async Task<IResult> GetNationalCardImageAsync(
         int id,
@@ -340,7 +348,9 @@ public static class NationalCardEndpoints
             return Results.NotFound(new { message = "سجل البطاقة الوطنية غير موجود." });
         }
 
-        var isStaffUser = StaffRoles.IsStaff(principal);
+        var isStaffUser = principal.IsInRole("Admin") ||
+                          principal.HasPermission(Permissions.NationalCardsView) ||
+                          principal.HasPermission(Permissions.NationalCardsEdit);
         if (!isStaffUser)
         {
             var currentEmployee = await ResolveCurrentEmployeeAsync(principal, userManager, db, ct);

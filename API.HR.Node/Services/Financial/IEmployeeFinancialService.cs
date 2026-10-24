@@ -26,6 +26,7 @@ public interface IEmployeeFinancialService
         string? referenceNumber = null,
         DateTime? transactionDate = null,
         string? createdBy = null,
+        string? idempotencyKey = null,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<EmployeeBalanceTransactionDto>> GetTransactionsAsync(int employeeId, int take = 100, CancellationToken ct = default);

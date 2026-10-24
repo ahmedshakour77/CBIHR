@@ -211,35 +211,61 @@ builder.Services.AddAntiforgery(options =>
 builder.Services.AddScoped<IWorkflowAssignmentResolver, WorkflowAssignmentResolver>();
 builder.Services.AddSingleton<IWorkflowConditionEvaluator, WorkflowConditionEvaluator>();
 builder.Services.AddScoped<IWorkflowTimelineService, WorkflowTimelineService>();
+builder.Services.AddScoped<IWorkflowAuthorizationService, WorkflowAuthorizationService>();
 builder.Services.AddScoped<IWorkflowActionHandler, AppreciationLetterWorkflowHandler>();
 builder.Services.AddScoped<IWorkflowActionHandler, WorkContinuationWorkflowHandler>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IWorkflowEngine, WorkflowEngine>();
 
+// Passkey Server-Side Challenge Store
+builder.Services.AddSingleton<IPasskeyChallengeStore, PasskeyChallengeStore>();
+
 // FIDO2 / WebAuthn Passkeys Configuration
+var isDevEnvironment = builder.Environment.IsDevelopment();
+var fidoServerDomain = builder.Configuration["Fido2:ServerDomain"] ?? "portal.aml.lan";
+var fidoServerName = builder.Configuration["Fido2:ServerName"] ?? "API.HR.Node Passkeys";
+
+var allowedFidoOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+if (isDevEnvironment)
+{
+    allowedFidoOrigins.Add("https://localhost:7266");
+    allowedFidoOrigins.Add("http://localhost:5058");
+    allowedFidoOrigins.Add("https://localhost:5058");
+    allowedFidoOrigins.Add("https://localhost");
+    allowedFidoOrigins.Add("http://localhost");
+    allowedFidoOrigins.Add("https://127.0.0.1:7266");
+    allowedFidoOrigins.Add("http://127.0.0.1:5058");
+    allowedFidoOrigins.Add("https://127.0.0.1:5058");
+    allowedFidoOrigins.Add("http://127.0.0.1");
+    allowedFidoOrigins.Add("https://127.0.0.1");
+    allowedFidoOrigins.Add("android:apk-key-hash:g19ckDQXRW8bvU93OuYGM1-SFSdIhhncew9p6l3NUBM");
+}
+else
+{
+    // Production Mode: Strict enterprise HTTPS origins only, static domain, NO http, NO localhost, NO 127.0.0.1
+    var configuredOrigins = builder.Configuration.GetSection("Fido2:Origins").Get<string[]>();
+    if (configuredOrigins != null && configuredOrigins.Length > 0)
+    {
+        foreach (var o in configuredOrigins.Where(o => o.StartsWith("https://", StringComparison.OrdinalIgnoreCase) || o.StartsWith("android:", StringComparison.OrdinalIgnoreCase)))
+        {
+            allowedFidoOrigins.Add(o);
+        }
+    }
+    allowedFidoOrigins.Add("https://portal.aml.lan");
+    allowedFidoOrigins.Add("https://apihr.iraqservice.uk");
+    allowedFidoOrigins.Add("android:apk-key-hash:g19ckDQXRW8bvU93OuYGM1-SFSdIhhncew9p6l3NUBM");
+}
+
 var fido2Config = new Fido2Configuration
 {
-    ServerDomain = builder.Configuration["Fido2:ServerDomain"] ?? "portal.aml.lan",
-    ServerName = builder.Configuration["Fido2:ServerName"] ?? "API.HR.Node Passkeys",
-    Origins = new HashSet<string>(builder.Configuration.GetSection("Fido2:Origins").Get<string[]>() ?? [
-        "https://portal.aml.lan",
-        "http://portal.aml.lan",
-        "https://portal.aml.lan:7266",
-        "https://aml.lan",
-        "http://aml.lan",
-        "https://apihr.iraqservice.uk",
-        "https://localhost:7266",
-        "http://localhost:5058",
-        "https://localhost:5058",
-        "https://localhost",
-        "http://localhost",
-        "https://127.0.0.1:7266",
-        "http://127.0.0.1:5058",
-        "android:apk-key-hash:g19ckDQXRW8bvU93OuYGM1-SFSdIhhncew9p6l3NUBM"
-    ]),
+    ServerDomain = fidoServerDomain,
+    ServerName = fidoServerName,
+    Origins = allowedFidoOrigins,
     TimestampDriftTolerance = 300000
 };
 builder.Services.AddSingleton(fido2Config);
+
 builder.Services.AddScoped<IFido2>(sp =>
 {
     var baseConfig = sp.GetRequiredService<Fido2Configuration>();
@@ -251,7 +277,8 @@ builder.Services.AddScoped<IFido2>(sp =>
         ? new HashSet<string>(baseConfig.Origins, StringComparer.OrdinalIgnoreCase)
         : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    if (httpContext != null)
+    // Dynamic Host and local schemes are permitted exclusively in Development
+    if (isDevEnvironment && httpContext != null)
     {
         var reqHost = httpContext.Request.Host.Host;
         if (!string.IsNullOrEmpty(reqHost))
@@ -261,31 +288,9 @@ builder.Services.AddScoped<IFido2>(sp =>
             {
                 domain = "localhost";
             }
-            else
-            {
-                domain = reqHost;
-            }
             origins.Add($"{httpContext.Request.Scheme}://{httpContext.Request.Host.Value}");
         }
     }
-
-    // Ensure all enterprise and local development origins are always authorized
-    origins.Add("https://portal.aml.lan");
-    origins.Add("http://portal.aml.lan");
-    origins.Add("https://portal.aml.lan:7266");
-    origins.Add("https://aml.lan");
-    origins.Add("http://aml.lan");
-    origins.Add("https://apihr.iraqservice.uk");
-    origins.Add("https://localhost:7266");
-    origins.Add("http://localhost:5058");
-    origins.Add("https://localhost:5058");
-    origins.Add("https://localhost");
-    origins.Add("http://localhost");
-    origins.Add("https://127.0.0.1:7266");
-    origins.Add("http://127.0.0.1:5058");
-    origins.Add("https://127.0.0.1:5058");
-    origins.Add("http://127.0.0.1");
-    origins.Add("https://127.0.0.1");
 
     return new Fido2(new Fido2Configuration
     {
@@ -318,68 +323,72 @@ if (!string.IsNullOrEmpty(msClientId) && !string.IsNullOrEmpty(msClientSecret))
     });
 }
 
-builder.Services.AddAuthorizationBuilder()
+var authBuilder = builder.Services.AddAuthorizationBuilder()
     .AddPolicy(AuthorizationPolicies.ApiBearer, policy =>
     {
         policy.AddAuthenticationSchemes(
             IdentityConstants.BearerScheme,
-            IdentityConstants.ApplicationScheme,
-            BasicAuthenticationHandler.SchemeName);
+            IdentityConstants.ApplicationScheme);
+        policy.RequireAuthenticatedUser();
+    })
+    .AddPolicy(AuthorizationPolicies.IntegrationBasic, policy =>
+    {
+        policy.AddAuthenticationSchemes(BasicAuthenticationHandler.SchemeName);
         policy.RequireAuthenticatedUser();
     })
     .AddPolicy(AuthorizationPolicies.ProfilePhotoRead, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ProfilePhotoRead));
     })
     .AddPolicy(AuthorizationPolicies.ProfilePhotoUpload, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ProfilePhotoUpload));
     })
     .AddPolicy(AuthorizationPolicies.ProfilePhotoDelete, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ProfilePhotoDelete));
     })
     .AddPolicy(AuthorizationPolicies.ProfilePhotoReplace, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ProfilePhotoReplace));
     })
     .AddPolicy(AuthorizationPolicies.ManageUsers, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ManageUsers));
     })
     .AddPolicy(AuthorizationPolicies.ManageDevices, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ManageDevices));
     })
     .AddPolicy(AuthorizationPolicies.ViewAuditLogs, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ViewAuditLogs));
     })
     .AddPolicy(AuthorizationPolicies.ManageWorkflows, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ManageWorkflows));
     })
     .AddPolicy(AuthorizationPolicies.ImportEmployees, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ImportEmployees));
     })
     .AddPolicy(AuthorizationPolicies.ImportAppreciationLetters, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ImportAppreciationLetters));
     })
     .AddPolicy(AuthorizationPolicies.ImportJobTitles, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.RequireAssertion(ctx =>
             ctx.User.IsInRole("Admin") ||
             ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") &&
@@ -388,7 +397,7 @@ builder.Services.AddAuthorizationBuilder()
     })
     .AddPolicy(AuthorizationPolicies.ImportLastAllowanceDate, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.RequireAssertion(ctx =>
             ctx.User.IsInRole("Admin") ||
             ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") &&
@@ -397,27 +406,27 @@ builder.Services.AddAuthorizationBuilder()
     })
     .AddPolicy(AuthorizationPolicies.ManageFeedback, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.AddRequirements(new PermissionRequirement(Permissions.ManageFeedback));
     })
     .AddPolicy(AuthorizationPolicies.AdminOnly, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.RequireRole("Admin");
     })
     .AddPolicy(AuthorizationPolicies.Staff, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.RequireRole(StaffRoles.All);
     })
     .AddPolicy(AuthorizationPolicies.ManageCanva, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.RequireRole("Admin", "HRManager");
     })
     .AddPolicy(AuthorizationPolicies.FormationDashboard, policy =>
     {
-        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme, BasicAuthenticationHandler.SchemeName);
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
         policy.RequireAssertion(ctx =>
             ctx.User.IsInRole("Admin") ||
             ctx.User.IsInRole("HRManager") ||
@@ -425,6 +434,16 @@ builder.Services.AddAuthorizationBuilder()
             ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") && c.Value == Permissions.ViewFormationDashboard) ||
             ctx.User.HasClaim(c => c.Type == "formation_id"));
     });
+
+// Register all fine-grained feature permissions (*.View and *.Edit) dynamically as authorization policies
+foreach (var permissionCode in FeaturePermissionCatalog.AllPermissionCodes)
+{
+    authBuilder.AddPolicy(permissionCode, policy =>
+    {
+        policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
+        policy.AddRequirements(new PermissionRequirement(permissionCode));
+    });
+}
 
 var connectionString = builder.Configuration.GetConnectionString("liveDB")
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
@@ -536,7 +555,6 @@ else
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
-    app.UseMigrationsEndPoint();
 }
 
 // Security Headers Middleware

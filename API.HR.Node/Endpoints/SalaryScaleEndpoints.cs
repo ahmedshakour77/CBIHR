@@ -13,7 +13,7 @@ public static class SalaryScaleEndpoints
     {
         var group = endpoints.MapGroup("/api/salary-scale")
             .WithTags("Salary Scale")
-            .RequireAuthorization();
+            .RequireAuthorization(Permissions.SalariesView);
 
         group.MapGet("/matrix", async (ISalaryScaleService service, CancellationToken ct) =>
         {

@@ -66,6 +66,7 @@ public static class PasskeyEndpoints
         ClaimsPrincipal principal,
         UserManager<ApplicationUser> userManager,
         IPasskeyService passkeyService,
+        IPasskeyChallengeStore challengeStore,
         CancellationToken cancellationToken)
     {
         var user = await userManager.GetUserAsync(principal);
@@ -79,9 +80,16 @@ public static class PasskeyEndpoints
 
         var options = await passkeyService.MakeRegistrationOptionsAsync(user, cancellationToken);
         var optionsJson = options.ToJson();
+        var flowId = await challengeStore.CreateChallengeAsync(
+            challengeType: "Registration",
+            optionsJson: optionsJson,
+            userId: user.Id,
+            userIdentifier: user.EmployeeID,
+            cancellationToken: cancellationToken);
 
         return Results.Ok(new
         {
+            flowId,
             optionsJson,
             options
         });
@@ -92,6 +100,7 @@ public static class PasskeyEndpoints
         ClaimsPrincipal principal,
         UserManager<ApplicationUser> userManager,
         IPasskeyService passkeyService,
+        IPasskeyChallengeStore challengeStore,
         IAuditLogger auditLogger,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -107,7 +116,21 @@ public static class PasskeyEndpoints
 
         try
         {
-            var options = CredentialCreateOptions.FromJson(request.OptionsJson);
+            string effectiveOptionsJson;
+            if (!string.IsNullOrWhiteSpace(request.FlowId))
+            {
+                effectiveOptionsJson = await challengeStore.ConsumeChallengeAsync(request.FlowId, "Registration", cancellationToken);
+            }
+            else if (!string.IsNullOrWhiteSpace(request.OptionsJson))
+            {
+                effectiveOptionsJson = request.OptionsJson;
+            }
+            else
+            {
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "FlowId or OptionsJson is required.");
+            }
+
+            var options = CredentialCreateOptions.FromJson(effectiveOptionsJson);
             var attestation = JsonSerializer.Deserialize<AuthenticatorAttestationRawResponse>(request.AttestationResponseJson, JsonOptions);
 
             if (attestation is null)
@@ -155,13 +178,20 @@ public static class PasskeyEndpoints
     private static async Task<IResult> PasskeyLoginOptions(
         PasskeyLoginOptionsRequest? request,
         IPasskeyService passkeyService,
+        IPasskeyChallengeStore challengeStore,
         CancellationToken cancellationToken)
     {
         var options = await passkeyService.MakeLoginOptionsAsync(request?.Email ?? request?.EmployeeID, cancellationToken);
         var optionsJson = options.ToJson();
+        var flowId = await challengeStore.CreateChallengeAsync(
+            challengeType: "Login",
+            optionsJson: optionsJson,
+            userIdentifier: request?.Email ?? request?.EmployeeID,
+            cancellationToken: cancellationToken);
 
         return Results.Ok(new
         {
+            flowId,
             optionsJson,
             options
         });
@@ -170,6 +200,7 @@ public static class PasskeyEndpoints
     private static async Task<IResult> PasskeyLoginComplete(
         PasskeyLoginCompleteRequest request,
         IPasskeyService passkeyService,
+        IPasskeyChallengeStore challengeStore,
         SignInManager<ApplicationUser> signInManager,
         UserManager<ApplicationUser> userManager,
         ApplicationDbContext dbContext,
@@ -179,7 +210,21 @@ public static class PasskeyEndpoints
     {
         try
         {
-            var options = AssertionOptions.FromJson(request.OptionsJson);
+            string effectiveOptionsJson;
+            if (!string.IsNullOrWhiteSpace(request.FlowId))
+            {
+                effectiveOptionsJson = await challengeStore.ConsumeChallengeAsync(request.FlowId, "Login", cancellationToken);
+            }
+            else if (!string.IsNullOrWhiteSpace(request.OptionsJson))
+            {
+                effectiveOptionsJson = request.OptionsJson;
+            }
+            else
+            {
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "FlowId or OptionsJson is required.");
+            }
+
+            var options = AssertionOptions.FromJson(effectiveOptionsJson);
             var assertion = JsonSerializer.Deserialize<AuthenticatorAssertionRawResponse>(request.AssertionResponseJson, JsonOptions);
 
             if (assertion is null)

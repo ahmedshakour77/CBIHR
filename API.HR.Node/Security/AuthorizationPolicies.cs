@@ -21,4 +21,5 @@ public static class AuthorizationPolicies
     public const string Staff = "Staff";
     public const string ManageCanva = "ManageCanva";
     public const string FormationDashboard = "FormationDashboard";
+    public const string IntegrationBasic = "IntegrationBasic";
 }

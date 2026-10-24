@@ -102,7 +102,17 @@ public static class FeaturePermissionCatalog
             new FeatureDefinition(
                 "birthdays", "المناسبات وأعياد الميلاد", "cake", "بيانات مكمّلة",
                 new PermissionDefinition(Permissions.BirthdaysView, "رؤية تقويم المناسبات", "استعراض تقويم أعياد ميلاد الكوادر والمناسبات العامة", false),
-                new PermissionDefinition(Permissions.BirthdaysEdit, "تعديل تقويم المناسبات", "إدارة وتعديل تقويم المناسبات وتنبيهات أعياد الميلاد", true))
+                new PermissionDefinition(Permissions.BirthdaysEdit, "تعديل تقويم المناسبات", "إدارة وتعديل تقويم المناسبات وتنبيهات أعياد الميلاد", true)),
+
+            new FeatureDefinition(
+                "national-cards", "البطاقات الوطنية الموحدة", "identification", "بيانات مكمّلة",
+                new PermissionDefinition(Permissions.NationalCardsView, "رؤية البطاقات الوطنية", "استعراض والبحث في بيانات وصور البطاقات الوطنية الموحدة", false),
+                new PermissionDefinition(Permissions.NationalCardsEdit, "تعديل البطاقات الوطنية", "إضافة وتعديل وقراءة بيانات وصور البطاقة الوطنية الموحدة", true)),
+
+            new FeatureDefinition(
+                "passports", "جوازات سفر الموظفين", "globe-alt", "بيانات مكمّلة",
+                new PermissionDefinition(Permissions.PassportsView, "رؤية جوازات السفر", "استعراض والبحث في بيانات وصور وثائق جوازات السفر للموظفين", false),
+                new PermissionDefinition(Permissions.PassportsEdit, "تعديل جوازات السفر", "إضافة وتحديث وتدقيق سجلات وصور جوازات السفر", true))
         ]),
 
         new MenuGroupDefinition("structure", "الهيكل والرواتب", "rectangle-stack",

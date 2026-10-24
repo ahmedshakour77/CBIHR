@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using API.HR.Node.Data.Workflows;
 
 namespace API.HR.Node.Services.Workflows;
@@ -19,7 +20,8 @@ public record ExecuteWorkflowActionCommand(
     string? IdempotencyKey = null,
     string? CorrelationId = null,
     string? IpAddress = null,
-    string? UserAgent = null);
+    string? UserAgent = null,
+    ClaimsPrincipal? User = null);
 
 public record WorkflowStartResult(
     long WorkflowInstanceId,
@@ -92,6 +94,6 @@ public interface IWorkflowEngine
 {
     Task<WorkflowStartResult> StartAsync(StartWorkflowCommand command, CancellationToken cancellationToken = default);
     Task<WorkflowActionResult> ExecuteActionAsync(ExecuteWorkflowActionCommand command, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<WorkflowAvailableActionDto>> GetAvailableActionsAsync(long workflowInstanceId, string userId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<WorkflowAvailableActionDto>> GetAvailableActionsAsync(long workflowInstanceId, string userId, ClaimsPrincipal? user = null, CancellationToken cancellationToken = default);
     Task<WorkflowInstanceDto> GetInstanceAsync(long workflowInstanceId, CancellationToken cancellationToken = default);
 }

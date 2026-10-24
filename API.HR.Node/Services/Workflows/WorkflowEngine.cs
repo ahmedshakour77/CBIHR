@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using API.HR.Node.Data;
 using API.HR.Node.Data.Workflows;
@@ -12,6 +13,7 @@ public class WorkflowEngine(
     IWorkflowAssignmentResolver assignmentResolver,
     IWorkflowConditionEvaluator conditionEvaluator,
     IWorkflowTimelineService timelineService,
+    IWorkflowAuthorizationService authorizationService,
     IEnumerable<IWorkflowActionHandler> actionHandlers,
     INotificationService? notificationService = null) : IWorkflowEngine
 {
@@ -191,6 +193,16 @@ public class WorkflowEngine(
             throw new InvalidOperationException($"WORKFLOW_CONDITION_FAILED: Conditions for action '{command.ActionCode}' were not satisfied.");
         }
 
+        // 5.1 Mandatory Security & Assignment Authorization Check
+        if (command.User != null)
+        {
+            var isAuthorized = await authorizationService.CanExecuteActionAsync(command.User, instance, transition, cancellationToken);
+            if (!isAuthorized)
+            {
+                throw new UnauthorizedAccessException($"WORKFLOW_FORBIDDEN: User '{command.UserId}' does not have the required permission or assignment to execute action '{command.ActionCode}' on workflow instance #{instance.Id}.");
+            }
+        }
+
         // Begin Single Atomic Transaction for Transition, Events, Tasks, Comments, and Idempotency Record
         await using var dbTransaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
@@ -362,10 +374,13 @@ public class WorkflowEngine(
     public async Task<IReadOnlyList<WorkflowAvailableActionDto>> GetAvailableActionsAsync(
         long workflowInstanceId,
         string userId,
+        ClaimsPrincipal? user = null,
         CancellationToken cancellationToken = default)
     {
         var instance = await dbContext.WorkflowInstances
             .Include(i => i.CurrentStep)
+            .Include(i => i.WorkflowVersion)
+            .ThenInclude(v => v.WorkflowDefinition)
             .FirstOrDefaultAsync(i => i.Id == workflowInstanceId, cancellationToken);
 
         if (instance == null || instance.Status != WorkflowInstanceStatus.Running)
@@ -377,6 +392,11 @@ public class WorkflowEngine(
             .Where(t => t.WorkflowVersionId == instance.WorkflowVersionId && t.FromStepId == instance.CurrentStepId)
             .OrderBy(t => t.Priority)
             .ToListAsync(cancellationToken);
+
+        if (user != null)
+        {
+            return await authorizationService.FilterAvailableActionsAsync(user, instance, transitions, cancellationToken);
+        }
 
         return transitions.Select(t => new WorkflowAvailableActionDto(
             Code: t.ActionCode,
@@ -399,7 +419,7 @@ public class WorkflowEngine(
             .FirstOrDefaultAsync(i => i.Id == workflowInstanceId, cancellationToken)
             ?? throw new InvalidOperationException($"WORKFLOW_NOT_FOUND: Instance #{workflowInstanceId} not found.");
 
-        var availableActions = await GetAvailableActionsAsync(instance.Id, instance.InitiatorUserId, cancellationToken);
+        var availableActions = await GetAvailableActionsAsync(instance.Id, instance.InitiatorUserId, user: null, cancellationToken: cancellationToken);
 
         var taskDtos = instance.Tasks.Select(t => new WorkflowTaskDto(
             Id: t.Id,

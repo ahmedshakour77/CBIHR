@@ -53,5 +53,8 @@ public sealed class EmployeeFinancialAccount
     [MaxLength(150)]
     public string? LastUpdatedBy { get; set; }
 
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = [];
+
     public ICollection<EmployeeBalanceTransaction> Transactions { get; set; } = new List<EmployeeBalanceTransaction>();
 }

@@ -110,7 +110,8 @@ public class WorkflowEngineTests
         var assignmentResolver = new WorkflowAssignmentResolver(dbContext);
         var conditionEvaluator = new WorkflowConditionEvaluator();
         var timelineService = new WorkflowTimelineService(dbContext);
-        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, []);
+        var authService = new WorkflowAuthorizationService(dbContext);
+        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, authService, []);
 
         var command = new StartWorkflowCommand(
             WorkflowCode: "TEST_WORKFLOW",
@@ -150,7 +151,8 @@ public class WorkflowEngineTests
         var assignmentResolver = new WorkflowAssignmentResolver(dbContext);
         var conditionEvaluator = new WorkflowConditionEvaluator();
         var timelineService = new WorkflowTimelineService(dbContext);
-        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, []);
+        var authService = new WorkflowAuthorizationService(dbContext);
+        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, authService, []);
 
         var startResult = await engine.StartAsync(new StartWorkflowCommand("TEST_WORKFLOW", "TestEntity", "1002", "user1"));
 
@@ -187,7 +189,8 @@ public class WorkflowEngineTests
         var assignmentResolver = new WorkflowAssignmentResolver(dbContext);
         var conditionEvaluator = new WorkflowConditionEvaluator();
         var timelineService = new WorkflowTimelineService(dbContext);
-        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, []);
+        var authService = new WorkflowAuthorizationService(dbContext);
+        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, authService, []);
 
         var startResult = await engine.StartAsync(new StartWorkflowCommand("TEST_WORKFLOW", "TestEntity", "1003", "user1"));
 
@@ -222,7 +225,8 @@ public class WorkflowEngineTests
         var timelineService = new WorkflowTimelineService(dbContext);
         var loggerMock = new Mock<Microsoft.Extensions.Logging.ILogger<WorkContinuationWorkflowHandler>>();
         var handler = new WorkContinuationWorkflowHandler(dbContext, loggerMock.Object);
-        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, new[] { handler });
+        var authService = new WorkflowAuthorizationService(dbContext);
+        var engine = new WorkflowEngine(dbContext, assignmentResolver, conditionEvaluator, timelineService, authService, new[] { handler });
 
         // Seed WORK_CONTINUATION_REQUEST definition manually in InMemory DB
         var def = new WorkflowDefinition { Code = "WORK_CONTINUATION_REQUEST", Name = "طلب تأييد استمرار بالعمل", IsEnabled = true };

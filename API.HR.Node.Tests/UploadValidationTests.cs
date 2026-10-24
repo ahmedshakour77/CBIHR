@@ -132,16 +132,28 @@ public sealed class UploadValidationTests
     }
 
     [Fact]
-    public async Task MalwareScanner_NullScanner_ShouldReturnBypassedStatus()
+    public async Task MalwareScanner_NullScanner_ShouldReturnCleanInDevAndFailInProduction()
     {
         var loggerMock = new Mock<ILogger<NullFileMalwareScanner>>();
-        var scanner = new NullFileMalwareScanner(loggerMock.Object);
+        var devEnvMock = new Mock<Microsoft.Extensions.Hosting.IHostEnvironment>();
+        devEnvMock.Setup(e => e.EnvironmentName).Returns(Microsoft.Extensions.Hosting.Environments.Development);
+
+        var devScanner = new NullFileMalwareScanner(devEnvMock.Object, loggerMock.Object);
 
         using var stream = new MemoryStream(new byte[50]);
-        var result = await scanner.ScanAsync(stream, "test.jpg");
+        var devResult = await devScanner.ScanAsync(stream, "test.jpg");
 
-        result.Status.Should().Be(MalwareScanStatus.Bypassed);
-        result.EngineName.Should().Be("NullScannerPlaceholder");
+        devResult.Status.Should().Be(MalwareScanStatus.Clean);
+        devResult.EngineName.Should().Be("NullScannerPlaceholderDevMode");
+
+        var prodEnvMock = new Mock<Microsoft.Extensions.Hosting.IHostEnvironment>();
+        prodEnvMock.Setup(e => e.EnvironmentName).Returns(Microsoft.Extensions.Hosting.Environments.Production);
+
+        var prodScanner = new NullFileMalwareScanner(prodEnvMock.Object, loggerMock.Object);
+        var prodResult = await prodScanner.ScanAsync(stream, "test.jpg");
+
+        prodResult.Status.Should().Be(MalwareScanStatus.Failed);
+        prodResult.IsRejected().Should().BeTrue();
     }
 
     private static MemoryStream CreateSampleImageStream(string format, int width, int height)

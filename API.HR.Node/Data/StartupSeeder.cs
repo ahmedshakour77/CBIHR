@@ -31,21 +31,21 @@ public static class StartupSeeder
         var dbContext = services.GetRequiredService<ApplicationDbContext>();
         var logger = services.GetRequiredService<ILogger<ApplicationDbContext>>();
 
-        // On by default to keep today's behaviour. With more than one instance,
-        // set Database:MigrateOnStartup=false and run migrations in the deploy step.
-        if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
+        // Migrate on startup defaults to true ONLY in Development. In Production, migrations
+        // must be applied via deployment pipelines unless explicitly configured.
+        var defaultMigrate = app.Environment.IsDevelopment();
+        if (app.Configuration.GetValue("Database:MigrateOnStartup", defaultMigrate))
         {
             await dbContext.Database.MigrateAsync();
         }
 
-        // Fail-safe to ensure EmployeeNationalCards table exists in SQL Server
-        await EnsureEmployeeNationalCardsTableAsync(dbContext, logger);
-
-        // Fail-safe to ensure EmployeePassports table exists in SQL Server
-        await EnsureEmployeePassportsTableAsync(dbContext, logger);
-
-        // Fail-safe to ensure Driver columns exist in EmployeeVehicles table
-        await EnsureEmployeeVehiclesDriverColumnsAsync(dbContext, logger);
+        // Fail-safe raw DDL operations (CREATE/ALTER TABLE) are restricted strictly to Development
+        if (app.Environment.IsDevelopment())
+        {
+            await EnsureEmployeeNationalCardsTableAsync(dbContext, logger);
+            await EnsureEmployeePassportsTableAsync(dbContext, logger);
+            await EnsureEmployeeVehiclesDriverColumnsAsync(dbContext, logger);
+        }
 
         var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
         foreach (var roleName in AllRoles)

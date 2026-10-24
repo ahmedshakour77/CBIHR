@@ -51,7 +51,7 @@ public static class WorkflowEndpoints
         group.MapGet("/workflow-tasks", GetAllTasks)
             .WithName("GetAllWorkflowTasks")
             .WithSummary("Lists workflow tasks with filtering by status and assignment.")
-            .RequireAuthorization(AuthorizationPolicies.ManageWorkflows);
+            .RequireAuthorization(Permissions.WorkflowsView);
 
         // 8. Get Task Details
         group.MapGet("/workflow-tasks/{id:long}", GetTaskById)
@@ -62,32 +62,34 @@ public static class WorkflowEndpoints
         group.MapPost("/workflow-tasks/{id:long}/reassign", ReassignTask)
             .WithName("ReassignWorkflowTask")
             .WithSummary("Reassigns a workflow task to another user.")
-            .RequireAuthorization(AuthorizationPolicies.ManageWorkflows);
+            .RequireAuthorization(Permissions.WorkflowsEdit);
 
         // 10. Delegate Task
         group.MapPost("/workflow-tasks/{id:long}/delegate", DelegateTask)
             .WithName("DelegateWorkflowTask")
-            .WithSummary("Delegates a workflow task.");
+            .WithSummary("Delegates a workflow task.")
+            .RequireAuthorization(Permissions.WorkflowsEdit);
 
         // 11. Workflow Definitions Management
         group.MapGet("/workflow-definitions", GetDefinitions)
             .WithName("GetWorkflowDefinitions")
-            .WithSummary("Lists all workflow definitions and their published versions.");
+            .WithSummary("Lists all workflow definitions and their published versions.")
+            .RequireAuthorization(Permissions.WorkflowsView);
 
         group.MapPost("/workflow-definitions", CreateDefinition)
             .WithName("CreateWorkflowDefinition")
             .WithSummary("Creates a new database-driven workflow definition.")
-            .RequireAuthorization(AuthorizationPolicies.ManageWorkflows);
+            .RequireAuthorization(Permissions.WorkflowsEdit);
 
         group.MapPost("/workflow-definitions/{code}/versions", CreateVersion)
             .WithName("CreateWorkflowVersion")
             .WithSummary("Creates a new draft version for a workflow definition.")
-            .RequireAuthorization(AuthorizationPolicies.ManageWorkflows);
+            .RequireAuthorization(Permissions.WorkflowsEdit);
 
         group.MapPost("/workflow-versions/{versionId:long}/publish", PublishVersion)
             .WithName("PublishWorkflowVersion")
             .WithSummary("Publishes a draft workflow version, making it active for new instances.")
-            .RequireAuthorization(AuthorizationPolicies.ManageWorkflows);
+            .RequireAuthorization(Permissions.WorkflowsEdit);
 
         return endpoints;
     }
@@ -149,12 +151,17 @@ public static class WorkflowEndpoints
             RowVersion: rowVersion,
             IdempotencyKey: idempotencyKey,
             IpAddress: httpContext.Connection.RemoteIpAddress?.ToString(),
-            UserAgent: httpContext.Request.Headers.UserAgent.ToString());
+            UserAgent: httpContext.Request.Headers.UserAgent.ToString(),
+            User: principal);
 
         try
         {
             var result = await engine.ExecuteActionAsync(command, cancellationToken);
             return Results.Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: ex.Message);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("WORKFLOW_CONCURRENCY_CONFLICT"))
         {
@@ -170,22 +177,57 @@ public static class WorkflowEndpoints
         long id,
         ClaimsPrincipal principal,
         IWorkflowEngine engine,
+        IWorkflowAuthorizationService authService,
+        ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var instance = await dbContext.WorkflowInstances
+            .Include(i => i.WorkflowVersion)
+            .ThenInclude(v => v.WorkflowDefinition)
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+        if (instance == null)
+        {
+            return Results.NotFound(new { error = $"Instance #{id} not found." });
+        }
+
+        if (!await authService.CanViewWorkflowAsync(principal, instance, cancellationToken))
+        {
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "You are not authorized to access actions for this workflow instance.");
+        }
+
         var userId = GetUserId(principal);
-        var actions = await engine.GetAvailableActionsAsync(id, userId, cancellationToken);
+        var actions = await engine.GetAvailableActionsAsync(id, userId, principal, cancellationToken);
         return Results.Ok(new { workflowInstanceId = id, actions });
     }
 
     private static async Task<IResult> GetWorkflowInstance(
         long id,
+        ClaimsPrincipal principal,
         IWorkflowEngine engine,
+        IWorkflowAuthorizationService authService,
+        ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
         try
         {
-            var instance = await engine.GetInstanceAsync(id, cancellationToken);
-            return Results.Ok(instance);
+            var instance = await dbContext.WorkflowInstances
+                .Include(i => i.WorkflowVersion)
+                .ThenInclude(v => v.WorkflowDefinition)
+                .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+            if (instance == null)
+            {
+                return Results.NotFound(new { error = $"Instance #{id} not found." });
+            }
+
+            if (!await authService.CanViewWorkflowAsync(principal, instance, cancellationToken))
+            {
+                return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "You are not authorized to view this workflow instance.");
+            }
+
+            var dto = await engine.GetInstanceAsync(id, cancellationToken);
+            return Results.Ok(dto);
         }
         catch (InvalidOperationException ex)
         {
@@ -195,9 +237,27 @@ public static class WorkflowEndpoints
 
     private static async Task<IResult> GetWorkflowTimeline(
         long id,
+        ClaimsPrincipal principal,
         IWorkflowTimelineService timelineService,
+        IWorkflowAuthorizationService authService,
+        ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var instance = await dbContext.WorkflowInstances
+            .Include(i => i.WorkflowVersion)
+            .ThenInclude(v => v.WorkflowDefinition)
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+        if (instance == null)
+        {
+            return Results.NotFound(new { error = $"Instance #{id} not found." });
+        }
+
+        if (!await authService.CanViewWorkflowAsync(principal, instance, cancellationToken))
+        {
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "You are not authorized to view this workflow timeline.");
+        }
+
         var items = await timelineService.GetTimelineAsync(id, cancellationToken);
         return Results.Ok(new { workflowInstanceId = id, items });
     }
@@ -270,14 +330,24 @@ public static class WorkflowEndpoints
 
     private static async Task<IResult> GetTaskById(
         long id,
+        ClaimsPrincipal principal,
+        IWorkflowAuthorizationService authService,
         ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
         var task = await dbContext.WorkflowTasks
             .Include(t => t.WorkflowStep)
+            .Include(t => t.WorkflowInstance)
+            .ThenInclude(i => i.WorkflowVersion)
+            .ThenInclude(v => v.WorkflowDefinition)
             .FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
         if (task == null) return Results.NotFound(new { error = "Workflow task not found." });
+
+        if (!await authService.CanViewTaskAsync(principal, task, cancellationToken))
+        {
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "You are not authorized to view this task.");
+        }
 
         return Results.Ok(new WorkflowTaskDto(
             task.Id,

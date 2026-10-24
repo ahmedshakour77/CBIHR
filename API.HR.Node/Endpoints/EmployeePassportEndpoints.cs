@@ -196,5 +196,8 @@ public static class EmployeePassportEndpoints
         return user?.EmployeeID;
     }
 
-    private static bool IsStaff(ClaimsPrincipal principal) => StaffRoles.IsStaff(principal);
+    private static bool IsStaff(ClaimsPrincipal principal) =>
+        principal.IsInRole("Admin") ||
+        principal.HasPermission(Permissions.PassportsView) ||
+        principal.HasPermission(Permissions.PassportsEdit);
 }

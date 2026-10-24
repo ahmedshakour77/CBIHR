@@ -22,18 +22,18 @@ public static class EmployeeEndpoints
         group.MapGet("", GetEmployees)
             .WithName("GetEmployees")
             .WithSummary("Gets a paginated list of employees.")
-            // Birth dates, religion, gender for the whole workforce: staff only.
-            .RequireAuthorization(AuthorizationPolicies.Staff);
+            // Requires fine-grained Employees.View permission (or Admin bypass)
+            .RequireAuthorization(Permissions.EmployeesView);
 
         group.MapGet("/by-contact", GetEmployeeByContact)
             .WithName("GetEmployeeByContact")
             .WithSummary("Gets employee info bound to a specific email address or phone number.")
-            .RequireAuthorization(AuthorizationPolicies.Staff);
+            .RequireAuthorization(Permissions.EmployeesView);
 
         group.MapPost("/by-contact", LookupEmployeeByContactBody)
             .WithName("LookupEmployeeByContactBody")
             .WithSummary("Gets employee info bound to a specific email address or phone number via JSON body.")
-            .RequireAuthorization(AuthorizationPolicies.Staff);
+            .RequireAuthorization(Permissions.EmployeesView);
 
         group.MapGet("/me", GetCurrentEmployee)
             .WithName("GetCurrentEmployee")
@@ -50,21 +50,21 @@ public static class EmployeeEndpoints
         group.MapGet("/archived", GetArchivedEmployees)
             .WithName("GetArchivedEmployees")
             .WithSummary("Gets all temporarily archived employees.")
-            .RequireAuthorization(AuthorizationPolicies.Staff);
+            .RequireAuthorization(Permissions.EmployeesView);
 
         group.MapPost("/{employeeID}/archive", ArchiveEmployee)
             .WithName("ArchiveEmployee")
             .WithSummary("Temporarily excludes/archives an employee from all reports and active directories.")
-            .RequireAuthorization(AuthorizationPolicies.Staff);
+            .RequireAuthorization(Permissions.EmployeesEdit);
 
         group.MapPost("/{employeeID}/restore", RestoreEmployee)
             .WithName("RestoreEmployee")
             .WithSummary("Restores an archived employee back to active service and reports.")
-            .RequireAuthorization(AuthorizationPolicies.Staff);
+            .RequireAuthorization(Permissions.EmployeesEdit);
 
         group.MapDelete("/{employeeID}", DeleteEmployeePermanently)
             .WithName("DeleteEmployeePermanently")
-            .WithSummary("Permanently and completely deletes an employee and all associated records from the database.")
+            .WithSummary("Permanently deletes an archived employee record and all related documents.")
             .RequireAuthorization(AuthorizationPolicies.AdminOnly);
 
         return endpoints;
@@ -160,8 +160,12 @@ public static class EmployeeEndpoints
         ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        // Employees may read their own record; staff may read anyone's.
-        if (!StaffRoles.IsStaff(principal))
+        // Employees may read their own record; users with Employees.View or Admin may read anyone's.
+        var hasViewPerm = principal.IsInRole("Admin") ||
+                          principal.HasPermission(Permissions.EmployeesView) ||
+                          principal.HasPermission(Permissions.EmployeesEdit);
+
+        if (!hasViewPerm)
         {
             var ownId = principal.FindFirst("employee_id")?.Value
                 ?? (await userManager.GetUserAsync(principal))?.EmployeeID;

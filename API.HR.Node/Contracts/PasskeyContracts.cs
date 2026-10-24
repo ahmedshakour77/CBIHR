@@ -9,8 +9,9 @@ public sealed record PasskeyRegisterOptionsRequest(
 );
 
 public sealed record PasskeyRegisterCompleteRequest(
-    string OptionsJson,
-    string AttestationResponseJson,
+    string? FlowId = null,
+    string? OptionsJson = null,
+    string AttestationResponseJson = "",
     string? DeviceName = null,
     MobileDeviceInfo? DeviceInfo = null
 );
@@ -21,8 +22,9 @@ public sealed record PasskeyLoginOptionsRequest(
 );
 
 public sealed record PasskeyLoginCompleteRequest(
-    string OptionsJson,
-    string AssertionResponseJson,
+    string? FlowId = null,
+    string? OptionsJson = null,
+    string AssertionResponseJson = "",
     MobileDeviceInfo? DeviceInfo = null,
     string? DeviceModel = null,
     string? OperatingSystem = null,
