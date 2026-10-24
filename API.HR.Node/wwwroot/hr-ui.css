@@ -1072,8 +1072,13 @@ button.hr-nav-item {
 
 /* ---------- 9. tables ---------- */
 
-/* A wide table scrolls inside its own well; the page body never does. */
+/* A wide table scrolls inside its own well; the page body never does.
+   position: relative makes the well the containing block of the visually
+   hidden captions and labels inside it (.hr-sr is absolute). Without it they
+   sit at their place in the full-width table but are clipped by nothing,
+   and widen the page itself into a sideways scroll on a phone. */
 .hr-tablewrap {
+    position: relative;
     width: 100%;
     overflow-x: auto;
     border-radius: var(--r-lg);

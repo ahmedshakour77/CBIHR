@@ -2,8 +2,11 @@
     Vertical columns for an ordered scale (years, bands). With a dozen
     columns or fewer every value is printed; past that only the peak is,
     and each column names its value to assistive tech and on hover.
+    With LabelEvery above 1 an axis label owns the width of the unlabelled
+    columns beside it, so it is centred over its column and may run past
+    it instead of being cut to "..6" on a phone.
 *@
-<div class="hr-viz-cols" style="--cols:@Items.Count">
+<div class="hr-viz-cols @(LabelEvery > 1 ? "is-sparse" : null)" style="--cols:@Items.Count">
     @if (Items.Sum(i => i.Count) == 0)
     {
         <p class="hr-viz-empty">@Viz.NoData(Lang.IsKurdish)</p>
@@ -18,7 +21,9 @@
             {
                 var item = Items[i];
                 var on = Selected?.Contains(item.Name) == true;
-                var showLabel = LabelEvery <= 1 || i % LabelEvery == 0 || i == Items.Count - 1;
+                // The last column is labelled too, unless it sits so close to the previous label that the two would touch.
+                var last = Items.Count - 1;
+                var showLabel = LabelEvery <= 1 || i % LabelEvery == 0 || (i == last && last % LabelEvery > LabelEvery / 2);
                 <li @key="item.Name" class="hr-viz-col @(on ? "is-on" : null) @(item == peak ? "is-peak" : null)">
                     @if (OnPick.HasDelegate)
                     {

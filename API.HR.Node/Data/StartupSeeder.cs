@@ -56,6 +56,8 @@ public static class StartupSeeder
             }
         }
 
+        await EnsureRolePermissionClaimsAsync(services, logger);
+
         await EnsureBootstrapAdminAsync(services, app.Configuration, logger);
 
         await API.HR.Node.Services.Workflows.WorkflowSeeder.SeedWorkflowsAsync(services);
@@ -65,6 +67,71 @@ public static class StartupSeeder
         await MaritalStatusDataSeeder.SeedAsync(dbContext); // الحالة الاجتماعية
         await MartyrDataSeeder.SeedAsync(dbContext);        // ذوي الشهداء
         await PenaltyTypeDataSeeder.SeedAsync(dbContext);   // العقوبات الانضباطية
+    }
+
+    private static async Task EnsureRolePermissionClaimsAsync(IServiceProvider services, ILogger logger)
+    {
+        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+
+        var rolePermissionMappings = new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["HRManager"] = FeaturePermissionCatalog.AllPermissionCodes
+                .Where(p => p is not Permissions.ManageUsers and not Permissions.ViewAuditLogs),
+
+            ["Supervisor"] =
+            [
+                Permissions.DashboardView,
+                Permissions.EmployeesView,
+                Permissions.EmployeesEdit,
+                Permissions.LeavesView,
+                Permissions.LeavesEdit,
+                Permissions.SalaryScaleView,
+                Permissions.SalariesView,
+                Permissions.PassportsView,
+                Permissions.NationalCardsView,
+                Permissions.AppreciationLettersView,
+                Permissions.AppreciationLettersEdit,
+                Permissions.WorkflowsView,
+                Permissions.WorkflowsEdit,
+                Permissions.CoursesView,
+                Permissions.ContactsView,
+                Permissions.ReportsView
+            ],
+
+            ["FormationManager"] =
+            [
+                Permissions.DashboardView,
+                Permissions.FormationDashboardView,
+                Permissions.FormationDashboardEdit,
+                Permissions.EmployeesView,
+                Permissions.LeavesView,
+                Permissions.WorkflowsView,
+                Permissions.WorkflowsEdit,
+                Permissions.AppreciationLettersView,
+                Permissions.ReportsView
+            ]
+        };
+
+        foreach (var (roleName, permissions) in rolePermissionMappings)
+        {
+            var role = await roleManager.FindByNameAsync(roleName);
+            if (role is null) continue;
+
+            var existingClaims = await roleManager.GetClaimsAsync(role);
+            var existingClaimValues = new HashSet<string>(
+                existingClaims.Where(c => c.Type == "permission").Select(c => c.Value),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var perm in permissions)
+            {
+                if (!existingClaimValues.Contains(perm))
+                {
+                    await roleManager.AddClaimAsync(role, new System.Security.Claims.Claim("permission", perm));
+                }
+            }
+        }
+
+        logger.LogInformation("Role permission claims ensured for standard roles (HRManager, Supervisor, FormationManager).");
     }
 
     private static async Task EnsureBootstrapAdminAsync(IServiceProvider services, IConfiguration configuration, ILogger logger)

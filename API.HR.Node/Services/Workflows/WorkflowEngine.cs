@@ -131,7 +131,15 @@ public class WorkflowEngine(
         ExecuteWorkflowActionCommand command,
         CancellationToken cancellationToken = default)
     {
-        // 1. Check Idempotency Key (scoped to Instance and ActionCode)
+        // 1. Load WorkflowInstance
+        var instance = await dbContext.WorkflowInstances
+            .Include(i => i.WorkflowVersion)
+            .ThenInclude(v => v.WorkflowDefinition)
+            .Include(i => i.CurrentStep)
+            .FirstOrDefaultAsync(i => i.Id == command.WorkflowInstanceId, cancellationToken)
+            ?? throw new InvalidOperationException($"WORKFLOW_INSTANCE_NOT_FOUND: Workflow instance #{command.WorkflowInstanceId} not found.");
+
+        // 2. Check Idempotency Key (scoped to Instance and ActionCode, authorized before return)
         if (!string.IsNullOrWhiteSpace(command.IdempotencyKey))
         {
             var existingRecord = await dbContext.WorkflowIdempotencyRecords
@@ -141,25 +149,27 @@ public class WorkflowEngine(
 
             if (existingRecord != null && !string.IsNullOrWhiteSpace(existingRecord.ResponseJson))
             {
+                // Verify caller has authorization to access this workflow before returning cached execution response
+                if (command.User != null)
+                {
+                    var canAccess = await authorizationService.CanViewWorkflowAsync(command.User, instance, cancellationToken);
+                    if (!canAccess)
+                    {
+                        throw new UnauthorizedAccessException($"WORKFLOW_FORBIDDEN: User '{command.UserId}' is not authorized to access workflow instance #{instance.Id}.");
+                    }
+                }
+
                 var cachedResult = JsonSerializer.Deserialize<WorkflowActionResult>(existingRecord.ResponseJson);
                 if (cachedResult != null) return cachedResult;
             }
         }
-
-        // 2. Load WorkflowInstance
-        var instance = await dbContext.WorkflowInstances
-            .Include(i => i.WorkflowVersion)
-            .ThenInclude(v => v.WorkflowDefinition)
-            .Include(i => i.CurrentStep)
-            .FirstOrDefaultAsync(i => i.Id == command.WorkflowInstanceId, cancellationToken)
-            ?? throw new InvalidOperationException($"WORKFLOW_INSTANCE_NOT_FOUND: Workflow instance #{command.WorkflowInstanceId} not found.");
 
         if (instance.Status != WorkflowInstanceStatus.Running)
         {
             throw new InvalidOperationException($"WORKFLOW_ALREADY_COMPLETED: Workflow instance #{command.WorkflowInstanceId} is not active (Status: {instance.Status}).");
         }
 
-        // 3. Optimistic Concurrency Protection
+        // 2. Optimistic Concurrency Protection
         if (command.RowVersion != null && command.RowVersion.Length > 0)
         {
             if (!command.RowVersion.SequenceEqual(instance.RowVersion))
@@ -168,7 +178,7 @@ public class WorkflowEngine(
             }
         }
 
-        // 4. Load Version Transitions
+        // 3. Load Version Transitions
         var transitions = await dbContext.WorkflowTransitions
             .Include(t => t.ToStep)
             .Include(t => t.Conditions)
@@ -179,7 +189,7 @@ public class WorkflowEngine(
         var transition = transitions.FirstOrDefault(t => string.Equals(t.ActionCode, command.ActionCode, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"WORKFLOW_ACTION_NOT_ALLOWED: Action '{command.ActionCode}' is not valid for current step '{instance.CurrentStep.Code}'.");
 
-        // 5. Evaluate Conditions
+        // 4. Evaluate Conditions
         var contextDict = new Dictionary<string, object>
         {
             { "EntityType", instance.EntityType },
@@ -193,7 +203,7 @@ public class WorkflowEngine(
             throw new InvalidOperationException($"WORKFLOW_CONDITION_FAILED: Conditions for action '{command.ActionCode}' were not satisfied.");
         }
 
-        // 5.1 Mandatory Security & Assignment Authorization Check
+        // 5. Mandatory Security & Assignment Authorization Check (evaluated BEFORE idempotency response)
         if (command.User != null)
         {
             var isAuthorized = await authorizationService.CanExecuteActionAsync(command.User, instance, transition, cancellationToken);

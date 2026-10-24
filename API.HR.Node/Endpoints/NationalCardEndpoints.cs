@@ -20,10 +20,32 @@ public static class NationalCardEndpoints
         group.MapGet("/by-document/{query}", async (
             string query,
             INationalCardService cardService,
+            ClaimsPrincipal principal,
+            UserManager<ApplicationUser> userManager,
+            ApplicationDbContext db,
             CancellationToken ct) =>
         {
             var card = await cardService.GetByDocumentOrNationalIdAsync(query, ct);
-            return card is not null ? Results.Ok(card) : Results.NotFound(new { message = "لم يتم العثور على بطاقة وطنية موحدة مطابقة للمعرّف المدخل." });
+            if (card is null)
+            {
+                return Results.NotFound(new { message = "لم يتم العثور على بطاقة وطنية موحدة مطابقة للمعرّف المدخل." });
+            }
+
+            var hasCardViewPerm = principal.IsInRole("Admin") ||
+                                  principal.HasPermission(Permissions.NationalCardsView) ||
+                                  principal.HasPermission(Permissions.NationalCardsEdit);
+
+            // If not admin or holder of NationalCardsView/Edit permission, verify caller owns this card
+            if (!hasCardViewPerm)
+            {
+                var currentEmployee = await ResolveCurrentEmployeeAsync(principal, userManager, db, ct);
+                if (currentEmployee is null || currentEmployee.Id != card.EmployeeId)
+                {
+                    return Results.NotFound(new { message = "لم يتم العثور على السجل أو غير مصرح بعرضه." });
+                }
+            }
+
+            return Results.Ok(card);
         })
         .RequireAuthorization(AuthorizationPolicies.ApiBearer)
         .WithName("GetNationalCardByDocumentOrId")

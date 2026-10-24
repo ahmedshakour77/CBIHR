@@ -179,7 +179,9 @@ html[data-density="spacious"] { --ctl: var(--control-h-spacious); }
   .hr-table tbody { display: grid; gap: var(--s-3); padding: var(--s-3); }
   .hr-table tr { display: grid; grid-template-columns: auto 1fr auto; gap: var(--s-2) var(--s-3); padding: var(--s-3); border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
   .hr-table td { display: flex; justify-content: space-between; gap: var(--s-3); block-size: auto; padding: 0; border: 0; white-space: normal; grid-column: 1 / -1; }
-  .hr-table td[data-label]::before { content: attr(data-label); color: var(--text-muted); font-size: var(--fs-label); }
+  /* The label is Arabic text even when its cell is a number: it takes the interface face,
+     not the numeric one an .hr-num cell carries, whose stack has no Arabic and spaces it apart. */
+  .hr-table td[data-label]::before { content: attr(data-label); color: var(--text-muted); font-size: var(--fs-label); font-family: var(--font-ui); font-variant-numeric: normal; }
   .hr-table td.hr-td-check { grid-column: 1; grid-row: 1; align-items: center; }
   .hr-table td.hr-td-person { grid-column: 2; grid-row: 1; }
   .hr-table td.hr-td-more { grid-column: 3; grid-row: 1; }

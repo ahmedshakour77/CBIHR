@@ -57,8 +57,10 @@ public sealed class WorkflowAuthorizationService(ApplicationDbContext dbContext)
                         t.Status == WorkflowTaskStatus.Pending)
             .ToListAsync(cancellationToken);
 
-        if (pendingTasks.Count > 0)
+        if (pendingTasks.Count == 0)
         {
+            return false;
+        }
             var isDirectlyAssigned = pendingTasks.Any(t =>
                 string.Equals(t.AssignedUserId, appUser.Id, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(t.AssignedUserId, appUser.UserName, StringComparison.OrdinalIgnoreCase));
@@ -93,10 +95,9 @@ public sealed class WorkflowAuthorizationService(ApplicationDbContext dbContext)
                 }
             }
 
-            if (!isDirectlyAssigned && !isRoleAssigned && !isDepartmentAssigned && !isDelegated)
-            {
-                return false;
-            }
+        if (!isDirectlyAssigned && !isRoleAssigned && !isDepartmentAssigned && !isDelegated)
+        {
+            return false;
         }
 
         // 5. Organizational Scope Check

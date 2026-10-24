@@ -10,6 +10,8 @@
 
 @inject IServiceScopeFactory ScopeFactory
 @inject ILogger<Users> Logger
+@inject AuthenticationStateProvider AuthStateProvider
+@inject API.HR.Node.Services.Audit.IAuditLogger AuditLogger
 
 <PageTitle>المستخدمون والأدوار | منظومة الموارد البشرية</PageTitle>
 
@@ -505,10 +507,18 @@
                 {
                     var rName = role.RoleName;
                     var isChecked = editingRoles.Contains(rName);
-                    <label class="hr-optioncard @(isChecked ? "is-selected" : "")">
-                        <input type="checkbox" checked="@isChecked"
+                    var isAdminRole = string.Equals(rName, "Admin", StringComparison.OrdinalIgnoreCase);
+                    var isDisabled = isAdminRole && !isCallerAdmin;
+                    <label class="hr-optioncard @(isChecked ? "is-selected" : "") @(isDisabled ? "is-disabled" : "")" style="@(isDisabled ? "opacity:0.5;cursor:not-allowed;" : "")">
+                        <input type="checkbox" checked="@isChecked" disabled="@isDisabled"
                                @onchange='(e) => ToggleRoleSelection(rName, (bool)e.Value!)' />
-                        <span class="hr-optioncard-text">@rName</span>
+                        <span class="hr-optioncard-text">
+                            @rName
+                            @if (isAdminRole)
+                            {
+                                <span class="hr-badge hr-badge-neutral" style="font-size:0.65rem;margin-inline-start:0.35rem">محصور بمدير النظام</span>
+                            }
+                        </span>
                     </label>
                 }
             </div>
@@ -718,8 +728,10 @@
                 {
                     var rName = r.RoleName;
                     var isChecked = newUserModel.SelectedRoles.Contains(rName);
-                    <label class="hr-optionchip @(isChecked ? "is-selected" : "")">
-                        <input type="checkbox" checked="@isChecked"
+                    var isAdminRole = string.Equals(rName, "Admin", StringComparison.OrdinalIgnoreCase);
+                    var isDisabled = isAdminRole && !isCallerAdmin;
+                    <label class="hr-optionchip @(isChecked ? "is-selected" : "") @(isDisabled ? "is-disabled" : "")" style="@(isDisabled ? "opacity:0.5;cursor:not-allowed;" : "")">
+                        <input type="checkbox" checked="@isChecked" disabled="@isDisabled"
                                @onchange='(e) => ToggleNewUserRole(rName, (bool)e.Value!)' />
                         <span>@rName</span>
                     </label>
@@ -1038,7 +1050,24 @@
     private AllowedUser? pendingWhitelist;
     private UserViewModel? pendingLockout;
 
-    protected override async Task OnInitializedAsync() => await RefreshAllData();
+    private string? currentUserId;
+    private string? currentUserName;
+    private bool isCallerAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var principal = authState.User;
+        currentUserId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                     ?? principal.FindFirst("sub")?.Value;
+        currentUserName = principal.Identity?.Name;
+        isCallerAdmin = principal.IsInRole("Admin") ||
+                        principal.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)) ||
+                        string.Equals(currentUserName, "admin", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(currentUserName, "systemadmin", StringComparison.OrdinalIgnoreCase);
+
+        await RefreshAllData();
+    }
 
     private async Task RefreshAllData()
     {
@@ -1296,6 +1325,26 @@
     private async Task SaveUserRolesAndPermissions()
     {
         if (selectedUserForRoles == null) return;
+
+        // Security Check 1: Prevent Self-Escalation
+        if (string.Equals(selectedUserForRoles.Id, currentUserId, StringComparison.OrdinalIgnoreCase) && !isCallerAdmin)
+        {
+            ShowStatus("لا يمكنك تعديل أدوارك أو صلاحياتك بنفسك لتفادي رفع الصلاحيات غير المصرّح به.", isError: true);
+            await LogSecurityAuditAsync("UNAUTHORIZED_SELF_ROLE_MODIFICATION_ATTEMPT", selectedUserForRoles.UserName ?? selectedUserForRoles.Id, false, "Caller attempted to modify their own roles/permissions.");
+            return;
+        }
+
+        // Security Check 2: Only Admins can assign Admin role or modify Admin users
+        var isTargetAdmin = selectedUserForRoles.AssignedRoles.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase));
+        var isAssigningAdmin = editingRoles.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase));
+
+        if (!isCallerAdmin && (isTargetAdmin || isAssigningAdmin))
+        {
+            ShowStatus("صلاحية إسناد دور مدير النظام (Admin) أو تعديل حسابات المدراء محصورة حصرياً بمدراء النظام.", isError: true);
+            await LogSecurityAuditAsync("UNAUTHORIZED_ADMIN_ROLE_ESCALATION_ATTEMPT", selectedUserForRoles.UserName ?? selectedUserForRoles.Id, false, "Non-admin attempted to assign Admin role or edit Admin user.");
+            return;
+        }
+
         isProcessing = true;
 
         try
@@ -1308,8 +1357,16 @@
             {
                 // 1. Sync Roles
                 var currentRoles = await userMgr.GetRolesAsync(user);
-                var rolesToRemove = currentRoles.Except(editingRoles);
-                var rolesToAdd = editingRoles.Except(currentRoles);
+                var rolesToRemove = currentRoles.Except(editingRoles).ToList();
+                var rolesToAdd = editingRoles.Except(currentRoles).ToList();
+
+                // Extra safety: non-admin cannot add Admin role under any circumstance
+                if (!isCallerAdmin && rolesToAdd.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)))
+                {
+                    ShowStatus("لا تملك صلاحية إسناد دور مدير النظام (Admin).", isError: true);
+                    await LogSecurityAuditAsync("UNAUTHORIZED_ADMIN_ROLE_ESCALATION_ATTEMPT", user.UserName ?? user.Id, false, "Non-admin attempted to add Admin role.");
+                    return;
+                }
 
                 await userMgr.RemoveFromRolesAsync(user, rolesToRemove);
                 await userMgr.AddToRolesAsync(user, rolesToAdd);
@@ -1341,6 +1398,10 @@
                     }
                 }
 
+                // 4. Audit Log
+                await LogSecurityAuditAsync("UPDATE_USER_ROLES_PERMISSIONS", user.EmployeeID ?? user.UserName ?? user.Id, true,
+                    $"Target: {user.UserName}, Roles: [{string.Join(", ", editingRoles)}], PermissionsCount: {editingClaims.Count}");
+
                 ShowStatus($"تم تحديث أدوار وصلاحيات وتشكيل الحساب ({user.UserName}) بنجاح.");
                 CloseModals();
                 await RefreshAllData();
@@ -1362,6 +1423,14 @@
         if (string.IsNullOrWhiteSpace(newUserModel.Username) || string.IsNullOrWhiteSpace(newUserModel.Email) || string.IsNullOrWhiteSpace(newUserModel.Password))
         {
             ShowStatus("يرجى ملء اسم المستخدم والبريد الإلكتروني وكلمة المرور.", isError: true);
+            return;
+        }
+
+        // Security Check: Non-admins cannot create Admin accounts
+        if (!isCallerAdmin && newUserModel.SelectedRoles.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowStatus("لا تملك صلاحية إنشاء حساب بدور مدير النظام (Admin). هذه العملية محصورة بمدراء النظام فقط.", isError: true);
+            await LogSecurityAuditAsync("UNAUTHORIZED_ADMIN_CREATION_ATTEMPT", newUserModel.Username, false, "Non-admin attempted to create user with Admin role.");
             return;
         }
 
@@ -1767,4 +1836,26 @@
         "Employee" => "موظف",
         _ => role
     };
+
+    private async Task LogSecurityAuditAsync(string action, string targetIdentifier, bool success, string details)
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            await AuditLogger.LogAsync(
+                action: action,
+                employeeID: targetIdentifier,
+                photoId: null,
+                success: success,
+                user: authState.User,
+                ipAddress: null,
+                userAgent: details,
+                failureReason: success ? null : details
+            );
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to write audit log for {Action}", action);
+        }
+    }
 }
