@@ -47,8 +47,7 @@ public static class EmployeeDossierPdfEndpoints
         if (user.Identity is not { IsAuthenticated: true })
             return Results.Unauthorized();
 
-        var isStaff = user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager") || user.IsInRole("Supervisor")
-            || user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && (c.Value == "Admin" || c.Value == "HRManager" || c.Value == "FormationManager" || c.Value == "Supervisor"));
+        var isStaff = StaffRoles.IsStaff(user);
 
         if (!isStaff)
         {
@@ -81,8 +80,7 @@ public static class EmployeeDossierPdfEndpoints
         if (user.Identity is not { IsAuthenticated: true })
             return Results.Unauthorized();
 
-        var isStaff = user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager") || user.IsInRole("Supervisor")
-            || user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && (c.Value == "Admin" || c.Value == "HRManager" || c.Value == "FormationManager" || c.Value == "Supervisor"));
+        var isStaff = StaffRoles.IsStaff(user);
 
         if (!isStaff)
         {

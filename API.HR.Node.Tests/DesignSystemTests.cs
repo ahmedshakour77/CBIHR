@@ -57,7 +57,7 @@ public class DesignSystemTests
         Assert.False(lang.IsEnglish);
         Assert.True(lang.IsRtl);
         Assert.Equal("rtl", lang.Direction);
-        Assert.Equal("منظومة الموارد البشرية", lang.T("app.title"));
+        Assert.Equal("الموظف ٣٦٠°   ", lang.T("app.title"));
 
         // Switch to Kurdish
         lang.SetLanguage(LanguageService.Kurdish);

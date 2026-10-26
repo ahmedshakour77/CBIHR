@@ -129,19 +129,34 @@
     private API.HR.Node.Data.SystemFeatureSettings featureSettings = new();
 
     private static bool IsStaff(System.Security.Claims.ClaimsPrincipal user) =>
-        user.IsInRole("Admin") || user.IsInRole("HRManager") ||
-        user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
+        API.HR.Node.Security.StaffRoles.IsStaff(user);
 
     // Same rules as the rail: role catalog, per-entry roles, feature switches.
-    private List<NavGroup> GroupsFor(System.Security.Claims.ClaimsPrincipal user) =>
-        (IsStaff(user) ? NavCatalog.All : NavCatalog.EmployeeCatalog)
-            .Where(g => g.IsAllowedFor(user))
-            .Select(g => new NavGroup(g.Title,
-                g.Items.Where(i => i.IsAllowedFor(user)
-                                   && (i.Href != "my-feedback" || featureSettings.EnableMyFeedback)).ToList(),
-                g.TitleKu, g.Roles))
-            .Where(g => g.Items.Count > 0)
-            .ToList();
+    private List<NavGroup> GroupsFor(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var personalItems = new List<NavEntry>
+        {
+            new("portal", "ملفي", "user-circle", "عرض وتصفح ملفي الوظيفي الإلكتروني", Exact: true, LabelKu: "پڕۆفایلی من", HintKu: "پیشاندانی پڕۆفایلی کەسی و پیشەیی"),
+            new("my-feedback", "مشاركاتي", "chat-bubble-left-right", "متابعة مشاركاتي، مقترحاتي، واستفساراتي وشكاوى", LabelKu: "بەشدارییەکانم", HintKu: "بەدواداچوونی بەشداریکردن و سکاڵا و سەرنجەکانم")
+        };
+        var list = new List<NavGroup>
+        {
+            new("الملف الشخصي", personalItems, "پڕۆفایلی کەسی")
+        };
+
+        if (IsStaff(user))
+        {
+            list.AddRange(NavCatalog.All
+                .Where(g => g.Title != "الملف الشخصي" && g.IsAllowedFor(user))
+                .Select(g => new NavGroup(g.Title,
+                    g.Items.Where(i => i.IsAllowedFor(user)
+                                       && (i.Href != "my-feedback" || featureSettings.EnableMyFeedback)).ToList(),
+                    g.TitleKu, g.Roles))
+                .Where(g => g.Items.Count > 0));
+        }
+
+        return list;
+    }
 
     private bool IsCurrent(NavEntry item)
     {

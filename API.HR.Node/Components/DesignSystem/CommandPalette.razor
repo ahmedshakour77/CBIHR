@@ -125,7 +125,7 @@
                 <span><kbd class="hr-cmd-kbd">↵</kbd> @Lang.T("cmd.hint.select", "للاختيار")</span>
                 <span><kbd class="hr-cmd-kbd">ESC</kbd> @Lang.T("cmd.hint.close", "للإغلاق")</span>
             </div>
-            <span>@Lang.T("app.title", "منظومة الموارد البشرية")</span>
+            <span>@Lang.T("app.title", "الموظف ٣٦٠°   ")</span>
         </footer>
     </div>
 }
@@ -188,8 +188,7 @@
     }
 
     private static bool IsStaff(ClaimsPrincipal user) =>
-        user.IsInRole("Admin") || user.IsInRole("HRManager") ||
-        user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
+        API.HR.Node.Security.StaffRoles.IsStaff(user);
 
     private List<PaletteItem> BuildItems(ClaimsPrincipal user, SystemFeatureSettings features)
     {

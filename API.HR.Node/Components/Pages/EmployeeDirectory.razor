@@ -14,7 +14,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<EmployeeDirectory> Logger
 
-<PageTitle>سجلات ودليل الموظفين | منظومة الموارد البشرية</PageTitle>
+<PageTitle>سجلات ودليل الموظفين | الموظف ٣٦٠°   </PageTitle>
 
 @*
     Employee directory.
@@ -1041,6 +1041,10 @@
         {
             <div class="hr-card-body">
               <div class="hr-cardsview">
+                @if (!string.IsNullOrEmpty(activeMenuEmpId))
+                {
+                    <div class="hr-card-menu-backdrop" @onclick="CloseCardMenu" aria-hidden="true"></div>
+                }
                 <ul class="hr-grid-cards hr-grid-cards-quad hr-plainlist">
                     @foreach (var emp in employees)
                     {
@@ -1098,7 +1102,7 @@
                                 </div>
 
                                 <div class="hr-empcard-foot">
-                                    <a class="hr-btn hr-btn-primary hr-btn-sm"
+                                    <a class="hr-btn hr-btn-primary hr-btn-sm hr-empcard-btn-main"
                                        href="employees/@emp.EmployeeID"
                                        aria-label="@($"الملف الإلكتروني للموظف {emp.Name}")"
                                        title="عرض الملف الإلكتروني الشامل">
@@ -1110,12 +1114,11 @@
                                     {
                                         @if (canManageLifecycle)
                                         {
-                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-btn-icon"
                                                     @onclick="() => PromptRestore(emp)"
                                                     title="استرجاع الموظف إلى النظام والتقارير"
                                                     aria-label="@($"استرجاع {emp.Name} إلى النظام والتقارير")">
                                                 <Icon Name="arrow-uturn-left" Size="xs" />
-                                                <span>استرجاع</span>
                                             </button>
 
                                             <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
@@ -1128,53 +1131,79 @@
                                     }
                                     else
                                     {
-                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-btn-icon"
                                                 @onclick="() => OpenRecord(emp)"
-                                                aria-label="@($"معاينة سريعة لسجل {emp.Name}")" title="معاينة سريعة">
+                                                aria-label="@($"معاينة سريعة لسجل {emp.Name}")"
+                                                title="معاينة سريعة">
                                             <Icon Name="clipboard-document-list" Size="xs" />
                                         </button>
 
-                                        <a class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
-                                           href="employee-contacts/@emp.EmployeeID"
-                                           aria-label="@($"وسائل التواصل للموظف {emp.Name}")"
-                                           title="وسائل التواصل">
-                                            <Icon Name="phone" Size="xs" />
-                                        </a>
-
-                                        <a class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
-                                           href="employee-vehicles/@emp.EmployeeID"
-                                           aria-label="@($"مركبات وتصاريح دخول الموظف {emp.Name}")"
-                                           title="مركبات وتصاريح دخول الموظف">
-                                            <Icon Name="truck" Size="xs" />
-                                        </a>
-
-                                        @UploadControl(emp)
-
-                                        @if (emp.HasProfilePhoto)
-                                        {
-                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
-                                                    @onclick="() => pendingDelete = emp"
-                                                    aria-label="@($"حذف صورة {emp.Name}")" title="حذف الصورة">
-                                                <Icon Name="trash" Size="xs" />
-                                            </button>
-                                        }
-
-                                        @if (canManageLifecycle)
-                                        {
+                                        <div class="hr-card-menu-anchor">
                                             <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
-                                                    @onclick="() => PromptArchive(emp)"
-                                                    title="استبعاد مؤقت من النظام والتقارير"
-                                                    aria-label="@($"استبعاد مؤقت للموظف {emp.Name}")">
-                                                <Icon Name="archive-box" Size="xs" />
+                                                    @onclick="() => ToggleCardMenu(emp.EmployeeID)"
+                                                    aria-expanded="@(activeMenuEmpId == emp.EmployeeID ? "true" : "false")"
+                                                    aria-label="المزيد من الإجراءات"
+                                                    title="المزيد من الإجراءات">
+                                                <Icon Name="ellipsis-horizontal" Size="xs" />
                                             </button>
 
-                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-btn-icon"
-                                                    @onclick="() => PromptHardDelete(emp)"
-                                                    title="حذف نهائي لا رجعة فيه"
-                                                    aria-label="@($"حذف نهائي للموظف {emp.Name}")">
-                                                <Icon Name="trash" Size="xs" />
-                                            </button>
-                                        }
+                                            @if (activeMenuEmpId == emp.EmployeeID)
+                                            {
+                                                <div class="hr-card-dropdown" role="menu">
+                                                    <a class="hr-card-dropdown-item" href="employee-contacts/@emp.EmployeeID" @onclick="CloseCardMenu" role="menuitem">
+                                                        <Icon Name="phone" Size="xs" />
+                                                        <span>وسائل التواصل</span>
+                                                    </a>
+
+                                                    <a class="hr-card-dropdown-item" href="employee-vehicles/@emp.EmployeeID" @onclick="CloseCardMenu" role="menuitem">
+                                                        <Icon Name="truck" Size="xs" />
+                                                        <span>المركبات والتصاريح</span>
+                                                    </a>
+
+                                                    <label class="hr-card-dropdown-item hr-card-dropdown-upload" role="menuitem">
+                                                        @if (uploadingId == emp.EmployeeID)
+                                                        {
+                                                            <span class="hr-spinner" aria-hidden="true"></span>
+                                                            <span>جارٍ الرفع…</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <Icon Name="arrow-up-tray" Size="xs" />
+                                                            <span>@(emp.HasProfilePhoto ? "تغيير الصورة" : "رفع صورة")</span>
+                                                        }
+                                                        <InputFile accept=".jpg,.jpeg,.png,.webp"
+                                                                   disabled="@(uploadingId is not null)"
+                                                                   OnChange="@(async e => { CloseCardMenu(); await UploadPhoto(emp.EmployeeID, e); })" />
+                                                    </label>
+
+                                                    @if (emp.HasProfilePhoto)
+                                                    {
+                                                        <button type="button" class="hr-card-dropdown-item hr-card-dropdown-item-danger"
+                                                                @onclick="() => { CloseCardMenu(); pendingDelete = emp; }" role="menuitem">
+                                                            <Icon Name="trash" Size="xs" />
+                                                            <span>حذف الصورة</span>
+                                                        </button>
+                                                    }
+
+                                                    @if (canManageLifecycle)
+                                                    {
+                                                        <div class="hr-card-dropdown-sep" role="separator"></div>
+
+                                                        <button type="button" class="hr-card-dropdown-item"
+                                                                @onclick="() => { CloseCardMenu(); PromptArchive(emp); }" role="menuitem">
+                                                            <Icon Name="archive-box" Size="xs" />
+                                                            <span>استبعاد مؤقت</span>
+                                                        </button>
+
+                                                        <button type="button" class="hr-card-dropdown-item hr-card-dropdown-item-danger"
+                                                                @onclick="() => { CloseCardMenu(); PromptHardDelete(emp); }" role="menuitem">
+                                                            <Icon Name="trash" Size="xs" />
+                                                            <span>حذف نهائي</span>
+                                                        </button>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
                                     }
                                 </div>
                             </article>
@@ -1512,6 +1541,7 @@
 
     // ---------- ui state ----------
     private string viewMode = "table";
+    private string? activeMenuEmpId;
     private bool isLoading = true;
     private bool loadFailed;
     private string? expandedId;
@@ -2124,6 +2154,17 @@
     {
         viewMode = mode;
         expandedId = null;
+        activeMenuEmpId = null;
+    }
+
+    private void ToggleCardMenu(string empId)
+    {
+        activeMenuEmpId = activeMenuEmpId == empId ? null : empId;
+    }
+
+    private void CloseCardMenu()
+    {
+        activeMenuEmpId = null;
     }
 
     // ---------- record interactions ----------

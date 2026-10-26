@@ -1,0 +1,158 @@
+﻿<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="h-full" data-lang="ar" data-nav-mode="side" data-font="plex" data-font-size="md" data-density="comfortable"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#3B1E54" />
+    <base href="/">
+
+    
+    <script src="js/hr-prefs.6y9gy0a0d3.js"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link rel="stylesheet" href="css/hr-tokens.zq330b0bgf.css" />
+    <link rel="stylesheet" href="app.l6fgc0mrbj.css" />
+    <link rel="stylesheet" href="css/leaflet.7888sfn8yc.css" />
+    <link rel="stylesheet" href="css/hr-components.dhqciid197.css" />
+    <link rel="stylesheet" href="hr-ui.ijf0mseij0.css" />
+    <link rel="stylesheet" href="API.HR.Node.88d6y7hkon.styles.css" />
+    <script type="importmap">{
+  "imports": {
+    "./Components/Account/Shared/PasskeySubmit.razor.js": "./Components/Account/Shared/PasskeySubmit.pr21mg9rrw.razor.js",
+    "./Components/Layout/ReconnectModal.razor.js": "./Components/Layout/ReconnectModal.abdmv1u4y3.razor.js",
+    "./_content/Microsoft.AspNetCore.Components.QuickGrid/QuickGrid.razor.js": "./_content/Microsoft.AspNetCore.Components.QuickGrid/QuickGrid.eu7w3d5g1a.razor.js",
+    "./_framework/blazor.server.js": "./_framework/blazor.server.cj5793hgrt.js",
+    "./_framework/blazor.web.js": "./_framework/blazor.web.ej96puwv3k.js",
+    "./js/apexcharts.min.js": "./js/apexcharts.min.q1bqyd0rip.js",
+    "./js/cmd-palette.js": "./js/cmd-palette.mpzen6nv8l.js",
+    "./js/home-dashboard.js": "./js/home-dashboard.nqijr5c697.js",
+    "./js/hr-dialogs.js": "./js/hr-dialogs.9pptmdiuyz.js",
+    "./js/hr-formation-charts.js": "./js/hr-formation-charts.e6df0u3e1w.js",
+    "./js/hr-login.js": "./js/hr-login.ks9ceynyn5.js",
+    "./js/hr-orgchart.js": "./js/hr-orgchart.mteupd8qi1.js",
+    "./js/hr-prefs.js": "./js/hr-prefs.6y9gy0a0d3.js",
+    "./js/hr-residence-map.js": "./js/hr-residence-map.zzgbdyc1z3.js",
+    "./js/html2pdf.bundle.min.js": "./js/html2pdf.bundle.min.vsipt3fpcf.js",
+    "./js/lang.js": "./js/lang.we8txfxe7h.js",
+    "./js/leaflet.js": "./js/leaflet.j35snbr7ye.js",
+    "./js/passkey-helper.js": "./js/passkey-helper.nc01eawh4l.js",
+    "./js/passkey-submit.js": "./js/passkey-submit.etfccdh9ip.js",
+    "./js/passport-ocr.js": "./js/passport-ocr.51kabnk5yt.js",
+    "./js/portal-pdf.js": "./js/portal-pdf.vp6bi9mr4t.js",
+    "./js/preferences.js": "./js/preferences.amfmu2jfn3.js",
+    "./js/reconnect-modal.js": "./js/reconnect-modal.ookfwxfmqp.js",
+    "./lib/tesseract/tesseract-core-lstm.wasm.js": "./lib/tesseract/tesseract-core-lstm.wasm.te4ut130yw.js",
+    "./lib/tesseract/tesseract-core-simd-lstm.wasm.js": "./lib/tesseract/tesseract-core-simd-lstm.wasm.uog1j5rmyl.js",
+    "./lib/tesseract/tesseract.min.js": "./lib/tesseract/tesseract.min.o1ilifjeg5.js",
+    "./lib/tesseract/worker.min.js": "./lib/tesseract/worker.min.sh5cg0q7d1.js"
+  }
+}</script>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <title>&#x62A;&#x633;&#x62C;&#x64A;&#x644; &#x627;&#x644;&#x62F;&#x62E;&#x648;&#x644; | &#x646;&#x638;&#x627;&#x645; &#x625;&#x62F;&#x627;&#x631;&#x629; &#x627;&#x644;&#x645;&#x648;&#x627;&#x631;&#x62F; &#x627;&#x644;&#x628;&#x634;&#x631;&#x64A;&#x629;</title></head>
+
+<body class="hr-root"><div class="hr-app">
+
+
+<div id="loginRoot" class="hr-auth"><aside class="hr-auth-brandside hr-auth-enter" aria-label="&#x627;&#x644;&#x62C;&#x647;&#x629; &#x627;&#x644;&#x645;&#x627;&#x644;&#x643;&#x629; &#x644;&#x644;&#x645;&#x646;&#x638;&#x648;&#x645;&#x629;"><img class="hr-auth-photo" src="img/build.jpg" alt aria-hidden="true" width="1600" height="1067" fetchpriority="high" decoding="async">
+        <div class="hr-auth-scrim" aria-hidden="true"></div>
+
+        <div class="hr-auth-org"><div style="display:flex;align-items:center;gap:0.6rem;"><span class="hr-auth-seal" aria-hidden="true" title="&#x627;&#x644;&#x628;&#x646;&#x643; &#x627;&#x644;&#x645;&#x631;&#x643;&#x632;&#x64A; &#x627;&#x644;&#x639;&#x631;&#x627;&#x642;&#x64A;"><img src="img/logo.png" alt width="204" height="204" decoding="async"></span></div>
+            <span class="hr-auth-org-text"><span class="hr-auth-org-name">&#x627;&#x644;&#x628;&#x646;&#x643; &#x627;&#x644;&#x645;&#x631;&#x643;&#x632;&#x64A; &#x627;&#x644;&#x639;&#x631;&#x627;&#x642;&#x64A;</span>
+                <span class="hr-auth-org-unit">&#x645;&#x643;&#x62A;&#x628; &#x645;&#x643;&#x627;&#x641;&#x62D;&#x629; &#x63A;&#x633;&#x644; &#x627;&#x644;&#x623;&#x645;&#x648;&#x627;&#x644; &#x648;&#x62A;&#x645;&#x648;&#x64A;&#x644; &#x627;&#x644;&#x625;&#x631;&#x647;&#x627;&#x628;</span></span></div></aside>
+
+    <main class="hr-auth-formside"><div class="hr-auth-form hr-auth-enter" style="--d:90ms"><div class="hr-auth-top"><button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-theme-toggle" data-hr-theme-toggle aria-label="&#x627;&#x644;&#x62A;&#x62D;&#x648;&#x64A;&#x644; &#x625;&#x644;&#x649; &#x627;&#x644;&#x646;&#x645;&#x637; &#x627;&#x644;&#x62F;&#x627;&#x643;&#x646;" title="&#x627;&#x644;&#x62A;&#x62D;&#x648;&#x64A;&#x644; &#x625;&#x644;&#x649; &#x627;&#x644;&#x646;&#x645;&#x637; &#x627;&#x644;&#x62F;&#x627;&#x643;&#x646;"><svg class="hr-theme-icon-light" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"></path></svg>
+                    <svg class="hr-theme-icon-dark" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"></path></svg></button></div>
+
+            <h1 class="hr-auth-h">&#x62A;&#x633;&#x62C;&#x64A;&#x644; &#x627;&#x644;&#x62F;&#x62E;&#x648;&#x644;</h1>
+            <p class="hr-auth-sub">&#x62A;&#x627;&#x628;&#x639; &#x628;&#x623;&#x62D;&#x62F; &#x627;&#x644;&#x62D;&#x633;&#x627;&#x628;&#x627;&#x62A; &#x623;&#x62F;&#x646;&#x627;&#x647;&#x60C; &#x623;&#x648; &#x623;&#x62F;&#x62E;&#x644; &#x627;&#x633;&#x645; &#x645;&#x633;&#x62A;&#x62E;&#x62F;&#x645; &#x627;&#x644;&#x62F;&#x648;&#x645;&#x64A;&#x646; &#x648;&#x643;&#x644;&#x645;&#x629; &#x645;&#x631;&#x648;&#x631;&#x647;.</p>
+
+            <div class="hr-auth-body"><div class="hr-auth-sso"><form action="Account/PerformExternalLogin" method="post"><input type="hidden" name="__RequestVerificationToken" value="CfDJ8N7hHK5hxKlAkQ0zqCldufSynI2U9B1fORclyUQuOSNoRdjpIjP84d1YLgJU8aloLIm-5Dhm2jEMUETPZuRw3PI1sKb-DdbOTiFAKQl3ndROpaJ2D7jNcN9CKauBgtA3ng4SBcxhNUzbNTJyd5oOwS0" />
+                                <input type="hidden" name="ReturnUrl" value="/" />
+                                <input type="hidden" name="provider" value="Microsoft" />
+
+                                <button type="submit" data-submit class="hr-btn hr-btn-secondary hr-btn-block"><span class="hr-spinner auth-busy-only" aria-hidden="true"></span><svg class="auth-idle-only" viewBox="0 0 23 23" width="16" height="16" aria-hidden="true"><path fill="#f35325" d="M1 1h10v10H1z"></path>
+                                            <path fill="#81bc06" d="M12 1h10v10H12z"></path>
+                                            <path fill="#05a6f0" d="M1 12h10v10H1z"></path>
+                                            <path fill="#ffba08" d="M12 12h10v10H12z"></path></svg><span>&#x627;&#x644;&#x645;&#x62A;&#x627;&#x628;&#x639;&#x629; &#x628;&#x627;&#x633;&#x62A;&#x62E;&#x62F;&#x627;&#x645; Microsoft</span></button></form></div><div class="hr-auth-or" aria-hidden="true"><span>&#x623;&#x648; &#x628;&#x628;&#x64A;&#x627;&#x646;&#x627;&#x62A; &#x627;&#x644;&#x62F;&#x62E;&#x648;&#x644;</span></div><form method="post" action="/Account/Login?ReturnUrl=%2F"><input type="hidden" name="_handler" value="login" /><input type="hidden" name="__RequestVerificationToken" value="CfDJ8N7hHK5hxKlAkQ0zqCldufSynI2U9B1fORclyUQuOSNoRdjpIjP84d1YLgJU8aloLIm-5Dhm2jEMUETPZuRw3PI1sKb-DdbOTiFAKQl3ndROpaJ2D7jNcN9CKauBgtA3ng4SBcxhNUzbNTJyd5oOwS0" /><div class="hr-field"><label class="hr-field-label" for="login-username">&#x627;&#x633;&#x645; &#x627;&#x644;&#x645;&#x633;&#x62A;&#x62E;&#x62F;&#x645; &#x623;&#x648; &#x627;&#x644;&#x628;&#x631;&#x64A;&#x62F; &#x627;&#x644;&#x625;&#x644;&#x643;&#x62A;&#x631;&#x648;&#x646;&#x64A;</label>
+                        <div class="hr-auth-inputwrap"><span class="hr-auth-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"></path></svg></span>
+                            <input id="login-username" type="text" dir="ltr" autocomplete="username" autocapitalize="none" spellcheck="false" name="Input.UserNameOrEmail" class="hr-input hr-auth-latin valid" value="" /></div>
+                        </div>
+
+                    <div class="hr-field"><label class="hr-field-label" for="login-password">&#x643;&#x644;&#x645;&#x629; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;</label>
+                        <div class="hr-auth-inputwrap"><span class="hr-auth-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"></path></svg></span>
+
+                            <input id="login-password" type="password" autocomplete="current-password" dir="ltr" name="Input.Password" class="hr-input hr-auth-latin hr-input-reveal valid" value="" />
+
+                            <button type="button" data-toggle-password aria-pressed="false" aria-controls="login-password" data-label-show="&#x625;&#x638;&#x647;&#x627;&#x631; &#x643;&#x644;&#x645;&#x629; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;" data-label-hide="&#x625;&#x62E;&#x641;&#x627;&#x621; &#x643;&#x644;&#x645;&#x629; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;" aria-label="&#x625;&#x638;&#x647;&#x627;&#x631; &#x643;&#x644;&#x645;&#x629; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;" title="&#x625;&#x638;&#x647;&#x627;&#x631; &#x643;&#x644;&#x645;&#x629; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;" class="hr-auth-reveal"><svg data-eye-open viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path></svg>
+                                <svg data-eye-closed viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88"></path></svg></button></div>
+                        </div>
+
+                    <div class="hr-auth-row"><label class="hr-check"><input type="checkbox" name="Input.RememberMe" class="valid" value="True" />
+                            <span>&#x62A;&#x630;&#x643;&#x651;&#x631;&#x646;&#x64A; &#x639;&#x644;&#x649; &#x647;&#x630;&#x627; &#x627;&#x644;&#x62C;&#x647;&#x627;&#x632;</span></label>
+
+                        <details class="hr-auth-help"><summary><span class="hr-link">&#x646;&#x633;&#x64A;&#x62A; &#x643;&#x644;&#x645;&#x629; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;&#x61F;</span></summary>
+                            <ul class="hr-auth-help-list"><li><strong>&#x62D;&#x633;&#x627;&#x628; &#x627;&#x644;&#x62F;&#x648;&#x645;&#x64A;&#x646;:</strong>
+                                    &#x643;&#x644;&#x645;&#x629; &#x645;&#x631;&#x648;&#x631;&#x647; &#x647;&#x64A; &#x646;&#x641;&#x633;&#x647;&#x627; &#x643;&#x644;&#x645;&#x629; &#x645;&#x631;&#x648;&#x631; &#x62F;&#x62E;&#x648;&#x644; &#x627;&#x644;&#x62D;&#x627;&#x633;&#x648;&#x628;&#x60C; &#x648;&#x64A;&#x639;&#x64A;&#x62F; &#x62A;&#x639;&#x64A;&#x64A;&#x646;&#x647;&#x627; &#x642;&#x633;&#x645; &#x62A;&#x642;&#x646;&#x64A;&#x629; &#x627;&#x644;&#x645;&#x639;&#x644;&#x648;&#x645;&#x627;&#x62A;.</li>
+                                <li><strong>&#x627;&#x644;&#x62D;&#x633;&#x627;&#x628; &#x627;&#x644;&#x645;&#x62D;&#x644;&#x64A; &#x641;&#x64A; &#x627;&#x644;&#x645;&#x646;&#x638;&#x648;&#x645;&#x629;:</strong>
+                                    &#x64A;&#x639;&#x64A;&#x62F; &#x62A;&#x639;&#x64A;&#x64A;&#x646;&#x647;&#x627; &#x645;&#x633;&#x624;&#x648;&#x644; &#x627;&#x644;&#x645;&#x646;&#x638;&#x648;&#x645;&#x629;.</li></ul></details></div>
+
+                    <button type="submit" data-submit class="hr-btn hr-btn-primary hr-btn-lg hr-btn-block hr-auth-submit"><span class="hr-spinner auth-busy-only" aria-hidden="true"></span>
+                        <span>&#x62A;&#x633;&#x62C;&#x64A;&#x644; &#x627;&#x644;&#x62F;&#x62E;&#x648;&#x644;</span></button>
+
+                    <div class="hr-auth-or" aria-hidden="true" style="margin-block: .875rem;"><span>&#x623;&#x648; &#x628;&#x627;&#x633;&#x62A;&#x62E;&#x62F;&#x627;&#x645; &#x645;&#x641;&#x627;&#x62A;&#x64A;&#x62D; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631;</span></div>
+
+                    <button type="submit" name="__passkeySubmit" class="hr-btn hr-btn-secondary hr-btn-lg hr-btn-block hr-auth-passkey-btn"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-inline-end: .5rem;" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0 1 19.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 0 0 4.5 10.5a7.464 7.464 0 0 1-1.15 3.993m1.989 3.559A11.209 11.209 0 0 0 8.25 10.5a3.75 3.75 0 1 1 7.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 0 1-3.6 9.75m6.633-4.596a18.666 18.666 0 0 1-2.485 5.33"></path></svg>
+                        <span>&#x627;&#x644;&#x62F;&#x62E;&#x648;&#x644; &#x628;&#x627;&#x644;&#x628;&#x635;&#x645;&#x629; &#x648;&#x645;&#x641;&#x62A;&#x627;&#x62D; &#x627;&#x644;&#x645;&#x631;&#x648;&#x631; (Passkey)</span></button>
+<passkey-submit operation="Request" name="PasskeyInput" email-name="Input.UserNameOrEmail" request-token-name="RequestVerificationToken" request-token-value="CfDJ8N7hHK5hxKlAkQ0zqCldufSynI2U9B1fORclyUQuOSNoRdjpIjP84d1YLgJU8aloLIm-5Dhm2jEMUETPZuRw3PI1sKb-DdbOTiFAKQl3ndROpaJ2D7jNcN9CKauBgtA3ng4SBcxhNUzbNTJyd5oOwS0"></passkey-submit></form></div>
+
+            <p class="hr-auth-foot">
+                © 2026 &#x627;&#x644;&#x628;&#x646;&#x643; &#x627;&#x644;&#x645;&#x631;&#x643;&#x632;&#x64A; &#x627;&#x644;&#x639;&#x631;&#x627;&#x642;&#x64A; &#xB7; &#x62C;&#x645;&#x64A;&#x639; &#x627;&#x644;&#x62D;&#x642;&#x648;&#x642; &#x645;&#x62D;&#x641;&#x648;&#x638;&#x629;</p></div></main></div>
+
+<script src="js/hr-login.js"></script></div>
+        <blazor-focus-on-navigate selector="h1"></blazor-focus-on-navigate>
+    <script type="module" src="js/reconnect-modal.ookfwxfmqp.js" b-zd8lx292r5></script>
+
+
+<dialog id="components-reconnect-modal" data-nosnippet aria-labelledby="reconnect-title" b-zd8lx292r5><div class="components-reconnect-container" b-zd8lx292r5><div class="components-rejoining-animation" aria-hidden="true" b-zd8lx292r5><div b-zd8lx292r5></div>
+            <div b-zd8lx292r5></div></div>
+
+        <p id="reconnect-title" class="components-reconnect-first-attempt-visible" b-zd8lx292r5>
+            جارٍ إعادة الاتصال بالخادم…
+        </p>
+
+        <p class="components-reconnect-repeated-attempt-visible" b-zd8lx292r5>
+            تعذّرت إعادة الاتصال. محاولة جديدة خلال
+            <span id="components-seconds-to-next-attempt" class="hr-num" b-zd8lx292r5></span>
+            ثانية.
+        </p>
+
+        <p class="components-reconnect-failed-visible" b-zd8lx292r5>
+            تعذّرت إعادة الاتصال بالخادم.
+            <span class="reconnect-hint" b-zd8lx292r5>أعد المحاولة أو حدّث الصفحة.</span></p>
+
+        <button id="components-reconnect-button" class="components-reconnect-failed-visible" b-zd8lx292r5>
+            إعادة المحاولة
+        </button>
+
+        <p class="components-pause-visible" b-zd8lx292r5>
+            أوقف الخادم هذه الجلسة مؤقتاً.
+        </p>
+
+        <p class="components-resume-failed-visible" b-zd8lx292r5>
+            تعذّر استئناف الجلسة.
+            <span class="reconnect-hint" b-zd8lx292r5>أعد المحاولة أو حدّث الصفحة.</span></p>
+
+        <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible" b-zd8lx292r5>
+            استئناف الجلسة
+        </button></div></dialog>
+    <script src="_framework/blazor.web.ej96puwv3k.js"></script>
+    <script src="js/lang.we8txfxe7h.js"></script>
+    <script src="js/cmd-palette.mpzen6nv8l.js"></script>
+    <script src="js/passkey-helper.nc01eawh4l.js"></script>
+    <script src="js/hr-dialogs.9pptmdiuyz.js"></script>
+    <script src="js/home-dashboard.nqijr5c697.js"></script>
+    <script src="js/portal-pdf.vp6bi9mr4t.js"></script>
+    <script src="lib/tesseract/tesseract.min.js"></script>
+    <script src="js/passport-ocr.51kabnk5yt.js"></script>
+    <script src="js/passkey-submit.etfccdh9ip.js" type="module"></script></body></html><!--Blazor-Server-Component-State:CfDJ8N7hHK5hxKlAkQ0zqCldufR2J9rd7eQ1uX/LNK1mof5NzotTsg6YRkJtKe36/pCUUIonvG6nYmCdDA/J6CxNqJWr+5B94I5EQHqujX1HB/o6rZwh2Sguw8Nxvr0VAIEAQPnsQGQqyb69gnRBuUccpQ8k+9hywXWAw7i9sDYhXOsPeFVQJK/KAtg09HdGiN36zOpjWGpCw7zDpLIAJFDw7d3qDyCZUDVB/OsAa69P1enYeOWFPFp9Wovq1G/dQGgO4l/BTf6XPn+5tVVF46s2hPFf6fhrPHHyVjpGVduhtrCqUixwSmnY5RAnQwlxmxZywCZbDN5MHNRMldSC/BiQSrWMa0wqds008E2706XuFps9lP6JeM02T7ZyZY1drgEuHGEvsVcbLeWUdSDMHTVyJwnwz7RBaVoyMUiTibjwoIzj7Z7v7CqqCINCgC73XMWfmq15btBInxxJyhVT9H8epurAa0hA65rz8C5KlaVw0sblvVlY08al0ByP5qcIrICyLYXnsqwKs2aFnnhktEU1OTtXgyLH3ks5ftGBdccQAODS1vZ9u4P2cOJP/FfekHDMrK0lICHjWVfx+hDnlWAJa2cBZZvqK1edz4CC1dzhRwga3/xHLquo5wER/L4mOwWTc3MogAX+S8lU9IovR6A+MPITPvnQhRCJBeEp8r5JiZa/6LN44SNvowmd1xL2MQYv65BOfQw5/L35FoDFs4xduyPDYXZsz2F+Vq/MUhv+UQluPFlBGLMRUnkF02iQep0eTA3gz7VBJIZ8tEK2ibNhM4GIdCMsDIU8W0y7L4rY2WerK8VfWMaJLBpRHKzrvpcAJ/feEVCBR2YuCCr/Qww96pFj1uk4F/l11w4bq8rbJ7XHchfKv9rfuJvrVMdJnAEvnhUJ677KNJPK4djTUOhfgw4dYDy/jBPoFf17DChROhbXBNc8so8rG3v9ZaZh8+kIC895FHwIwV4G3Oyu9e6AIfpg+c8TXvzIQYuxd9wcZ2YeLXVz+tvMY4HcWtTJUzFdiPsJSCqKXuOOBi/1kI8CUEgHkzekKZIUjcPVJOEog9nA3VX43L8Y93h/cixsBlhOwbe0Au2djR1PDsZC6V84+G/IMGYBgF9zNxsFRC7FG9agRLvFxMO49cofCk9IDIA78w==-->

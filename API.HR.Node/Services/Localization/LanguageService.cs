@@ -43,7 +43,7 @@ public sealed class LanguageService : ILanguageService
     private static readonly Dictionary<string, (string Ar, string Ku, string En)> Translations = new(StringComparer.OrdinalIgnoreCase)
     {
         // App Shell & Header
-        ["app.title"] = ("منظومة الموارد البشرية", "سیستەمی سەرچاوە مرۆییەکان", "HR Enterprise System"),
+        ["app.title"] = ("الموظف ٣٦٠°   ", "سیستەمی سەرچاوە مرۆییەکان", "HR Enterprise System"),
         ["app.sub"] = ("API.HR.Node", "API.HR.Node", "API.HR.Node"),
         ["app.version"] = ("الإصدار 1.0", "وەشانی 1.0", "Version 1.0"),
         ["auth.login"] = ("تسجيل الدخول", "چوونەژوورەوە", "Sign In"),

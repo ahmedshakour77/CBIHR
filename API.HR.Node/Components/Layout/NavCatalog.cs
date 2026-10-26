@@ -37,6 +37,12 @@ public sealed record NavEntry(
             return true;
         }
 
+        // التبويبات العامة لجميع الموظفين المسجلين (مثل الملف الشخصي ومشاركاتي)
+        if (Href is "portal" or "my-feedback")
+        {
+            return true;
+        }
+
         // 1. إذا كان العنصر محدداً بصلاحية دقيقة (ViewPermission أو EditPermission)، يتم الاعتماد حصراً على الصلاحيات
         var hasSpecificPermissionDefined = !string.IsNullOrWhiteSpace(ViewPermission) || !string.IsNullOrWhiteSpace(EditPermission);
         if (hasSpecificPermissionDefined)
@@ -108,6 +114,12 @@ public sealed record NavGroup(
         }
 
         if (user.IsInRole("Admin"))
+        {
+            return true;
+        }
+
+        // الملف الشخصي مسموح دائماً لجميع الموظفين المسجلين
+        if (Title == "الملف الشخصي" || TitleKu == "پڕۆفایلی کەسی")
         {
             return true;
         }
@@ -324,14 +336,10 @@ public static class NavCatalog
     public static readonly NavGroup PersonalDossier = new("الملف الشخصي", new[]
     {
         new NavEntry("portal", "ملفي", "user-circle", "عرض وتصفح ملفي الوظيفي الإلكتروني", Exact: true,
-            LabelKu: "پڕۆفایلی من", HintKu: "پیشاندانی پڕۆفایلی کەسی و پیشەیی",
-            ViewPermission: Permissions.DossierView,
-            EditPermission: Permissions.DossierEdit),
+            LabelKu: "پڕۆفایلی من", HintKu: "پیشاندانی پڕۆفایلی کەسی و پیشەیی"),
 
         new NavEntry("my-feedback", "مشاركاتي", "chat-bubble-left-right", "متابعة مشاركاتي، مقترحاتي، واستفساراتي وشكاوى",
-            LabelKu: "بەشدارییەکانم", HintKu: "بەدواداچوونی بەشداریکردن و سکاڵا و سەرنجەکانم",
-            ViewPermission: Permissions.MyFeedbackView,
-            EditPermission: Permissions.MyFeedbackSubmit)
+            LabelKu: "بەشدارییەکانم", HintKu: "بەدواداچوونی بەشداریکردن و سکاڵا و سەرنجەکانم")
     }, TitleKu: "پڕۆفایلی کەسی");
 
     public static readonly IReadOnlyList<NavGroup> All = new[] { PersonalDossier, Insights, Records, Profiles, Structure, Reference, Governance };

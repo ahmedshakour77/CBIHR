@@ -109,6 +109,13 @@ public static class StartupSeeder
                 Permissions.WorkflowsEdit,
                 Permissions.AppreciationLettersView,
                 Permissions.ReportsView
+            ],
+
+            ["Employee"] =
+            [
+                Permissions.DossierView,
+                Permissions.MyFeedbackView,
+                Permissions.MyFeedbackSubmit
             ]
         };
 

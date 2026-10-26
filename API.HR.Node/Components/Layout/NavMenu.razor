@@ -10,40 +10,56 @@
     <Authorized>
         @{
             var user = context.User;
-            var isStaff = user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager") || user.IsInRole("Supervisor");
-            var groupsToRender = Groups ?? NavCatalog.All;
+            var isStaff = API.HR.Node.Security.StaffRoles.IsStaff(user);
+            var groupsToRender = Groups ?? (isStaff ? NavCatalog.All : NavCatalog.EmployeeCatalog);
             var groupIndex = 0;
         }
 
         @* One navigation landmark; the groups inside it are labelled groups,
            not a landmark each, so a screen reader's landmark list stays short. *@
         <nav aria-label="@Lang.T("nav.main", "التنقل الرئيسي")">
-            @foreach (var group in groupsToRender)
+            @* مجموعة الملف الشخصي الأساسية لجميع الموظفين *@
+            <div class="hr-rail-group" role="group" aria-labelledby="@($"{idPrefix}-personal")">
+                <p class="hr-rail-group-label" id="@($"{idPrefix}-personal")">@Lang.T("nav.group.dossier", "الملف الشخصي")</p>
+                <NavLink class="hr-nav-item" href="portal" Match="NavLinkMatch.All" title="@Lang.T("nav.portal.hint", "عرض وتصفح ملفي الوظيفي الإلكتروني")" @onclick="OnNavigate">
+                    <Icon Name="user-circle" Size="sm" />
+                    <span class="hr-truncate">@Lang.T("nav.portal", "ملفي")</span>
+                </NavLink>
+                <NavLink class="hr-nav-item" href="my-feedback" Match="NavLinkMatch.Prefix" title="@Lang.T("nav.feedback.hint", "متابعة مشاركاتي، مقترحاتي، واستفساراتي وشكاوى")" @onclick="OnNavigate">
+                    <Icon Name="chat-bubble-left-right" Size="sm" />
+                    <span class="hr-truncate">@Lang.T("nav.feedback", "مشاركاتي")</span>
+                </NavLink>
+            </div>
+
+            @if (isStaff)
             {
-                if (group.IsAllowedFor(user))
+                @foreach (var group in groupsToRender.Where(g => g.Title != "الملف الشخصي"))
                 {
-                    var labelId = $"{idPrefix}-g{groupIndex++}";
-                    <div class="hr-rail-group" role="group" aria-labelledby="@labelId">
-                        <p class="hr-rail-group-label" id="@labelId">@group.GetTitle(Lang.IsKurdish)</p>
-                        @foreach (var item in group.Items)
-                        {
-                            if (item.IsAllowedFor(user))
+                    if (group.IsAllowedFor(user))
+                    {
+                        var labelId = $"{idPrefix}-g{groupIndex++}";
+                        <div class="hr-rail-group" role="group" aria-labelledby="@labelId">
+                            <p class="hr-rail-group-label" id="@labelId">@group.GetTitle(Lang.IsKurdish)</p>
+                            @foreach (var item in group.Items)
                             {
-                                if (item.Href == "my-feedback" && !featureSettings.EnableMyFeedback)
+                                if (item.IsAllowedFor(user))
                                 {
-                                    continue;
+                                    if (item.Href == "my-feedback" && !featureSettings.EnableMyFeedback)
+                                    {
+                                        continue;
+                                    }
+                                    <NavLink class="hr-nav-item"
+                                             href="@item.Href"
+                                             Match="@(item.Exact ? NavLinkMatch.All : NavLinkMatch.Prefix)"
+                                             title="@item.GetHint(Lang.IsKurdish)"
+                                             @onclick="OnNavigate">
+                                        <Icon Name="@item.Icon" Size="sm" />
+                                        <span class="hr-truncate">@item.GetLabel(Lang.IsKurdish)</span>
+                                    </NavLink>
                                 }
-                                <NavLink class="hr-nav-item"
-                                         href="@item.Href"
-                                         Match="@(item.Exact ? NavLinkMatch.All : NavLinkMatch.Prefix)"
-                                         title="@item.GetHint(Lang.IsKurdish)"
-                                         @onclick="OnNavigate">
-                                    <Icon Name="@item.Icon" Size="sm" />
-                                    <span class="hr-truncate">@item.GetLabel(Lang.IsKurdish)</span>
-                                </NavLink>
                             }
-                        }
-                    </div>
+                        </div>
+                    }
                 }
             }
 

@@ -62,69 +62,70 @@
 <div class="hr-stack">
 
     @* ---------- breadcrumb + document actions ---------- *@
-    <div class="hr-pagehead hr-no-print">
-        <nav class="hr-crumbs" aria-label="مسار التنقل">
-            @if (isStaff)
-            {
+    @if (!isStaff)
+    {
+        <div class="hr-pagehead hr-no-print" style="margin-block-end: 0.5rem;">
+            <h1 class="hr-h2" style="margin: 0; font-weight: 700;">@(employee is null ? "الملف الشخصي" : employee.Name)</h1>
+        </div>
+    }
+    else
+    {
+        <div class="hr-pagehead hr-no-print">
+            <nav class="hr-crumbs" aria-label="مسار التنقل">
                 <a href="employees" class="hr-crumb">
                     <Icon Name="users" Size="xs" />
                     <span>دليل وسجلات الموظفين</span>
                 </a>
                 <span class="hr-crumb-sep" aria-hidden="true">/</span>
-            }
-            <span class="hr-crumb is-current" aria-current="page">
-                @(employee is null ? "الملف الإلكتروني" : employee.Name)
-            </span>
-        </nav>
+                <span class="hr-crumb is-current" aria-current="page">
+                    @(employee is null ? "الملف الإلكتروني" : employee.Name)
+                </span>
+            </nav>
 
-        <div class="hr-pagehead-actions">
-          
-
-            @if (employee is not null && isStaff)
-            {
-                <a href="employee-contacts/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
-                    <Icon Name="phone" Size="xs" />
-                    <span>وسائل التواصل</span>
-                </a>
-
-                <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
-                    <Icon Name="truck" Size="xs" />
-                    <span>المركبات والمتعلقات</span>
-                </a>
-
-                @if (canManageLifecycle)
+            <div class="hr-pagehead-actions">
+                @if (employee is not null)
                 {
-                    @if (employee.IsArchived)
-                    {
-                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="PromptRestore">
-                            <Icon Name="arrow-uturn-left" Size="xs" />
-                            <span>استرجاع إلى النظام</span>
-                        </button>
-                    }
-                    else
-                    {
-                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="PromptArchive">
-                            <Icon Name="archive-box" Size="xs" />
-                            <span>استبعاد مؤقت</span>
-                        </button>
-                    }
+                    <a href="employee-contacts/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
+                        <Icon Name="phone" Size="xs" />
+                        <span>وسائل التواصل</span>
+                    </a>
 
-                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" @onclick="PromptHardDelete">
-                        <Icon Name="trash" Size="xs" />
-                        <span>حذف نهائي</span>
-                    </button>
+                    <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
+                        <Icon Name="truck" Size="xs" />
+                        <span>المركبات والمتعلقات</span>
+                    </a>
+
+                    @if (canManageLifecycle)
+                    {
+                        @if (employee.IsArchived)
+                        {
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="PromptRestore">
+                                <Icon Name="arrow-uturn-left" Size="xs" />
+                                <span>استرجاع إلى النظام</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="PromptArchive">
+                                <Icon Name="archive-box" Size="xs" />
+                                <span>استبعاد مؤقت</span>
+                            </button>
+                        }
+
+                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" @onclick="PromptHardDelete">
+                            <Icon Name="trash" Size="xs" />
+                            <span>حذف نهائي</span>
+                        </button>
+                    }
                 }
-            }
 
-            @if (isStaff)
-            {
                 <a href="employees" class="hr-btn hr-btn-quiet hr-btn-sm">
                     <Icon Name="arrow-right" Size="xs" />
                     <span>رجوع</span>
                 </a>
-            }
+            </div>
         </div>
-    </div>
+    }
 
     @if (employee is not null && employee.IsArchived)
     {
@@ -215,6 +216,23 @@
                 <p>الحالة: @(employee.EmployeeStatus?.Name ?? "مستمر")</p>
             </div>
         </div>
+
+        @* ---------- celebratory birthday card ---------- *@
+        @if (IsBirthdayToday(employee.BirthDate) && !isBirthdayBannerDismissed)
+        {
+            <div class="hr-bday-card hr-no-print" role="status" aria-live="polite">
+                <button type="button" class="hr-bday-card-close" @onclick="DismissBirthdayBanner" aria-label="إغلاق التهنئة" title="إغلاق التهنئة">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+                <img src="img/birthday-banner.png"
+                     alt="تهنئة عيد ميلاد سعيد من عائلة البنك المركزي العراقي"
+                     class="hr-bday-card-img"
+                     width="1024"
+                     height="726"
+                     fetchpriority="high"
+                     decoding="async" />
+            </div>
+        }
 
         @* ---------- identity ---------- *@
         <section class="hr-card hr-dossier" aria-labelledby="dossier-name">
@@ -455,28 +473,31 @@
                 </div>
             </button>
 
-            <a href="my-feedback" class="hr-card hr-stat hr-stat-b hr-stat-link" title="انتقل إلى صفحة مشاركاتي والتواصل">
-                <div class="hr-stat-label">
-                    <span>مشاركاتي</span>
-                    <span class="hr-iconplate hr-plate-b" aria-hidden="true"><Icon Name="chat-bubble-left-right" Size="sm" /></span>
-                </div>
-                <strong class="hr-stat-figure">
-                    @N(employeeFeedbacks.Count)<span class="hr-stat-unit">@(employeeFeedbacks.Count is >= 3 and <= 10 ? "مشاركات" : "مشاركة")</span>
-                </strong>
-                <div class="hr-stat-foot">
-                    @if (employeeFeedbacks.Count > 0)
-                    {
-                        var lastFb = employeeFeedbacks.OrderByDescending(f => f.CreatedAt).First();
-                        <span class="hr-truncate" title="@lastFb.Title">
-                            آخرها: <strong class="hr-cell-strong">@lastFb.Title</strong>
-                        </span>
-                    }
-                    else
-                    {
-                        <span class="hr-text-muted">لا توجد مشاركات مسجلة</span>
-                    }
-                </div>
-            </a>
+            @if (systemFeatures.EnableMyFeedback)
+            {
+                <button type="button" class="hr-card hr-stat hr-stat-b hr-stat-link" @onclick="() => SetTab(ProfileTab.Feedback)" title="انتقل إلى تبويب مشاركاتي والتواصل">
+                    <div class="hr-stat-label">
+                        <span>مشاركاتي</span>
+                        <span class="hr-iconplate hr-plate-b" aria-hidden="true"><Icon Name="chat-bubble-left-right" Size="sm" /></span>
+                    </div>
+                    <strong class="hr-stat-figure">
+                        @N(employeeFeedbacks.Count)<span class="hr-stat-unit">@(employeeFeedbacks.Count is >= 3 and <= 10 ? "مشاركات" : "مشاركة")</span>
+                    </strong>
+                    <div class="hr-stat-foot">
+                        @if (employeeFeedbacks.Count > 0)
+                        {
+                            var lastFb = employeeFeedbacks.OrderByDescending(f => f.CreatedAt).First();
+                            <span class="hr-truncate" title="@lastFb.Title">
+                                آخرها: <strong class="hr-cell-strong">@lastFb.Title</strong>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="hr-text-muted">لا توجد مشاركات مسجلة</span>
+                        }
+                    </div>
+                </button>
+            }
         </div>
 
         @* ---------- TAB NAVIGATION SLIDER (سلايدر التبويبات) ---------- *@
@@ -578,6 +599,18 @@
                  
                 </button>
 
+                @if (systemFeatures.EnableMyFeedback)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Feedback ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Feedback ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Feedback)">
+                        <Icon Name="chat-bubble-left-right" Size="sm" />
+                        <span>مشاركاتي</span>
+                    </button>
+                }
+
                 @if (isStaff || employeeVehicles.Count > 0)
                 {
                     <button type="button"
@@ -639,7 +672,7 @@
                                 </span>
                             </dt>
                             <dd>
-                                @(nationalCard?.FullNameEn ?? employeePassport?.FullNameEn ?? TransliterateArabicToEnglish(employee.Name))
+                                @(employeePassport?.FullNameEn )
                             </dd>
                         </div>
 
@@ -5125,6 +5158,64 @@
     private string? toastMessage;
     private bool toastIsSuccess = true;
     private CancellationTokenSource? toastCts;
+
+    private bool isBirthdayBannerDismissed;
+    private string? checkedBdayKey;
+
+    private static bool IsBirthdayToday(DateOnly? birthDate)
+    {
+        if (birthDate is null) return false;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var bDate = birthDate.Value;
+        if (bDate.Month == today.Month && bDate.Day == today.Day) return true;
+        if (bDate.Month == 2 && bDate.Day == 29 && today.Month == 2 && today.Day == 28 && !DateTime.IsLeapYear(today.Year))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private async Task DismissBirthdayBanner()
+    {
+        isBirthdayBannerDismissed = true;
+        if (employee != null)
+        {
+            try
+            {
+                var storageKey = $"hr_bday_dismissed_{employee.EmployeeID}_{DateTime.Today:yyyyMMdd}";
+                await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", storageKey, "1");
+            }
+            catch
+            {
+                // Ignore storage restrictions if blocked
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (employee != null && IsBirthdayToday(employee.BirthDate))
+        {
+            var storageKey = $"hr_bday_dismissed_{employee.EmployeeID}_{DateTime.Today:yyyyMMdd}";
+            if (checkedBdayKey != storageKey)
+            {
+                checkedBdayKey = storageKey;
+                try
+                {
+                    var dismissed = await JSRuntime.InvokeAsync<string?>("sessionStorage.getItem", storageKey);
+                    if (dismissed == "1" && !isBirthdayBannerDismissed)
+                    {
+                        isBirthdayBannerDismissed = true;
+                        StateHasChanged();
+                    }
+                }
+                catch
+                {
+                    // Ignore prerender or storage unavailable
+                }
+            }
+        }
+    }
 
     private string? loadedId;
 
