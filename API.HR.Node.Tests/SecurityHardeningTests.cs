@@ -112,6 +112,14 @@ public sealed class SecurityHardeningTests : IDisposable
         StaffRoles.IsStaff(principal).Should().Be(expected);
     }
 
+    [Fact]
+    public void Defender_FindEngine_DiscoversEngineOnWindows()
+    {
+        var path = API.HR.Node.Services.Security.DefenderFileMalwareScanner.FindEngine();
+        path.Should().NotBeNull();
+        File.Exists(path).Should().BeTrue();
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public int Requests { get; private set; }

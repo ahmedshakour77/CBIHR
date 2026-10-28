@@ -157,9 +157,11 @@ builder.Services.AddSingleton<IFileStorageService, LocalFileStorageService>();
 var defenderPath = DefenderFileMalwareScanner.FindEngine();
 if (defenderPath is not null)
 {
-    var quarantine = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "ScanQuarantine");
+    var quarantine = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "API.HR.Node", "ScanQuarantine");
     builder.Services.AddSingleton<IFileMalwareScanner>(sp => new DefenderFileMalwareScanner(
-        defenderPath, quarantine, sp.GetRequiredService<ILogger<DefenderFileMalwareScanner>>()));
+        defenderPath, quarantine, sp.GetRequiredService<ILogger<DefenderFileMalwareScanner>>(), sp.GetRequiredService<IHostEnvironment>()));
 }
 else
 {

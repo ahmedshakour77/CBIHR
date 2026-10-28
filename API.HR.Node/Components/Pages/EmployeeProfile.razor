@@ -2109,26 +2109,7 @@
 
                             @* --- Period Details Banner --- *@
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);flex-wrap:wrap;padding:var(--s-2) var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);font-size:var(--fs-label);">
-                                <div style="display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap;">
-                                    <span>📅 <strong>تاريخ السريان:</strong> @D(activeAllowancePeriod.StartDate)</span>
-                                    @if (activeAllowancePeriod.EndDate.HasValue)
-                                    {
-                                        <span>إلى @D(activeAllowancePeriod.EndDate.Value)</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);">مستمرة وغير مقيدة بأجل</span>
-                                    }
-
-                                    @if (!string.IsNullOrWhiteSpace(activeAllowancePeriod.OrderNumber))
-                                    {
-                                        <span>📜 <strong>أمر إداري:</strong> @activeAllowancePeriod.OrderNumber</span>
-                                    }
-                                    @if (!string.IsNullOrWhiteSpace(activeAllowancePeriod.ChangeReason))
-                                    {
-                                        <span class="hr-meta">(@activeAllowancePeriod.ChangeReason)</span>
-                                    }
-                                </div>
+                                    
                                 <div class="hr-meta" style="font-size:var(--fs-caption);">
                                     💡 المعادلة: الراتب الإجمالي = الراتب الإسمي + (مجموع النسب % × الراتب الإسمي) + المخصصات الثابتة
                                 </div>
@@ -2146,8 +2127,7 @@
                                                 <th scope="col" style="text-align:center;">نوع الاحتساب</th>
                                                 <th scope="col" style="text-align:center;">المعدل / المبلغ المحدد</th>
                                                 <th scope="col" style="text-align:left;">المبلغ الشهري المحتسب</th>
-                                                <th scope="col">السند والملاحظات</th>
-                                            </tr>
+                                                </tr>
                                         </thead>
                                         <tbody>
                                             @{ var aIdx = 1; }
@@ -2191,9 +2171,7 @@
                                                             @item.CalculatedAmount.ToString("N0") د.ع
                                                         </span>
                                                     </td>
-                                                    <td>
-                                                        <span class="hr-meta">@Or(item.Notes, "—")</span>
-                                                    </td>
+                                                     
                                                 </tr>
                                             }
                                         </tbody>
