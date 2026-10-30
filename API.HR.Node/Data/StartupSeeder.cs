@@ -69,7 +69,7 @@ public static class StartupSeeder
         await PenaltyTypeDataSeeder.SeedAsync(dbContext);   // العقوبات الانضباطية
     }
 
-    private static async Task EnsureRolePermissionClaimsAsync(IServiceProvider services, ILogger logger)
+    public static async Task EnsureRolePermissionClaimsAsync(IServiceProvider services, ILogger logger)
     {
         var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
 

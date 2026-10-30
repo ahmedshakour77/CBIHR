@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using API.HR.Node.Components.Layout;
 using API.HR.Node.Security;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
@@ -162,6 +163,54 @@ public sealed class AuthorizationTests
         effective[Permissions.EmployeesEdit].IsEffective.Should().BeTrue();
         effective[Permissions.AuditLogsView].IsEffective.Should().BeTrue();
         effective[Permissions.AuditLogsView].GrantedDirectly.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithUsersViewOnly_CannotSatisfyUsersEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.UsersView));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.UsersEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeFalse("Users.View must never satisfy Users.Edit requirement");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithUsersEdit_SatisfiesUsersEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.UsersEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.UsersEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Users.Edit satisfies Users.Edit requirement");
+    }
+
+    [Fact]
+    public void NavCatalog_AllMenuPermissions_MustExistInFeaturePermissionCatalog()
+    {
+        var allPerms = FeaturePermissionCatalog.AllPermissionCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var navPermissions = NavCatalog.Entries
+            .Where(item => !string.IsNullOrWhiteSpace(item.ViewPermission))
+            .Select(item => item.ViewPermission!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        navPermissions.Should().NotBeEmpty();
+        foreach (var perm in navPermissions)
+        {
+            allPerms.Should().Contain(perm, $"Navigation menu permission '{perm}' must be a registered permission in FeaturePermissionCatalog");
+        }
     }
 }
 

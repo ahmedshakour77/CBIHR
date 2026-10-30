@@ -12,6 +12,7 @@
 @inject IServiceScopeFactory ScopeFactory
 @inject ILogger<Users> Logger
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IAuthorizationService AuthorizationService
 @inject API.HR.Node.Services.Audit.IAuditLogger AuditLogger
 @inject NavigationManager NavManager
 @inject IUserEmployeeService UserEmployeeService
@@ -242,10 +243,19 @@
                                         </td>
 
                                         <td>
-                                            <span class="hr-badge hr-badge-accent">
-                                                <span class="hr-num">@u.PermissionClaimsCount</span>
-                                                <span>إذن</span>
-                                            </span>
+                                            <div style="display:flex; flex-direction:column; gap:2px;">
+                                                <div style="display:flex; align-items:center; gap:var(--s-1);">
+                                                    <span class="hr-badge hr-badge-accent" title="الصلاحيات الفعلية المجمعة">
+                                                        <span class="hr-num">@u.EffectivePermissionsCount</span>
+                                                        <span>فعلية</span>
+                                                    </span>
+                                                    <span class="hr-badge hr-badge-neutral" style="font-size:0.75rem;" title="صلاحيات مباشرة للمستخدم">
+                                                        <span>مباشر: </span>
+                                                        <span class="hr-num">@u.DirectClaimsCount</span>
+                                                    </span>
+                                                </div>
+                                                <span class="hr-meta" style="font-size:0.75rem;">@u.PermissionSourceSummary</span>
+                                            </div>
                                         </td>
 
                                         <td>
@@ -1319,6 +1329,10 @@
         public bool IsLockedOut { get; set; }
         public List<string> AssignedRoles { get; set; } = [];
         public int PermissionClaimsCount { get; set; }
+        public int DirectClaimsCount { get; set; }
+        public int RoleClaimsCount { get; set; }
+        public int EffectivePermissionsCount { get; set; }
+        public string PermissionSourceSummary { get; set; } = string.Empty;
     }
 
     public sealed class RoleViewModel
@@ -1482,6 +1496,19 @@
         await RefreshAllData();
     }
 
+    private async Task<bool> EnsureUserEditPermissionAsync(string operationName)
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, null, new PermissionRequirement(Permissions.UsersEdit));
+        if (!authResult.Succeeded)
+        {
+            ShowStatus("لا تملك صلاحية تعديل المستخدمين والأدوار (Users.Edit).", isError: true);
+            await LogSecurityAuditAsync("UNAUTHORIZED_MUTATION_ATTEMPT", currentUserName ?? "UNKNOWN", false, $"User attempted {operationName} without Users.Edit permission.");
+            return false;
+        }
+        return true;
+    }
+
     private async Task RefreshAllData()
     {
         isLoading = true;
@@ -1526,7 +1553,38 @@
             {
                 var assignedRoles = (await userMgr.GetRolesAsync(u)).ToList();
                 var claims = await userMgr.GetClaimsAsync(u);
-                var permCount = claims.Count(c => c.Type == "permission" || c.Type == "Permission");
+                var directClaims = claims
+                    .Where(c => c.Type == "permission" || c.Type == "Permission")
+                    .Select(c => c.Value)
+                    .ToList();
+                var directCount = directClaims.Count;
+
+                var effectiveList = FeaturePermissionCatalog.CalculateEffectivePermissions(assignedRoles, directClaims);
+                var effectiveCount = effectiveList.Count(p => p.IsEffective);
+                var roleGrantedCount = effectiveList.Count(p => p.GrantedByRole);
+
+                string sourceSummary;
+                if (assignedRoles.Contains("Admin", StringComparer.OrdinalIgnoreCase) ||
+                    string.Equals(u.UserName, "systemadmin", StringComparison.OrdinalIgnoreCase))
+                {
+                    sourceSummary = "مدير النظام (كامل الصلاحيات)";
+                }
+                else if (directCount > 0 && roleGrantedCount > 0)
+                {
+                    sourceSummary = "مزيج (دور + مباشر)";
+                }
+                else if (directCount > 0)
+                {
+                    sourceSummary = "مباشر فقط";
+                }
+                else if (roleGrantedCount > 0)
+                {
+                    sourceSummary = $"عبر الدور ({string.Join(", ", assignedRoles)})";
+                }
+                else
+                {
+                    sourceSummary = "افتراضي بدون أذونات إضافية";
+                }
 
                 var effFormationId = u.FormationId ?? u.Employee?.FormationId;
                 var effFormationName = u.Formation?.Name ?? u.Employee?.Formation?.Name;
@@ -1542,7 +1600,11 @@
                     FormationName = effFormationName,
                     IsLockedOut = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow,
                     AssignedRoles = assignedRoles,
-                    PermissionClaimsCount = permCount
+                    PermissionClaimsCount = directCount,
+                    DirectClaimsCount = directCount,
+                    RoleClaimsCount = roleGrantedCount,
+                    EffectivePermissionsCount = effectiveCount,
+                    PermissionSourceSummary = sourceSummary
                 });
             }
 
@@ -1831,6 +1893,7 @@
     private async Task SaveUserRolesAndPermissions()
     {
         if (selectedUserForRoles == null) return;
+        if (!await EnsureUserEditPermissionAsync("SAVE_USER_ROLES_PERMISSIONS")) return;
 
         // Security Check 1: Prevent Self-Escalation
         if (string.Equals(selectedUserForRoles.Id, currentUserId, StringComparison.OrdinalIgnoreCase) && !isCallerAdmin)
@@ -1931,11 +1994,7 @@
 
     private async Task CreateUserSubmit()
     {
-        if (!canEditUsers)
-        {
-            ShowStatus("لا تملك صلاحية إنشاء حسابات المستخدمين (Users.Edit).", isError: true);
-            return;
-        }
+        if (!await EnsureUserEditPermissionAsync("CREATE_USER")) return;
 
         if (string.IsNullOrWhiteSpace(newUserModel.Username) || string.IsNullOrWhiteSpace(newUserModel.Email) || string.IsNullOrWhiteSpace(newUserModel.Password))
         {
@@ -1947,7 +2006,7 @@
         {
             if (string.IsNullOrWhiteSpace(newUserModel.EmployeeID))
             {
-                ShowStatus("يجب اختيار وربط موظف رسمي لكل حساب مستخدم في النظام.", isError: true);
+                ShowStatus("يجب اختيار وربط موظف رسمي لكل حساب مستخدم بشري في النظام.", isError: true);
                 return;
             }
 
@@ -1962,6 +2021,12 @@
             if (!isCallerAdmin)
             {
                 ShowStatus("إنشاء الحسابات التقنية الاستثنائية محصور بمدير النظام فقط.", isError: true);
+                return;
+            }
+
+            if (!SystemAccounts.IsTechnicalAccount(newUserModel.Username) && !SystemAccounts.IsTechnicalAccount(newUserModel.Email))
+            {
+                ShowStatus($"لا يمكن إنشاء حساب تقني غير معرف في كود النظام (SystemAccounts). الحسابات المصرح بها: {string.Join(", ", SystemAccounts.DeclaredUserNames)}", isError: true);
                 return;
             }
         }
@@ -2036,6 +2101,7 @@
     private async Task CreateRoleSubmit()
     {
         if (string.IsNullOrWhiteSpace(newRoleNameInput)) return;
+        if (!await EnsureUserEditPermissionAsync("CREATE_ROLE")) return;
 
         isProcessing = true;
         try
@@ -2083,6 +2149,7 @@
     private async Task ConfirmDeleteRole()
     {
         if (pendingRole is null || pendingRole.RoleName == "Admin") return;
+        if (!await EnsureUserEditPermissionAsync("DELETE_ROLE")) return;
 
         isProcessing = true;
         var roleName = pendingRole.RoleName;
@@ -2114,6 +2181,7 @@
     private async Task AddWhitelistSubmit()
     {
         if (string.IsNullOrWhiteSpace(newWhitelistModel.Email)) return;
+        if (!await EnsureUserEditPermissionAsync("ADD_WHITELIST")) return;
 
         isProcessing = true;
         try
@@ -2155,6 +2223,8 @@
 
     private async Task ToggleWhitelistStatus(AllowedUser w)
     {
+        if (!await EnsureUserEditPermissionAsync("TOGGLE_WHITELIST")) return;
+
         try
         {
             using var scope = ScopeFactory.CreateScope();
@@ -2181,6 +2251,7 @@
     private async Task ConfirmRemoveWhitelist()
     {
         if (pendingWhitelist is null) return;
+        if (!await EnsureUserEditPermissionAsync("REMOVE_WHITELIST")) return;
 
         isProcessing = true;
         var id = pendingWhitelist.Id;
@@ -2213,11 +2284,7 @@
     private async Task ConfirmRelinkUser()
     {
         if (selectedUserForRelinking == null || selectedEmployeeForRelink == null) return;
-        if (!canEditUsers)
-        {
-            ShowStatus("لا تملك صلاحية تعديل ربط حسابات المستخدمين (Users.Edit).", isError: true);
-            return;
-        }
+        if (!await EnsureUserEditPermissionAsync("RELINK_USER")) return;
 
         isProcessing = true;
         try
@@ -2253,11 +2320,7 @@
     private async Task ConfirmForceLogout()
     {
         if (pendingForceLogout == null) return;
-        if (!canEditUsers)
-        {
-            ShowStatus("لا تملك صلاحية إنهاء جلسات المستخدمين (Users.Edit).", isError: true);
-            return;
-        }
+        if (!await EnsureUserEditPermissionAsync("FORCE_LOGOUT")) return;
 
         isProcessing = true;
         try
@@ -2289,11 +2352,7 @@
 
     private async Task RunAutoRepairAsync()
     {
-        if (!canEditUsers)
-        {
-            ShowStatus("لا تملك صلاحية فحص وإصلاح المستخدمين (Users.Edit).", isError: true);
-            return;
-        }
+        if (!await EnsureUserEditPermissionAsync("BATCH_AUTO_REPAIR")) return;
 
         isProcessing = true;
         try
@@ -2327,17 +2386,10 @@
     {
         if (presetName == "Admin" && !isCallerAdmin) return;
 
-        if (FeaturePermissionCatalog.RolePermissionPackages.TryGetValue(presetName, out var permissions))
-        {
-            editingRoles.Clear();
-            editingRoles.Add(presetName);
-            editingClaims.Clear();
-            foreach (var p in permissions)
-            {
-                editingClaims.Add(p);
-            }
-            ShowStatus($"تم تطبيق باقة ({FormatRole(presetName)}) بنجاح. يمكنك المراجعة قبل الحفظ.");
-        }
+        editingRoles.Clear();
+        editingRoles.Add(presetName);
+        editingClaims.Clear(); // Role Claims provide the base permissions; direct claims remain for individual exceptions only!
+        ShowStatus($"تم تطبيق دور ({FormatRole(presetName)}). تُستمد الصلاحيات تلقائياً عبر الدور (Role Claims) دون نسخها كأذونات مباشرة.");
     }
 
     private async Task CloneFromUserAsync()
@@ -2381,11 +2433,7 @@
     private async Task ResetPasswordSubmit()
     {
         if (selectedUserForPasswordReset == null || string.IsNullOrWhiteSpace(newPasswordInput)) return;
-        if (!canEditUsers)
-        {
-            ShowStatus("لا تملك صلاحية إعادة تعيين كلمات المرور (Users.Edit).", isError: true);
-            return;
-        }
+        if (!await EnsureUserEditPermissionAsync("RESET_PASSWORD")) return;
 
         isProcessing = true;
         try
@@ -2427,11 +2475,7 @@
     private async Task ConfirmToggleLockout()
     {
         if (pendingLockout is null) return;
-        if (!canEditUsers)
-        {
-            ShowStatus("لا تملك صلاحية تعديل حالة الحسابات (Users.Edit).", isError: true);
-            return;
-        }
+        if (!await EnsureUserEditPermissionAsync("TOGGLE_LOCKOUT")) return;
 
         isProcessing = true;
         var userVM = pendingLockout;

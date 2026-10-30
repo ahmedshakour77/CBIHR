@@ -23,6 +23,9 @@ public static class SystemAccounts
         "svc.backup@cbi.iq"
     };
 
+    public static IReadOnlyCollection<string> DeclaredUserNames => TechnicalAccountUserNames;
+    public static IReadOnlyCollection<string> DeclaredEmails => TechnicalAccountEmails;
+
     /// <summary>
     /// Checks if a given username or email corresponds to an explicit technical / system service account.
     /// </summary>

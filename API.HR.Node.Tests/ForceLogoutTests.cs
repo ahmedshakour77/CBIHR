@@ -157,4 +157,108 @@ public sealed class ForceLogoutTests
         result.Succeeded.Should().BeFalse();
         result.ErrorMessage.Should().Contain("غير موجود");
     }
+
+    [Fact]
+    public async Task ForceLogoutUserAsync_SingleEmployeeWithMultipleUsers_ShouldOnlyRevokeTargetUserDevices_AndLeaveOtherUserDevicesActive()
+    {
+        var (_, db, service, userManager) = CreateTestEnvironment();
+
+        const string sharedEmpId = "EMP_MULTI_LOGOUT";
+        db.Employees.Add(new Employee
+        {
+            EmployeeID = sharedEmpId,
+            Name = "موظف متعدد الحسابات"
+        });
+        await db.SaveChangesAsync();
+
+        var userA = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = "user.a",
+            Email = "user.a@company.iq",
+            EmployeeID = sharedEmpId
+        };
+        var userB = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = "user.b",
+            Email = "user.b@company.iq",
+            EmployeeID = sharedEmpId
+        };
+        await userManager.CreateAsync(userA);
+        await userManager.CreateAsync(userB);
+
+        var deviceA = new UserDevice
+        {
+            UserId = userA.Id,
+            EmployeeID = sharedEmpId,
+            DeviceId = "DEV_USER_A",
+            IsActive = true
+        };
+        var deviceB = new UserDevice
+        {
+            UserId = userB.Id,
+            EmployeeID = sharedEmpId,
+            DeviceId = "DEV_USER_B",
+            IsActive = true
+        };
+        db.UserDevices.AddRange(deviceA, deviceB);
+        await db.SaveChangesAsync();
+
+        // Perform force logout on User A ONLY
+        var result = await service.ForceLogoutUserAsync(userA.Id, "ADMIN_ACTOR");
+
+        result.Succeeded.Should().BeTrue();
+        result.SessionsRevokedCount.Should().Be(1);
+
+        // Verify User A device is inactive, but User B device remains active
+        var reloadedDeviceA = await db.UserDevices.FirstAsync(d => d.DeviceId == "DEV_USER_A");
+        var reloadedDeviceB = await db.UserDevices.FirstAsync(d => d.DeviceId == "DEV_USER_B");
+
+        reloadedDeviceA.IsActive.Should().BeFalse("target user's device must be revoked");
+        reloadedDeviceB.IsActive.Should().BeTrue("other user's device for same employee must NOT be affected");
+    }
+
+    [Fact]
+    public async Task ForceLogoutEmployeeAllUsersAsync_ShouldRevokeDevicesForEveryUserLinkedToEmployee()
+    {
+        var (_, db, service, userManager) = CreateTestEnvironment();
+
+        const string targetEmpId = "EMP_ALL_LOGOUT";
+        db.Employees.Add(new Employee
+        {
+            EmployeeID = targetEmpId,
+            Name = "موظف لإنهاء كافة جلساته"
+        });
+        await db.SaveChangesAsync();
+
+        var user1 = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = "emp.acc1",
+            EmployeeID = targetEmpId
+        };
+        var user2 = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = "emp.acc2",
+            EmployeeID = targetEmpId
+        };
+        await userManager.CreateAsync(user1);
+        await userManager.CreateAsync(user2);
+
+        db.UserDevices.AddRange(
+            new UserDevice { UserId = user1.Id, EmployeeID = targetEmpId, DeviceId = "D1", IsActive = true },
+            new UserDevice { UserId = user2.Id, EmployeeID = targetEmpId, DeviceId = "D2", IsActive = true }
+        );
+        await db.SaveChangesAsync();
+
+        var result = await service.ForceLogoutEmployeeAllUsersAsync(targetEmpId, "SUPER_ADMIN");
+
+        result.Succeeded.Should().BeTrue();
+        result.SessionsRevokedCount.Should().Be(2);
+
+        var activeDevices = await db.UserDevices.Where(d => d.EmployeeID == targetEmpId && d.IsActive).ToListAsync();
+        activeDevices.Should().BeEmpty("all devices across all accounts of the employee must be deactivated");
+    }
 }

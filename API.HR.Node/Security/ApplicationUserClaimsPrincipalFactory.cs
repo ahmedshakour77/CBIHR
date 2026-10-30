@@ -27,67 +27,11 @@ public sealed class ApplicationUserClaimsPrincipalFactory : UserClaimsPrincipalF
     {
         var identity = await base.GenerateClaimsAsync(user);
 
-        // 1. Synchronize / Auto-repair EmployeeID for unlinked human users
-        if (!SystemAccounts.IsTechnicalAccount(user.UserName) && !SystemAccounts.IsTechnicalAccount(user.Email))
+        // Fallback default role claim in-memory if user has no assigned roles
+        var roleClaimType = Options.ClaimsIdentity.RoleClaimType;
+        if (!identity.HasClaim(c => c.Type == roleClaimType))
         {
-            var isCurrentLinkedValid = !string.IsNullOrWhiteSpace(user.EmployeeID) &&
-                await _dbContext.Employees.AsNoTracking().AnyAsync(e => e.EmployeeID == user.EmployeeID);
-
-            if (!isCurrentLinkedValid && !string.IsNullOrWhiteSpace(user.Email))
-            {
-                var userEmail = user.Email.Trim().ToLower();
-                var matchedEmpEmails = await _dbContext.EmployeeEmails
-                    .AsNoTracking()
-                    .Where(e => e.Email.Trim().ToLower() == userEmail)
-                    .Select(e => e.EmployeeID)
-                    .Distinct()
-                    .ToListAsync();
-
-                if (matchedEmpEmails.Count == 1)
-                {
-                    var matchedEmpId = matchedEmpEmails[0];
-                    if (await _dbContext.Employees.AsNoTracking().AnyAsync(e => e.EmployeeID == matchedEmpId))
-                    {
-                        user.EmployeeID = matchedEmpId;
-                        try
-                        {
-                            await UserManager.UpdateAsync(user);
-                            _logger.LogInformation("Synced user {UserEmail} to EmployeeID {EmployeeID}", user.Email, user.EmployeeID);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to persist synced EmployeeID for user {UserEmail}", user.Email);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Check if user has any roles assigned. If not, default to "Employee" role
-        var roles = await UserManager.GetRolesAsync(user);
-        if (roles.Count == 0)
-        {
-            // Ensure Employee role exists in database
-            if (!await RoleManager.RoleExistsAsync("Employee"))
-            {
-                await RoleManager.CreateAsync(new IdentityRole("Employee"));
-            }
-
-            try
-            {
-                await UserManager.AddToRoleAsync(user, "Employee");
-                _logger.LogInformation("Assigned default role 'Employee' to user {UserEmail}", user.Email ?? user.UserName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to add user {UserEmail} to role 'Employee'", user.Email);
-            }
-
-            var roleClaimType = Options.ClaimsIdentity.RoleClaimType;
-            if (!identity.HasClaim(c => c.Type == roleClaimType && c.Value == "Employee"))
-            {
-                identity.AddClaim(new Claim(roleClaimType, "Employee"));
-            }
+            identity.AddClaim(new Claim(roleClaimType, "Employee"));
         }
 
         if (!string.IsNullOrWhiteSpace(user.EmployeeID))

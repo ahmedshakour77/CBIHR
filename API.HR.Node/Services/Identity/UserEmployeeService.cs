@@ -49,6 +49,7 @@ public sealed class UserEmployeeService : IUserEmployeeService
 
             if (existingEmp != null)
             {
+                await EnsureDefaultRoleIfNoneAsync(user, ct);
                 return new EmployeeLinkValidationResult(
                     IsValid: true,
                     WasRepaired: false,
@@ -111,6 +112,8 @@ public sealed class UserEmployeeService : IUserEmployeeService
 
                     _logger.LogInformation("Successfully auto-repaired user '{UserName}' linkage to employee '{EmployeeID}' ({Name})",
                         user.UserName, targetEmp.EmployeeID, targetEmp.Name);
+
+                    await EnsureDefaultRoleIfNoneAsync(user, ct);
 
                     return new EmployeeLinkValidationResult(
                         IsValid: true,
@@ -356,9 +359,9 @@ public sealed class UserEmployeeService : IUserEmployeeService
 
         try
         {
-            // 1. Mark all active UserDevices for this user (and their linked EmployeeID) as inactive
+            // 1. Mark all active UserDevices for this specific user as inactive (strictly by UserId)
             var activeDevices = await _dbContext.UserDevices
-                .Where(d => (d.UserId == user.Id || (!string.IsNullOrWhiteSpace(user.EmployeeID) && d.EmployeeID == user.EmployeeID)) && d.IsActive)
+                .Where(d => d.UserId == user.Id && d.IsActive)
                 .ToListAsync(ct);
 
             foreach (var dev in activeDevices)
@@ -401,6 +404,59 @@ public sealed class UserEmployeeService : IUserEmployeeService
             _logger.LogError(ex, "Error executing force logout for user {UserId}", userId);
             return new ForceLogoutResult(false, revokedDevicesCount, false, now, ex.Message);
         }
+    }
+
+    public async Task<ForceLogoutResult> ForceLogoutEmployeeAllUsersAsync(
+        string employeeId,
+        string actorUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(employeeId))
+        {
+            return new ForceLogoutResult(false, 0, false, DateTimeOffset.UtcNow, "رقم الموظف غير محدد.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var users = await GetUsersForEmployeeAsync(employeeId, ct);
+        var totalRevoked = 0;
+        var allUpdated = true;
+
+        foreach (var u in users)
+        {
+            var res = await ForceLogoutUserAsync(u.Id, actorUserId, ct);
+            totalRevoked += res.SessionsRevokedCount;
+            if (!res.SecurityStampUpdated) allUpdated = false;
+        }
+
+        // Also deactivate any leftover active devices tagged with this EmployeeID
+        var orphanDevices = await _dbContext.UserDevices
+            .Where(d => d.EmployeeID == employeeId && d.IsActive)
+            .ToListAsync(ct);
+
+        foreach (var d in orphanDevices)
+        {
+            d.IsActive = false;
+        }
+
+        if (orphanDevices.Count > 0)
+        {
+            totalRevoked += orphanDevices.Count;
+            await _dbContext.SaveChangesAsync(ct);
+        }
+
+        await _auditLogger.LogAsync(
+            action: "EMPLOYEE_ALL_USERS_FORCE_LOGOUT",
+            employeeID: employeeId,
+            photoId: null,
+            success: true,
+            user: null,
+            ipAddress: null,
+            userAgent: null,
+            failureReason: null,
+            correlationId: $"Actor: {actorUserId}, TargetEmployee: {employeeId}, UsersAffected: {users.Count}, DevicesRevoked: {totalRevoked}",
+            cancellationToken: ct);
+
+        return new ForceLogoutResult(true, totalRevoked, allUpdated, now, null);
     }
 
     public async Task<List<EmployeePickerItem>> SearchEmployeesAsync(
@@ -465,5 +521,23 @@ public sealed class UserEmployeeService : IUserEmployeeService
     {
         if (string.IsNullOrWhiteSpace(employeeId)) return false;
         return await _dbContext.Employees.AsNoTracking().AnyAsync(e => e.EmployeeID == employeeId, ct);
+    }
+
+    private async Task EnsureDefaultRoleIfNoneAsync(ApplicationUser user, CancellationToken ct = default)
+    {
+        if (SystemAccounts.IsTechnicalAccount(user.UserName)) return;
+        var roles = await _userManager.GetRolesAsync(user);
+        if (roles.Count == 0)
+        {
+            try
+            {
+                await _userManager.AddToRoleAsync(user, "Employee");
+                _logger.LogInformation("Assigned default role 'Employee' to user '{UserName}'", user.UserName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to assign default 'Employee' role to user '{UserName}'", user.UserName);
+            }
+        }
     }
 }

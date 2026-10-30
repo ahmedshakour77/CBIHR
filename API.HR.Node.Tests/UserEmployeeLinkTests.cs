@@ -301,4 +301,58 @@ public sealed class UserEmployeeLinkTests
         report.RepairedUsers.Should().ContainSingle(u => u.UserName == "to.repair" && u.MatchedEmployeeId == "EMP601");
         report.UnresolvedUsers.Should().ContainSingle(u => u.UserName == "unresolvable");
     }
+
+    [Theory]
+    [InlineData("svc.unknown")]
+    [InlineData("random_tech")]
+    [InlineData("svc.malicious")]
+    public async Task ValidateOrRepairUserEmployeeLinkAsync_UndeclaredTechnicalAccount_ShouldFailValidation(string invalidTechAccount)
+    {
+        var (_, _, service, _) = CreateTestEnvironment();
+
+        var user = new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserName = invalidTechAccount,
+            Email = $"{invalidTechAccount}@company.iq",
+            EmployeeID = null
+        };
+
+        var result = await service.ValidateOrRepairUserEmployeeLinkAsync(user);
+
+        result.IsValid.Should().BeFalse("arbitrary or undeclared technical accounts are not permitted without employee linking");
+        result.IsTechnicalAccount.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task StartupSeeder_EnsureRolePermissionClaimsAsync_ShouldAddMissingAndRemoveObsoleteClaims()
+    {
+        var (provider, db, _, _) = CreateTestEnvironment();
+        var roleManager = provider.GetRequiredService<RoleManager<IdentityRole>>();
+
+        // Create Supervisor role
+        var supervisorRole = new IdentityRole("Supervisor");
+        await roleManager.CreateAsync(supervisorRole);
+
+        // Add an obsolete claim that is NOT part of Supervisor's package in FeaturePermissionCatalog
+        var obsoleteClaim = new System.Security.Claims.Claim("permission", "Obsolete.Permission.Old");
+        await roleManager.AddClaimAsync(supervisorRole, obsoleteClaim);
+
+        // Run sync
+        await StartupSeeder.EnsureRolePermissionClaimsAsync(provider, NullLogger.Instance);
+
+        // Verify claims
+        var claims = await roleManager.GetClaimsAsync(supervisorRole);
+        var permClaims = claims.Where(c => c.Type.Equals("permission", StringComparison.OrdinalIgnoreCase)).Select(c => c.Value).ToList();
+
+        // Obsolete claim must be removed
+        permClaims.Should().NotContain("Obsolete.Permission.Old", "obsolete role claims must be cleaned up");
+
+        // Desired package claims must be present
+        var desiredPackage = FeaturePermissionCatalog.RolePermissionPackages["Supervisor"];
+        foreach (var expectedPerm in desiredPackage)
+        {
+            permClaims.Should().Contain(expectedPerm, $"desired permission '{expectedPerm}' must be seeded for role");
+        }
+    }
 }

@@ -1143,46 +1143,59 @@
                                     </a>
                                 }
                             </div>
-                            @if (employeeUsers.Count > 0)
+                            @if (employeeUserAccountItems.Count > 0)
                             {
-                                <div style="display:flex; flex-direction:column; gap:.5rem;">
-                                    @foreach (var u in employeeUsers)
+                                <div style="display:flex; flex-direction:column; gap:.75rem;">
+                                    @foreach (var acc in employeeUserAccountItems)
                                     {
-                                        var isLocked = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow;
-                                        var roles = userRoleMapping.TryGetValue(u.Id, out var rList) ? rList : new List<string>();
-                                        <div class="hr-alert @(isLocked ? "hr-alert-danger" : "hr-alert-ok")" style="margin:0; justify-content:space-between; align-items:center;">
-                                            <div style="display:flex; align-items:flex-start; gap:.5rem;">
-                                                <Icon Name="@(isLocked ? "lock-closed" : "shield-check")" Size="sm" />
-                                                <div>
-                                                    <div style="display:flex; align-items:center; gap:.5rem;">
-                                                        <span style="font-weight:600; font-family:monospace;">@u.UserName</span>
-                                                        @if (isLocked)
-                                                        {
-                                                            <span class="hr-badge hr-badge-danger" style="font-size:0.75rem;">مقفل</span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <span class="hr-badge hr-badge-ok" style="font-size:0.75rem;">نشط</span>
-                                                        }
-                                                    </div>
-                                                    <p class="hr-meta" style="margin:0.15rem 0 0 0;">@(u.Email ?? "لا يوجد بريد إلكتروني")</p>
-                                                    @if (roles.Count > 0)
+                                        <div class="hr-alert @(acc.IsLockedOut ? "hr-alert-danger" : "hr-alert-ok")" style="margin:0; flex-direction:column; align-items:stretch; gap:.6rem; padding:.75rem 1rem;">
+                                            <div style="display:flex; justify-content:space-between; align-items:center; gap:.5rem;">
+                                                <div style="display:flex; align-items:center; gap:.5rem;">
+                                                    <Icon Name="@(acc.IsLockedOut ? "lock-closed" : "shield-check")" Size="sm" />
+                                                    <span style="font-weight:700; font-family:monospace; font-size:0.95rem;">@acc.User.UserName</span>
+                                                    @if (acc.IsLockedOut)
                                                     {
-                                                        <div style="display:flex; gap:.25rem; flex-wrap:wrap; margin-top:.35rem;">
-                                                            @foreach (var r in roles)
-                                                            {
-                                                                <span class="hr-badge" style="background:rgba(0,0,0,0.06); font-size:0.7rem;">@r</span>
-                                                            }
-                                                        </div>
+                                                        <span class="hr-badge hr-badge-danger" style="font-size:0.75rem;">مقفل</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="hr-badge hr-badge-ok" style="font-size:0.75rem;">نشط</span>
                                                     }
                                                 </div>
+                                                @if (isAdmin || canManageLifecycle)
+                                                {
+                                                    <a href="/users?search=@acc.User.UserName" class="hr-btn hr-btn-outline" style="padding:.2rem .5rem; font-size:0.8rem;" title="تعديل حساب المستخدم">
+                                                        <Icon Name="pencil-square" Size="xs" />
+                                                        <span>إدارة الحساب</span>
+                                                    </a>
+                                                }
                                             </div>
-                                            @if (isAdmin || canManageLifecycle)
-                                            {
-                                                <a href="/users?search=@u.UserName" class="hr-btn hr-btn-outline" style="padding:.2rem .5rem; font-size:0.8rem;" title="تعديل حساب المستخدم">
-                                                    <Icon Name="pencil-square" Size="xs" />
-                                                </a>
-                                            }
+                                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:.5rem; font-size:0.82rem; background:rgba(255,255,255,0.4); padding:.5rem .75rem; border-radius:6px;">
+                                                <div>
+                                                    <span class="hr-meta" style="display:block; font-size:0.72rem;">البريد الإلكتروني</span>
+                                                    <span style="font-weight:500;">@(acc.User.Email ?? "لا يوجد بريد إلكتروني")</span>
+                                                </div>
+                                                <div>
+                                                    <span class="hr-meta" style="display:block; font-size:0.72rem;">الأدوار المسندة</span>
+                                                    <span style="font-weight:500;">@(acc.Roles.Count > 0 ? string.Join(", ", acc.Roles) : "مستخدم عام")</span>
+                                                </div>
+                                                <div>
+                                                    <span class="hr-meta" style="display:block; font-size:0.72rem;">الأذونات الفعالة</span>
+                                                    <span class="hr-badge" style="background:rgba(0,0,0,0.08); font-size:0.75rem; font-weight:600;">@acc.EffectivePermissionsCount أذن فعّال</span>
+                                                </div>
+                                                <div>
+                                                    <span class="hr-meta" style="display:block; font-size:0.72rem;">طريقة الدخول</span>
+                                                    <span style="font-weight:500;">@acc.LoginProvider</span>
+                                                </div>
+                                                <div>
+                                                    <span class="hr-meta" style="display:block; font-size:0.72rem;">مفتاح المرور (Passkey)</span>
+                                                    <span style="font-weight:500;">@(acc.HasPasskey ? $"مفعل ({acc.PasskeysCount} مفتاح)" : "غير مفعل")</span>
+                                                </div>
+                                                <div>
+                                                    <span class="hr-meta" style="display:block; font-size:0.72rem;">الجلسات والأجهزة</span>
+                                                    <span style="font-weight:500;">@acc.ActiveSessionsCount نشطة / @acc.TotalDevicesCount مسجلة</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     }
                                 </div>
@@ -4995,6 +5008,19 @@
     private ApplicationUser? appUser;
     private List<ApplicationUser> employeeUsers = [];
     private Dictionary<string, List<string>> userRoleMapping = new();
+    private sealed class EmployeeUserAccountItem
+    {
+        public ApplicationUser User { get; set; } = default!;
+        public List<string> Roles { get; set; } = new();
+        public bool IsLockedOut { get; set; }
+        public int EffectivePermissionsCount { get; set; }
+        public string LoginProvider { get; set; } = "محلي (كلمة مرور)";
+        public bool HasPasskey { get; set; }
+        public int PasskeysCount { get; set; }
+        public int ActiveSessionsCount { get; set; }
+        public int TotalDevicesCount { get; set; }
+    }
+    private List<EmployeeUserAccountItem> employeeUserAccountItems = [];
     private List<AdministrativeUnit> managedUnits = [];
     private AdministrativeUnit? effectiveUnit;
 
@@ -5467,6 +5493,7 @@
                 .ToListAsync();
             appUser = employeeUsers.FirstOrDefault();
 
+            employeeUserAccountItems.Clear();
             userRoleMapping.Clear();
             if (employeeUsers.Count > 0)
             {
@@ -5481,6 +5508,66 @@
                     if (!userRoleMapping.ContainsKey(pair.UserId))
                         userRoleMapping[pair.UserId] = new List<string>();
                     if (pair.RoleName != null) userRoleMapping[pair.UserId].Add(pair.RoleName);
+                }
+
+                var directClaimsQuery = await db.UserClaims.AsNoTracking()
+                    .Where(c => uids.Contains(c.UserId) && (c.ClaimType == "permission" || c.ClaimType == "Permission"))
+                    .ToListAsync();
+                var userClaimsMap = directClaimsQuery
+                    .GroupBy(c => c.UserId)
+                    .ToDictionary(g => g.Key, g => g.Select(c => c.ClaimValue ?? "").Where(v => !string.IsNullOrEmpty(v)).ToList());
+
+                var userLoginsQuery = await db.UserLogins.AsNoTracking()
+                    .Where(l => uids.Contains(l.UserId))
+                    .ToListAsync();
+                var userLoginsMap = userLoginsQuery
+                    .GroupBy(l => l.UserId)
+                    .ToDictionary(g => g.Key, g => g.Select(l => l.LoginProvider).Distinct().ToList());
+
+                var passkeysQuery = await db.EmployeePasskeys.AsNoTracking()
+                    .Where(p => uids.Contains(p.UserId) && p.IsActive)
+                    .ToListAsync();
+                var userPasskeysMap = passkeysQuery
+                    .GroupBy(p => p.UserId)
+                    .ToDictionary(g => g.Key, g => g.Count());
+
+                var devicesQuery = await db.UserDevices.AsNoTracking()
+                    .Where(d => uids.Contains(d.UserId))
+                    .ToListAsync();
+                var userDevicesMap = devicesQuery
+                    .GroupBy(d => d.UserId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                foreach (var u in employeeUsers)
+                {
+                    var roles = userRoleMapping.TryGetValue(u.Id, out var rList) ? rList : new List<string>();
+                    var directClaims = userClaimsMap.TryGetValue(u.Id, out var cList) ? cList : new List<string>();
+                    var effPerms = API.HR.Node.Security.FeaturePermissionCatalog.CalculateEffectivePermissions(roles, directClaims);
+                    var effCount = effPerms.Count(p => p.IsEffective);
+
+                    var logins = userLoginsMap.TryGetValue(u.Id, out var logList) ? logList : new List<string>();
+                    string loginProviderText = logins.Count > 0 ? string.Join(", ", logins) : "محلي (كلمة مرور)";
+
+                    int passkeysCount = userPasskeysMap.TryGetValue(u.Id, out var pCount) ? pCount : 0;
+
+                    var devList = userDevicesMap.TryGetValue(u.Id, out var dList) ? dList : new List<UserDevice>();
+                    int activeDevs = devList.Count(d => d.IsActive);
+                    int totalDevs = devList.Count;
+
+                    bool isLocked = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow;
+
+                    employeeUserAccountItems.Add(new EmployeeUserAccountItem
+                    {
+                        User = u,
+                        Roles = roles,
+                        IsLockedOut = isLocked,
+                        EffectivePermissionsCount = effCount,
+                        LoginProvider = loginProviderText,
+                        HasPasskey = passkeysCount > 0,
+                        PasskeysCount = passkeysCount,
+                        ActiveSessionsCount = activeDevs,
+                        TotalDevicesCount = totalDevs
+                    });
                 }
             }
 

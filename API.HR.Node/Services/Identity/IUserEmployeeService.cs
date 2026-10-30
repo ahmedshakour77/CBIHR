@@ -92,9 +92,18 @@ public interface IUserEmployeeService
     /// <summary>
     /// Forcefully terminates all active sessions for a user, updates security stamp,
     /// marks UserDevice records inactive, and records an audit log.
+    /// Only deactivates devices for this specific user.
     /// </summary>
     Task<ForceLogoutResult> ForceLogoutUserAsync(
         string userId,
+        string actorUserId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Forcefully terminates all active sessions across ALL user accounts linked to the specified employee.
+    /// </summary>
+    Task<ForceLogoutResult> ForceLogoutEmployeeAllUsersAsync(
+        string employeeId,
         string actorUserId,
         CancellationToken ct = default);
 

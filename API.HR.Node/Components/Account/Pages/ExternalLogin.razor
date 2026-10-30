@@ -138,7 +138,12 @@
 
         if (result.Succeeded)
         {
-            var u = await UserManager.FindByEmailAsync(email);
+            var u = await UserManager.FindByLoginAsync(externalLoginInfo.LoginProvider, externalLoginInfo.ProviderKey);
+            if (u == null && !string.IsNullOrWhiteSpace(email))
+            {
+                u = await UserManager.FindByEmailAsync(email);
+            }
+
             if (u != null)
             {
                 var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(u);
