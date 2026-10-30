@@ -5,7 +5,7 @@
 @using API.HR.Node.Security
 @using API.HR.Node.Services.OrganizationalHierarchy
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Policy = AuthorizationPolicies.FormationDashboard)]
+@attribute [Authorize(Policy = Permissions.FormationDashboardView)]
 @implements IAsyncDisposable
 
 @inject IFormationKpiService KpiService

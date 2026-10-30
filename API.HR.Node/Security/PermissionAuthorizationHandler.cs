@@ -28,28 +28,6 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
 
         var req = requirement.Permission;
 
-        // Role-based operational compatibility for existing staff
-        var isHRManager = context.User.IsInRole("HRManager") || context.User.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("HRManager", StringComparison.OrdinalIgnoreCase));
-        if (isHRManager && !req.Equals(Permissions.ManageUsers, StringComparison.OrdinalIgnoreCase) && !req.Equals(Permissions.ViewAuditLogs, StringComparison.OrdinalIgnoreCase))
-        {
-            context.Succeed(requirement);
-            return Task.CompletedTask;
-        }
-
-        var isSupervisor = context.User.IsInRole("Supervisor") || context.User.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Supervisor", StringComparison.OrdinalIgnoreCase));
-        if (isSupervisor && (req.EndsWith(".View", StringComparison.OrdinalIgnoreCase) || req is Permissions.LeavesEdit or Permissions.WorkflowsEdit or Permissions.AppreciationLettersEdit))
-        {
-            context.Succeed(requirement);
-            return Task.CompletedTask;
-        }
-
-        var isFormationManager = context.User.IsInRole("FormationManager") || context.User.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("FormationManager", StringComparison.OrdinalIgnoreCase));
-        if (isFormationManager && (req.EndsWith(".View", StringComparison.OrdinalIgnoreCase) || req is Permissions.FormationDashboardEdit or Permissions.WorkflowsEdit))
-        {
-            context.Succeed(requirement);
-            return Task.CompletedTask;
-        }
-
         // Check if user has explicit matching permission claim or implied Edit permission
         var hasPermission = context.User.HasClaim(c =>
         {
@@ -79,7 +57,7 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
         return Task.CompletedTask;
     }
 
-    private static bool IsLegacyPermissionMatch(string userClaim, string requestedPermission)
+    public static bool IsLegacyPermissionMatch(string userClaim, string requestedPermission)
     {
         return (userClaim, requestedPermission) switch
         {

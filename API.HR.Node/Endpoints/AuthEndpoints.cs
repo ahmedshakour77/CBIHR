@@ -146,15 +146,16 @@ public static class AuthEndpoints
             return Results.Unauthorized();
         }
 
-        // Require user to be linked to an existing Employee record
-        if (string.IsNullOrWhiteSpace(user.EmployeeID) ||
-            !await dbContext.Employees.AnyAsync(e => e.EmployeeID == user.EmployeeID, cancellationToken))
+        // Require human user to be linked to an existing Employee record (SystemAccounts exempted)
+        var userEmployeeService = httpContext.RequestServices.GetRequiredService<API.HR.Node.Services.Identity.IUserEmployeeService>();
+        var linkResult = await userEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(user, cancellationToken);
+        if (!linkResult.IsValid)
         {
-            logger.LogWarning("User {UserId} attempted login but is not linked to an employee record.", user.Id);
+            logger.LogWarning("User {UserId} attempted login but is not linked to an employee record. Reason: {Reason}", user.Id, linkResult.FailureReason);
 
             return Results.Json(new
             {
-                message = "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية."
+                message = linkResult.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية."
             }, statusCode: StatusCodes.Status403Forbidden);
         }
 
@@ -514,15 +515,16 @@ public static class AuthEndpoints
             }
         }
 
-        // Require user to be linked to an existing Employee record
-        if (string.IsNullOrWhiteSpace(user.EmployeeID) ||
-            !await dbContext.Employees.AnyAsync(e => e.EmployeeID == user.EmployeeID, cancellationToken))
+        // Require human user to be linked to an existing Employee record (SystemAccounts exempted)
+        var userEmployeeService = httpContext.RequestServices.GetRequiredService<API.HR.Node.Services.Identity.IUserEmployeeService>();
+        var linkResult = await userEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(user, cancellationToken);
+        if (!linkResult.IsValid)
         {
-            logger.LogWarning("User {UserId} attempted Microsoft login but is not linked to an employee record.", user.Id);
+            logger.LogWarning("User {UserId} attempted Microsoft login but is not linked to an employee record. Reason: {Reason}", user.Id, linkResult.FailureReason);
 
             return Results.Json(new
             {
-                message = "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية."
+                message = linkResult.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية."
             }, statusCode: StatusCodes.Status403Forbidden);
         }
 

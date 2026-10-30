@@ -1133,15 +1133,58 @@
                         </div>
 
                         <div>
-                            <h3 class="hr-eyebrow" style="margin-block-end:.5rem">الحساب الرقمي بالمنظومة</h3>
-                            @if (appUser is not null)
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-block-end:.5rem;">
+                                <h3 class="hr-eyebrow" style="margin:0;">الحسابات الرقمية وحسابات الدخول (@employeeUsers.Count)</h3>
+                                @if (canManageLifecycle || isAdmin)
+                                {
+                                    <a href="/users?search=@(employee?.EmployeeID ?? "")" class="hr-meta" style="color:var(--brand, #0056b3); text-decoration:none; display:inline-flex; align-items:center; gap:.25rem;">
+                                        <Icon Name="users" Size="xs" />
+                                        <span>إدارة في المستخدمين</span>
+                                    </a>
+                                }
+                            </div>
+                            @if (employeeUsers.Count > 0)
                             {
-                                <div class="hr-alert hr-alert-ok">
-                                    <Icon Name="shield-check" Size="sm" />
-                                    <div class="hr-alert-grow">
-                                        <p class="hr-alert-title">حساب مستخدم مفعّل</p>
-                                        <p class="hr-meta hr-wrap-any">@appUser.UserName</p>
-                                    </div>
+                                <div style="display:flex; flex-direction:column; gap:.5rem;">
+                                    @foreach (var u in employeeUsers)
+                                    {
+                                        var isLocked = u.LockoutEnd.HasValue && u.LockoutEnd.Value > DateTimeOffset.UtcNow;
+                                        var roles = userRoleMapping.TryGetValue(u.Id, out var rList) ? rList : new List<string>();
+                                        <div class="hr-alert @(isLocked ? "hr-alert-danger" : "hr-alert-ok")" style="margin:0; justify-content:space-between; align-items:center;">
+                                            <div style="display:flex; align-items:flex-start; gap:.5rem;">
+                                                <Icon Name="@(isLocked ? "lock-closed" : "shield-check")" Size="sm" />
+                                                <div>
+                                                    <div style="display:flex; align-items:center; gap:.5rem;">
+                                                        <span style="font-weight:600; font-family:monospace;">@u.UserName</span>
+                                                        @if (isLocked)
+                                                        {
+                                                            <span class="hr-badge hr-badge-danger" style="font-size:0.75rem;">مقفل</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="hr-badge hr-badge-ok" style="font-size:0.75rem;">نشط</span>
+                                                        }
+                                                    </div>
+                                                    <p class="hr-meta" style="margin:0.15rem 0 0 0;">@(u.Email ?? "لا يوجد بريد إلكتروني")</p>
+                                                    @if (roles.Count > 0)
+                                                    {
+                                                        <div style="display:flex; gap:.25rem; flex-wrap:wrap; margin-top:.35rem;">
+                                                            @foreach (var r in roles)
+                                                            {
+                                                                <span class="hr-badge" style="background:rgba(0,0,0,0.06); font-size:0.7rem;">@r</span>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                            @if (isAdmin || canManageLifecycle)
+                                            {
+                                                <a href="/users?search=@u.UserName" class="hr-btn hr-btn-outline" style="padding:.2rem .5rem; font-size:0.8rem;" title="تعديل حساب المستخدم">
+                                                    <Icon Name="pencil-square" Size="xs" />
+                                                </a>
+                                            }
+                                        </div>
+                                    }
                                 </div>
                             }
                             else
@@ -1149,7 +1192,7 @@
                                 <div class="hr-alert">
                                     <Icon Name="information-circle" Size="sm" />
                                     <div class="hr-alert-grow">
-                                        <p>لا يمتلك حساب تسجيل دخول بالمنظومة حتى الآن.</p>
+                                        <p>لا يمتلك هذا الموظف أي حساب تسجيل دخول بالمنظومة حتى الآن.</p>
                                     </div>
                                 </div>
                             }
@@ -4950,6 +4993,8 @@
     private List<MartyrKinship> allMartyrKinships = [];
     private API.HR.Node.Data.SystemFeatureSettings systemFeatures = new();
     private ApplicationUser? appUser;
+    private List<ApplicationUser> employeeUsers = [];
+    private Dictionary<string, List<string>> userRoleMapping = new();
     private List<AdministrativeUnit> managedUnits = [];
     private AdministrativeUnit? effectiveUnit;
 
@@ -5416,13 +5461,33 @@
                 .ToListAsync();
 
             var emailList = emails.Select(m => m.Email.ToLower()).ToList();
-            appUser = await db.Users.AsNoTracking()
-                .FirstOrDefaultAsync(u => u.EmployeeID == targetEmpId
-                    || (u.Email != null && emailList.Contains(u.Email.ToLower())));
+            employeeUsers = await db.Users.AsNoTracking()
+                .Where(u => u.EmployeeID == targetEmpId
+                    || (u.Email != null && emailList.Contains(u.Email.ToLower())))
+                .ToListAsync();
+            appUser = employeeUsers.FirstOrDefault();
 
+            userRoleMapping.Clear();
+            if (employeeUsers.Count > 0)
+            {
+                var uids = employeeUsers.Select(u => u.Id).ToList();
+                var rolesQuery = from ur in db.UserRoles
+                                 join r in db.Roles on ur.RoleId equals r.Id
+                                 where uids.Contains(ur.UserId)
+                                 select new { ur.UserId, RoleName = r.Name };
+                var rolePairs = await rolesQuery.ToListAsync();
+                foreach (var pair in rolePairs)
+                {
+                    if (!userRoleMapping.ContainsKey(pair.UserId))
+                        userRoleMapping[pair.UserId] = new List<string>();
+                    if (pair.RoleName != null) userRoleMapping[pair.UserId].Add(pair.RoleName);
+                }
+            }
+
+            var linkedUserIds = employeeUsers.Select(u => u.Id).ToList();
             // Load feedback and voice submissions
             employeeFeedbacks = await db.EmployeeFeedbacks.AsNoTracking()
-                .Where(f => f.EmployeeId == employee.Id || (appUser != null && f.UserId == appUser.Id))
+                .Where(f => f.EmployeeId == employee.Id || (linkedUserIds.Count > 0 && linkedUserIds.Contains(f.UserId)))
                 .OrderByDescending(f => f.CreatedAt)
                 .ToListAsync();
 

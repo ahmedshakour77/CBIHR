@@ -1,6 +1,6 @@
 @page "/audit"
 @using API.HR.Node.Security
-@attribute [Authorize(Policy = AuthorizationPolicies.ViewAuditLogs)]
+@attribute [Authorize(Policy = Permissions.AuditLogsView)]
 @rendermode InteractiveServer
 
 @inject ApplicationDbContext DbContext

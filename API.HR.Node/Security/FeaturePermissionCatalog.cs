@@ -237,6 +237,178 @@ public static class FeaturePermissionCatalog
               .DistinctBy(kv => kv.Key)
               .ToDictionary(kv => kv.Key, kv => kv.Value);
 
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> RolePermissionPackages =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Admin"] = AllPermissionCodes,
+
+            ["HRManager"] = AllPermissionCodes
+                .Where(p => p is not Permissions.UsersEdit
+                            and not Permissions.AuditLogsView
+                            and not Permissions.AuditLogsEdit
+                            and not Permissions.FeaturesView
+                            and not Permissions.FeaturesEdit
+                            and not Permissions.DesignSystemView
+                            and not Permissions.DesignSystemEdit
+                            and not Permissions.PasskeysEdit
+                            and not Permissions.DevicesEdit)
+                .ToList(),
+
+            ["Supervisor"] =
+            [
+                Permissions.DashboardView,
+                Permissions.EmployeesView,
+                Permissions.EmployeesEdit,
+                Permissions.LeavesView,
+                Permissions.LeavesEdit,
+                Permissions.SalaryScaleView,
+                Permissions.SalariesView,
+                Permissions.PassportsView,
+                Permissions.NationalCardsView,
+                Permissions.AppreciationLettersView,
+                Permissions.AppreciationLettersEdit,
+                Permissions.WorkflowsView,
+                Permissions.WorkflowsEdit,
+                Permissions.CoursesView,
+                Permissions.CoursesEdit,
+                Permissions.ContactsView,
+                Permissions.ReportsView,
+                Permissions.DossierView,
+                Permissions.MyFeedbackView,
+                Permissions.MyFeedbackSubmit
+            ],
+
+            ["FormationManager"] =
+            [
+                Permissions.DashboardView,
+                Permissions.FormationDashboardView,
+                Permissions.FormationDashboardEdit,
+                Permissions.EmployeesView,
+                Permissions.LeavesView,
+                Permissions.WorkflowsView,
+                Permissions.WorkflowsEdit,
+                Permissions.AppreciationLettersView,
+                Permissions.ReportsView,
+                Permissions.DossierView,
+                Permissions.MyFeedbackView,
+                Permissions.MyFeedbackSubmit
+            ],
+
+            ["Employee"] =
+            [
+                Permissions.DossierView,
+                Permissions.MyFeedbackView,
+                Permissions.MyFeedbackSubmit
+            ]
+        };
+
+    /// <summary>
+    /// Represents the resolved status of a single permission across role claims and direct user claims.
+    /// </summary>
+    public sealed record EffectivePermissionItem(
+        string PermissionCode,
+        string FeatureName,
+        string PermissionTitle,
+        bool IsEdit,
+        bool GrantedByRole,
+        IReadOnlyList<string> GrantedByRolesList,
+        bool GrantedDirectly,
+        bool IsEffective,
+        string SourceReason);
+
+    public static IReadOnlyList<EffectivePermissionItem> CalculateEffectivePermissions(
+        IEnumerable<string> assignedRoles,
+        IEnumerable<string> directPermissionClaims)
+    {
+        var roleList = assignedRoles.ToList();
+        var directClaimsSet = new HashSet<string>(directPermissionClaims, StringComparer.OrdinalIgnoreCase);
+        var isAdmin = roleList.Any(r => r.Equals("Admin", StringComparison.OrdinalIgnoreCase));
+
+        var rolePermissions = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var role in roleList)
+        {
+            if (RolePermissionPackages.TryGetValue(role, out var perms))
+            {
+                foreach (var p in perms)
+                {
+                    if (!rolePermissions.TryGetValue(p, out var rolesGranting))
+                    {
+                        rolesGranting = [];
+                        rolePermissions[p] = rolesGranting;
+                    }
+                    rolesGranting.Add(role);
+                }
+            }
+        }
+
+        var results = new List<EffectivePermissionItem>();
+
+        foreach (var feature in AllFeatures)
+        {
+            foreach (var permDef in new[] { feature.ViewPermission, feature.EditPermission })
+            {
+                var code = permDef.Code;
+                var hasRoleGrant = rolePermissions.TryGetValue(code, out var grantingRolesList);
+                var grantingRoles = hasRoleGrant ? grantingRolesList! : [];
+
+                var hasDirectGrant = directClaimsSet.Contains(code);
+
+                // Edit permission implies View permission
+                var hasImpliedRoleGrant = false;
+                var hasImpliedDirectGrant = false;
+                if (permDef == feature.ViewPermission)
+                {
+                    if (rolePermissions.TryGetValue(feature.EditPermission.Code, out var editRoles))
+                    {
+                        hasImpliedRoleGrant = true;
+                        grantingRoles = grantingRoles.Concat(editRoles).Distinct().ToList();
+                    }
+                    if (directClaimsSet.Contains(feature.EditPermission.Code))
+                    {
+                        hasImpliedDirectGrant = true;
+                    }
+                }
+
+                var isEffective = isAdmin || hasRoleGrant || hasDirectGrant || hasImpliedRoleGrant || hasImpliedDirectGrant;
+
+                string reason;
+                if (isAdmin)
+                {
+                    reason = "صلاحية كاملة (مدير النظام Admin)";
+                }
+                else if (hasDirectGrant && (hasRoleGrant || hasImpliedRoleGrant))
+                {
+                    reason = $"ممنوحة مباشرة وعبر الدور ({string.Join(", ", grantingRoles)})";
+                }
+                else if (hasRoleGrant || hasImpliedRoleGrant)
+                {
+                    reason = $"ممنوحة من دور: {string.Join(", ", grantingRoles)}";
+                }
+                else if (hasDirectGrant || hasImpliedDirectGrant)
+                {
+                    reason = "ممنوحة للمستخدم مباشرة";
+                }
+                else
+                {
+                    reason = "غير ممنوحة (معطلة)";
+                }
+
+                results.Add(new EffectivePermissionItem(
+                    PermissionCode: code,
+                    FeatureName: feature.FeatureName,
+                    PermissionTitle: permDef.Title,
+                    IsEdit: permDef.IsEdit,
+                    GrantedByRole: hasRoleGrant || hasImpliedRoleGrant,
+                    GrantedByRolesList: grantingRoles,
+                    GrantedDirectly: hasDirectGrant || hasImpliedDirectGrant,
+                    IsEffective: isEffective,
+                    SourceReason: reason));
+            }
+        }
+
+        return results;
+    }
+
     /// <summary>
     /// فحص ما إذا كان المستخدم يملك إذن رؤية أو تعديل لخاصية معينة
     /// </summary>
@@ -247,7 +419,7 @@ public static class FeaturePermissionCatalog
             return false;
         }
 
-        if (user.IsInRole("Admin"))
+        if (user.IsInRole("Admin") || user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
@@ -268,6 +440,13 @@ public static class FeaturePermissionCatalog
             {
                 return true;
             }
+        }
+
+        // مطابقة الصلاحيات القديمة للتوافق
+        if (user.Claims.Any(c => (c.Type == "permission" || c.Type == "Permission") &&
+                                 PermissionAuthorizationHandler.IsLegacyPermissionMatch(c.Value, permissionCode)))
+        {
+            return true;
         }
 
         return false;

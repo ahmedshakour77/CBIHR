@@ -1,5 +1,5 @@
 @page "/employee-feedbacks"
-@attribute [Authorize(Policy = AuthorizationPolicies.ManageFeedback)]
+@attribute [Authorize(Policy = Permissions.FeedbackView)]
 @rendermode InteractiveServer
 
 @using System.Security.Claims

@@ -15,6 +15,7 @@
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
 @inject ILogger<ExternalLogin> Logger
+@inject API.HR.Node.Services.Identity.IUserEmployeeService UserEmployeeService
 
 <PageTitle>جارٍ التحقق من الحساب | الموظف ٣٦٠°   </PageTitle>
 
@@ -137,10 +138,19 @@
 
         if (result.Succeeded)
         {
-            Logger.LogInformation("{Name} logged in with {LoginProvider} provider.", externalLoginInfo.Principal.Identity?.Name, externalLoginInfo.LoginProvider);
             var u = await UserManager.FindByEmailAsync(email);
             if (u != null)
             {
+                var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(u);
+                if (!linkRes.IsValid)
+                {
+                    await SignInManager.SignOutAsync();
+                    Logger.LogWarning("Microsoft login refused for {Email}: not linked to employee record.", email);
+                    RedirectManager.RedirectToWithStatus("Account/Login", linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.", HttpContext);
+                    return;
+                }
+
+                Logger.LogInformation("{Name} logged in with {LoginProvider} provider.", externalLoginInfo.Principal.Identity?.Name, externalLoginInfo.LoginProvider);
                 await RedirectUserAsync(u);
                 return;
             }
@@ -158,6 +168,14 @@
         var existingUser = await UserManager.FindByEmailAsync(email);
         if (existingUser != null)
         {
+            var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(existingUser);
+            if (!linkRes.IsValid)
+            {
+                Logger.LogWarning("Microsoft login refused for existing user {Email}: not linked to employee record.", email);
+                RedirectManager.RedirectToWithStatus("Account/Login", linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.", HttpContext);
+                return;
+            }
+
             // Auto-confirm email if not confirmed yet
             if (!existingUser.EmailConfirmed)
             {
@@ -174,12 +192,31 @@
             }
         }
 
-        // Create new user automatically with EmailConfirmed = true
+        // Strictly verify that the Microsoft email matches an existing registered Employee record
+        var normEmail = email.Trim().ToLower();
+        var candidateEmpIds = await DbContext.EmployeeEmails
+            .AsNoTracking()
+            .Where(e => e.Email.Trim().ToLower() == normEmail)
+            .Select(e => e.EmployeeID)
+            .Distinct()
+            .ToListAsync();
+
+        if (candidateEmpIds.Count != 1 || !await DbContext.Employees.AnyAsync(e => e.EmployeeID == candidateEmpIds[0]))
+        {
+            Logger.LogWarning("Refused auto-creation for Microsoft user {Email}: no unique matching employee record.", email);
+            RedirectManager.RedirectToWithStatus("Account/Login", "عذراً، هذا البريد الإلكتروني غير مرتبط بأي سجل موظف في نظام الموارد البشرية. لا يمكن إنشاء حساب لمستخدم غير مسجل كموظف.", HttpContext);
+            return;
+        }
+
+        var matchedEmployeeId = candidateEmpIds[0];
+
+        // Create new user automatically with EmployeeID and EmailConfirmed = true
         var newUser = new ApplicationUser
         {
             UserName = email,
             Email = email,
-            EmailConfirmed = true, // Automatic confirmation for Microsoft authenticated emails
+            EmailConfirmed = true,
+            EmployeeID = matchedEmployeeId,
             PhoneNumber = phoneNumber,
             PhoneNumberConfirmed = !string.IsNullOrEmpty(phoneNumber)
         };
@@ -187,9 +224,11 @@
         var createResult = await UserManager.CreateAsync(newUser);
         if (createResult.Succeeded)
         {
+            await UserManager.AddToRoleAsync(newUser, "Employee");
             await UserManager.AddLoginAsync(newUser, externalLoginInfo);
             await SignInManager.SignInAsync(newUser, isPersistent: false, externalLoginInfo.LoginProvider);
-            Logger.LogInformation("Auto-created user {Email} with confirmed email via {Provider}", email, externalLoginInfo.LoginProvider);
+            Logger.LogInformation("Auto-created user {Email} linked to EmployeeID {EmployeeID} via {Provider}",
+                email, matchedEmployeeId, externalLoginInfo.LoginProvider);
             await RedirectUserAsync(newUser);
             return;
         }

@@ -170,6 +170,7 @@ else
 }
 builder.Services.AddSingleton<IImageProcessor, ImageSharpProcessor>();
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+builder.Services.AddScoped<API.HR.Node.Services.Identity.IUserEmployeeService, API.HR.Node.Services.Identity.UserEmployeeService>();
 builder.Services.AddScoped<IEmployeeProfilePhotoService, EmployeeProfilePhotoService>();
 builder.Services.AddSingleton<API.HR.Node.Services.ProfilePhotos.IUserAvatarService, API.HR.Node.Services.ProfilePhotos.UserAvatarService>();
 builder.Services.AddScoped<IMicrosoftGraphService, MicrosoftGraphService>();
@@ -430,12 +431,7 @@ var authBuilder = builder.Services.AddAuthorizationBuilder()
     .AddPolicy(AuthorizationPolicies.FormationDashboard, policy =>
     {
         policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme, IdentityConstants.ApplicationScheme);
-        policy.RequireAssertion(ctx =>
-            ctx.User.IsInRole("Admin") ||
-            ctx.User.IsInRole("HRManager") ||
-            ctx.User.IsInRole("FormationManager") ||
-            ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") && c.Value == Permissions.ViewFormationDashboard) ||
-            ctx.User.HasClaim(c => c.Type == "formation_id"));
+        policy.AddRequirements(new PermissionRequirement(Permissions.FormationDashboardView));
     });
 
 // Register all fine-grained feature permissions (*.View and *.Edit) dynamically as authorization policies

@@ -20,6 +20,7 @@
 @inject LoginThrottle Throttle
 @inject API.HR.Node.Services.Localization.ILanguageService Lang
 @inject API.HR.Node.Services.Network.IAmlConnectivityService AmlNet
+@inject API.HR.Node.Services.Identity.IUserEmployeeService UserEmployeeService
 
 <PageTitle>@L("تسجيل الدخول | نظام إدارة الموارد البشرية", "چوونەژوورەوە | سیستەمی بەڕێوەبردنی سەرچاوە مرۆییەکان")</PageTitle>
 
@@ -430,6 +431,20 @@
             var passkeyResult = await SignInManager.PasskeySignInAsync(PasskeyInput.CredentialJson);
             if (passkeyResult.Succeeded)
             {
+                var authedUser = await UserManager.GetUserAsync(SignInManager.Context.User);
+                if (authedUser != null)
+                {
+                    var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(authedUser);
+                    if (!linkRes.IsValid)
+                    {
+                        await SignInManager.SignOutAsync();
+                        Logger.LogWarning("Passkey sign-in refused for '{Username}': not linked to employee record.", authedUser.UserName);
+                        SetStatus(L(linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.",
+                                    "ئەم هەژمارە بە هیچ تۆمارێکی فەرمانبەرەوە نەبەستراوەتەوە لە سیستەمی سەرچاوە مرۆییەکاندا."), isError: true);
+                        return;
+                    }
+                }
+
                 Logger.LogInformation("Passkey sign-in succeeded.");
                 RedirectManager.RedirectTo(ReturnUrl);
                 return;
@@ -583,6 +598,15 @@
                 }
             }
 
+            var adLinkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(user);
+            if (!adLinkRes.IsValid)
+            {
+                Logger.LogWarning("[AD sign-in] '{Username}' refused: not linked to employee record.", user.UserName);
+                SetStatus(L(adLinkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.",
+                            "ئەم ئیمەیڵە بە هیچ تۆمارێکی فەرمانبەرەوە نەبەستراوەتەوە."), isError: true);
+                return;
+            }
+
             // The directory vouched for the password; the account's own rules still apply.
             // A locked or disabled account is refused, and two-step verification is asked for,
             // exactly as on the local path below.
@@ -628,9 +652,22 @@
 
         if (result.Succeeded)
         {
+            localUser ??= await UserManager.FindByNameAsync(loginIdentity);
+            if (localUser != null)
+            {
+                var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(localUser);
+                if (!linkRes.IsValid)
+                {
+                    await SignInManager.SignOutAsync();
+                    Logger.LogWarning("Local sign-in for '{Account}' refused: not linked to employee record.", loginIdentity);
+                    SetStatus(L(linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.",
+                                "ئەم هەژمارە بە هیچ تۆمارێکی فەرمانبەرەوە نەبەستراوەتەوە لە سیستەمی سەرچاوە مرۆییەکاندا."), isError: true);
+                    return;
+                }
+            }
+
             Throttle.Reset(rawInput);
             Logger.LogInformation("'{Account}' signed in with a local account.", loginIdentity);
-            localUser ??= await UserManager.FindByNameAsync(loginIdentity);
             await CompleteLoginRedirect(localUser);
             return;
         }

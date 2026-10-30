@@ -73,72 +73,47 @@ public static class StartupSeeder
     {
         var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
 
-        var rolePermissionMappings = new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+        foreach (var (roleName, desiredPermissions) in FeaturePermissionCatalog.RolePermissionPackages)
         {
-            ["HRManager"] = FeaturePermissionCatalog.AllPermissionCodes
-                .Where(p => p is not Permissions.ManageUsers and not Permissions.ViewAuditLogs),
+            if (roleName.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
 
-            ["Supervisor"] =
-            [
-                Permissions.DashboardView,
-                Permissions.EmployeesView,
-                Permissions.EmployeesEdit,
-                Permissions.LeavesView,
-                Permissions.LeavesEdit,
-                Permissions.SalaryScaleView,
-                Permissions.SalariesView,
-                Permissions.PassportsView,
-                Permissions.NationalCardsView,
-                Permissions.AppreciationLettersView,
-                Permissions.AppreciationLettersEdit,
-                Permissions.WorkflowsView,
-                Permissions.WorkflowsEdit,
-                Permissions.CoursesView,
-                Permissions.ContactsView,
-                Permissions.ReportsView
-            ],
-
-            ["FormationManager"] =
-            [
-                Permissions.DashboardView,
-                Permissions.FormationDashboardView,
-                Permissions.FormationDashboardEdit,
-                Permissions.EmployeesView,
-                Permissions.LeavesView,
-                Permissions.WorkflowsView,
-                Permissions.WorkflowsEdit,
-                Permissions.AppreciationLettersView,
-                Permissions.ReportsView
-            ],
-
-            ["Employee"] =
-            [
-                Permissions.DossierView,
-                Permissions.MyFeedbackView,
-                Permissions.MyFeedbackSubmit
-            ]
-        };
-
-        foreach (var (roleName, permissions) in rolePermissionMappings)
-        {
             var role = await roleManager.FindByNameAsync(roleName);
             if (role is null) continue;
 
             var existingClaims = await roleManager.GetClaimsAsync(role);
+            var existingPermissionClaims = existingClaims
+                .Where(c => c.Type.Equals("permission", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
             var existingClaimValues = new HashSet<string>(
-                existingClaims.Where(c => c.Type == "permission").Select(c => c.Value),
+                existingPermissionClaims.Select(c => c.Value),
                 StringComparer.OrdinalIgnoreCase);
 
-            foreach (var perm in permissions)
+            var desiredSet = new HashSet<string>(desiredPermissions, StringComparer.OrdinalIgnoreCase);
+
+            // 1. Add missing permissions
+            foreach (var perm in desiredPermissions)
             {
                 if (!existingClaimValues.Contains(perm))
                 {
                     await roleManager.AddClaimAsync(role, new System.Security.Claims.Claim("permission", perm));
                 }
             }
+
+            // 2. Remove obsolete permissions (Role in DB exactly matches code definition)
+            foreach (var claim in existingPermissionClaims)
+            {
+                if (!desiredSet.Contains(claim.Value))
+                {
+                    await roleManager.RemoveClaimAsync(role, claim);
+                }
+            }
         }
 
-        logger.LogInformation("Role permission claims ensured for standard roles (HRManager, Supervisor, FormationManager).");
+        logger.LogInformation("Role permission claims synchronized for standard roles (HRManager, Supervisor, FormationManager, Employee).");
     }
 
     private static async Task EnsureBootstrapAdminAsync(IServiceProvider services, IConfiguration configuration, ILogger logger)

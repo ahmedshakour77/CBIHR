@@ -234,6 +234,16 @@ public static class PasskeyEndpoints
 
             var (passkey, user) = await passkeyService.LoginCompleteAsync(options, assertion, cancellationToken);
 
+            var userEmployeeService = httpContext.RequestServices.GetRequiredService<API.HR.Node.Services.Identity.IUserEmployeeService>();
+            var linkResult = await userEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(user, cancellationToken);
+            if (!linkResult.IsValid)
+            {
+                return Results.Json(new
+                {
+                    message = linkResult.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية."
+                }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
             if (await userManager.IsLockedOutAsync(user))
             {
                 return Results.Problem(statusCode: StatusCodes.Status423Locked, title: "Account is locked.");

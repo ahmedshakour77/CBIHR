@@ -27,25 +27,38 @@ public sealed class ApplicationUserClaimsPrincipalFactory : UserClaimsPrincipalF
     {
         var identity = await base.GenerateClaimsAsync(user);
 
-        // 1. Synchronize EmployeeID with EmployeeEmails table
-        if (!string.IsNullOrWhiteSpace(user.Email))
+        // 1. Synchronize / Auto-repair EmployeeID for unlinked human users
+        if (!SystemAccounts.IsTechnicalAccount(user.UserName) && !SystemAccounts.IsTechnicalAccount(user.Email))
         {
-            var userEmail = user.Email.Trim().ToLower();
-            var matchedEmpEmail = await _dbContext.EmployeeEmails
-                .AsNoTracking()
-                .FirstOrDefaultAsync(e => e.Email == userEmail);
+            var isCurrentLinkedValid = !string.IsNullOrWhiteSpace(user.EmployeeID) &&
+                await _dbContext.Employees.AsNoTracking().AnyAsync(e => e.EmployeeID == user.EmployeeID);
 
-            if (matchedEmpEmail != null && !string.IsNullOrWhiteSpace(matchedEmpEmail.EmployeeID) && user.EmployeeID != matchedEmpEmail.EmployeeID)
+            if (!isCurrentLinkedValid && !string.IsNullOrWhiteSpace(user.Email))
             {
-                user.EmployeeID = matchedEmpEmail.EmployeeID;
-                try
+                var userEmail = user.Email.Trim().ToLower();
+                var matchedEmpEmails = await _dbContext.EmployeeEmails
+                    .AsNoTracking()
+                    .Where(e => e.Email.Trim().ToLower() == userEmail)
+                    .Select(e => e.EmployeeID)
+                    .Distinct()
+                    .ToListAsync();
+
+                if (matchedEmpEmails.Count == 1)
                 {
-                    await UserManager.UpdateAsync(user);
-                    _logger.LogInformation("Synced user {UserEmail} to EmployeeID {EmployeeID}", user.Email, user.EmployeeID);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to persist synced EmployeeID for user {UserEmail}", user.Email);
+                    var matchedEmpId = matchedEmpEmails[0];
+                    if (await _dbContext.Employees.AsNoTracking().AnyAsync(e => e.EmployeeID == matchedEmpId))
+                    {
+                        user.EmployeeID = matchedEmpId;
+                        try
+                        {
+                            await UserManager.UpdateAsync(user);
+                            _logger.LogInformation("Synced user {UserEmail} to EmployeeID {EmployeeID}", user.Email, user.EmployeeID);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to persist synced EmployeeID for user {UserEmail}", user.Email);
+                        }
+                    }
                 }
             }
         }

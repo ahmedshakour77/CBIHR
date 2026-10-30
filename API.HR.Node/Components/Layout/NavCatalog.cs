@@ -32,74 +32,38 @@ public sealed record NavEntry(
         }
 
         // المسؤول (Admin) يملك صلاحية رؤية كافة التبويبات تلقائياً
-        if (user.IsInRole("Admin"))
+        if (user.IsInRole("Admin") || user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
 
-        // التبويبات العامة لجميع الموظفين المسجلين (مثل الملف الشخصي ومشاركاتي)
+        // إذا كان العنصر محدداً بصلاحية دقيقة، يتم الاعتماد حصراً على محرك الصلاحيات الموحد
+        if (!string.IsNullOrWhiteSpace(ViewPermission))
+        {
+            return user.HasPermission(ViewPermission);
+        }
+
+        if (!string.IsNullOrWhiteSpace(EditPermission))
+        {
+            return user.HasPermission(EditPermission);
+        }
+
+        // التبويبات العامة بدون صلاحيات محددة
         if (Href is "portal" or "my-feedback")
         {
             return true;
         }
 
-        // 1. إذا كان العنصر محدداً بصلاحية دقيقة (ViewPermission أو EditPermission)، يتم الاعتماد حصراً على الصلاحيات
-        var hasSpecificPermissionDefined = !string.IsNullOrWhiteSpace(ViewPermission) || !string.IsNullOrWhiteSpace(EditPermission);
-        if (hasSpecificPermissionDefined)
-        {
-            if (!string.IsNullOrWhiteSpace(ViewPermission) && user.HasPermission(ViewPermission))
-            {
-                return true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(EditPermission) && user.HasPermission(EditPermission))
-            {
-                return true;
-            }
-
-            // فحص التوافق مع الصلاحيات القديمة
-            if (CheckLegacyPermissions(user))
-            {
-                return true;
-            }
-
-            // إذا كان لدى المستخدم أي أذونات مخصصة (Claims صريحة)، نعتمد حصراً على أذوناته ميزة بميزة
-            var hasAnyExplicitPermissions = user.Claims.Any(c => (c.Type == "permission" || c.Type == "Permission") && !string.IsNullOrWhiteSpace(c.Value));
-            if (hasAnyExplicitPermissions)
-            {
-                return false;
-            }
-
-            // للمستخدمين الذين يملكون أدواراً كلاسيكية فقط ولم تُخصص لهم أذونات بعد، نتحقق من الدور
-            if (Roles != null && Roles.Length > 0)
-            {
-                foreach (var role in Roles)
-                {
-                    if (user.IsInRole(role))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        // 2. التحقق من الأدوار الكلاسيكية فقط للعناصر القديمة التي لا تملك صلاحية مخصصة
+        // للأدوار إن لم توجد صلاحية محددة
         if (Roles != null && Roles.Length > 0)
         {
             foreach (var role in Roles)
             {
-                if (user.IsInRole(role))
-                {
-                    return true;
-                }
+                if (user.IsInRole(role)) return true;
             }
-            return false;
         }
 
-        // التبويبات العامة لجميع الموظفين المسجلين (مثل الملف الشخصي ومشاركاتي)
-        return true;
+        return false;
     }
 
     private bool CheckLegacyPermissions(ClaimsPrincipal user)

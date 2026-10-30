@@ -1,6 +1,6 @@
 @page "/user-devices"
 @using API.HR.Node.Security
-@attribute [Authorize(Policy = AuthorizationPolicies.ManageDevices)]
+@attribute [Authorize(Policy = Permissions.DevicesView)]
 @rendermode InteractiveServer
 
 @inject ApplicationDbContext DbContext

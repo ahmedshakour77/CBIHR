@@ -6,12 +6,15 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
 @using API.HR.Node.Security
-@attribute [Authorize(Policy = AuthorizationPolicies.ManageUsers)]
+@using API.HR.Node.Services.Identity
+@attribute [Authorize(Policy = Permissions.UsersView)]
 
 @inject IServiceScopeFactory ScopeFactory
 @inject ILogger<Users> Logger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject API.HR.Node.Services.Audit.IAuditLogger AuditLogger
+@inject NavigationManager NavManager
+@inject IUserEmployeeService UserEmployeeService
 
 <PageTitle>المستخدمون والأدوار | الموظف ٣٦٠°   </PageTitle>
 
@@ -41,14 +44,24 @@
         </div>
 
         <div class="hr-pagehead-actions">
+            @if (canEditUsers)
+            {
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="RunAutoRepairAsync" disabled="@isProcessing" title="فحص الحسابات غير المرتبطة بموظفين وإصلاحها تلقائياً">
+                    <Icon Name="wrench-screwdriver" Size="sm" />
+                    <span>فحص وإصلاح الربط</span>
+                </button>
+            }
             <a href="/data-import" class="hr-btn hr-btn-secondary" title="استيراد وتحديث البريد المؤسسي للموظفين من ملف إكسل">
                 <Icon Name="arrow-up-tray" Size="sm" />
                 <span>استيراد البريد المؤسسي (Excel)</span>
             </a>
-            <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateUserModal">
-                <Icon Name="user-plus" Size="sm" />
-                <span>حساب جديد</span>
-            </button>
+            @if (canEditUsers)
+            {
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="OpenCreateUserModal">
+                    <Icon Name="user-plus" Size="sm" />
+                    <span>حساب جديد</span>
+                </button>
+            }
         </div>
     </header>
 
@@ -260,29 +273,39 @@
                                                     <span>الأدوار</span>
                                                 </button>
 
-                                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
-                                                        @onclick="() => OpenLinkModal(u)"
-                                                        aria-label="@($"ربط الحساب {u.UserName} برقم وظيفي")"
-                                                        title="ربط برقم وظيفي">
-                                                    <Icon Name="link" Size="xs" />
-                                                </button>
+                                                @if (canEditUsers)
+                                                {
+                                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                            @onclick="() => OpenRelinkModal(u)"
+                                                            aria-label="@($"تغيير الموظف المرتبط بالحساب {u.UserName}")"
+                                                            title="تغيير الموظف المرتبط">
+                                                        <Icon Name="link" Size="xs" />
+                                                    </button>
 
-                                                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
-                                                        @onclick="() => OpenResetPasswordModal(u)"
-                                                        aria-label="@($"إعادة تعيين كلمة مرور {u.UserName}")"
-                                                        title="إعادة تعيين كلمة المرور">
-                                                    <Icon Name="key" Size="xs" />
-                                                </button>
+                                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                            @onclick="() => OpenResetPasswordModal(u)"
+                                                            aria-label="@($"إعادة تعيين كلمة مرور {u.UserName}")"
+                                                            title="إعادة تعيين كلمة المرور">
+                                                        <Icon Name="key" Size="xs" />
+                                                    </button>
 
-                                                <span class="hr-rowactions-sep" aria-hidden="true"></span>
+                                                    <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
+                                                            @onclick="() => AskForceLogout(u)"
+                                                            aria-label="@($"إنهاء كافة جلسات {u.UserName}")"
+                                                            title="إنهاء الجلسات (Force Logout)">
+                                                        <Icon Name="arrow-right-start-on-rectangle" Size="xs" />
+                                                    </button>
 
-                                                <button type="button"
-                                                        class="hr-btn hr-btn-sm hr-btn-icon @(u.IsLockedOut ? "hr-btn-secondary" : "hr-btn-danger-quiet")"
-                                                        @onclick="() => AskToggleLockout(u)"
-                                                        aria-label="@(u.IsLockedOut ? $"إلغاء حظر {u.UserName}" : $"حظر حساب {u.UserName}")"
-                                                        title="@(u.IsLockedOut ? "إلغاء الحظر" : "حظر الحساب")">
-                                                    <Icon Name="@(u.IsLockedOut ? "lock-open" : "lock-closed")" Size="xs" />
-                                                </button>
+                                                    <span class="hr-rowactions-sep" aria-hidden="true"></span>
+
+                                                    <button type="button"
+                                                            class="hr-btn hr-btn-sm hr-btn-icon @(u.IsLockedOut ? "hr-btn-secondary" : "hr-btn-danger-quiet")"
+                                                            @onclick="() => AskToggleLockout(u)"
+                                                            aria-label="@(u.IsLockedOut ? $"إلغاء حظر {u.UserName}" : $"حظر حساب {u.UserName}")"
+                                                            title="@(u.IsLockedOut ? "إلغاء الحظر" : "حظر الحساب وإنهاء كافة الجلسات")">
+                                                        <Icon Name="@(u.IsLockedOut ? "lock-open" : "lock-closed")" Size="xs" />
+                                                    </button>
+                                                }
                                             </div>
                                         </td>
                                     </tr>
@@ -497,179 +520,323 @@
        Size="xl"
        OnClose="CloseModals">
     <Body>
-        <fieldset class="hr-fieldset">
-            <legend class="hr-legend-title">أدوار النظام</legend>
-            <p class="hr-help" style="margin-block-end:.75rem">
-                يمنح الدور مجموعة صلاحيات جاهزة. يمكن دمج أكثر من دور للحساب الواحد.
-            </p>
-            <div class="hr-optiongrid">
-                @foreach (var role in rolesList)
-                {
-                    var rName = role.RoleName;
-                    var isChecked = editingRoles.Contains(rName);
-                    var isAdminRole = string.Equals(rName, "Admin", StringComparison.OrdinalIgnoreCase);
-                    var isDisabled = isAdminRole && !isCallerAdmin;
-                    <label class="hr-optioncard @(isChecked ? "is-selected" : "") @(isDisabled ? "is-disabled" : "")" style="@(isDisabled ? "opacity:0.5;cursor:not-allowed;" : "")">
-                        <input type="checkbox" checked="@isChecked" disabled="@isDisabled"
-                               @onchange='(e) => ToggleRoleSelection(rName, (bool)e.Value!)' />
-                        <span class="hr-optioncard-text">
-                            @rName
-                            @if (isAdminRole)
-                            {
-                                <span class="hr-badge hr-badge-neutral" style="font-size:0.65rem;margin-inline-start:0.35rem">محصور بمدير النظام</span>
-                            }
-                        </span>
-                    </label>
-                }
-            </div>
-        </fieldset>
-
-        <fieldset class="hr-fieldset" style="margin-block-start:1.5rem">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);margin-block-end:.75rem">
-                <div>
-                    <legend class="hr-legend-title" style="margin:0">الصلاحيات التفصيلية (رؤية وتعديل لكل ميزة وتاب)</legend>
-                    <p class="hr-help" style="margin-block-start:.25rem">
-                        حدد صلاحيات الرؤية والتعديل لكل قسم وتبويب في النظام. تتيح للمستخدم الوصول وإجراء العمليات بدقة.
-                    </p>
-                </div>
-                <div style="display:flex;align-items:center;gap:var(--s-1);flex-wrap:wrap">
-                    <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllPermissions">
-                        <Icon Name="check-badge" Size="xs" />
-                        <span>منح الكل (رؤية وتعديل)</span>
-                    </button>
-                    <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllViewPermissions">
-                        <Icon Name="eye" Size="xs" />
-                        <span>منح الرؤية فقط للجميع</span>
-                    </button>
-                    <button type="button" class="hr-btn hr-btn-sm hr-btn-quiet" @onclick="ClearAllPermissions">
-                        <Icon Name="x-mark" Size="xs" />
-                        <span>إلغاء التحديد</span>
-                    </button>
-                </div>
-            </div>
-
-            <div style="margin-block-end:1rem">
-                <input type="search" class="hr-input" placeholder="بحث سريع في الصلاحيات والميزات..."
-                       @bind="permissionSearchTerm" @bind:event="oninput" />
-            </div>
-
-            <div class="hr-stack" style="gap:var(--s-3)">
-                @foreach (var group in GetFilteredPermissionGroups())
-                {
-                    <div class="hr-card" style="padding:var(--s-3);background:var(--surface-raised);border:1px solid var(--line);border-radius:var(--r-md)">
-                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);padding-block-end:var(--s-2);border-block-end:1px solid var(--line-subtle);margin-block-end:var(--s-2)">
-                            <div style="display:flex;align-items:center;gap:var(--s-2)">
-                                <span class="hr-iconplate" aria-hidden="true" style="width:28px;height:28px">
-                                    <Icon Name="@group.Icon" Size="xs" />
-                                </span>
-                                <strong>@group.GroupTitle</strong>
-                                <span class="hr-meta">(@group.Features.Count ميزة)</span>
-                            </div>
-                            <div style="display:flex;align-items:center;gap:var(--s-1)">
-                                <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, false)">
-                                    تحديد المجموعة
-                                </button>
-                                <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, true)">
-                                    رؤية فقط
-                                </button>
-                                <button type="button" class="hr-btn hr-btn-xs hr-btn-quiet" @onclick="() => ClearGroupPermissions(group)">
-                                    إلغاء
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="hr-table-container" style="background:transparent;border:none">
-                            <table class="hr-table" style="font-size:0.875rem">
-                                <thead>
-                                    <tr>
-                                        <th style="width:38%">الميزة / التبويب</th>
-                                        <th style="width:23%">صلاحية الرؤية (View)</th>
-                                        <th style="width:23%">صلاحية التعديل (Edit)</th>
-                                        <th style="width:16%">الحالة</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var feat in group.Features)
-                                    {
-                                        var hasView = editingClaims.Contains(feat.ViewPermission.Code);
-                                        var hasEdit = editingClaims.Contains(feat.EditPermission.Code);
-                                        <tr>
-                                            <td>
-                                                <div style="display:flex;align-items:center;gap:var(--s-1)">
-                                                    <Icon Name="@feat.Icon" Size="xs" />
-                                                    <span class="hr-cell-strong">@feat.FeatureName</span>
-                                                </div>
-                                                <small class="hr-meta" style="display:block;font-size:0.75rem">@feat.ViewPermission.Description</small>
-                                            </td>
-                                            <td>
-                                                <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
-                                                    <input type="checkbox" checked="@hasView"
-                                                           @onchange="(e) => ToggleClaimSelection(feat.ViewPermission.Code, (bool)e.Value!)" />
-                                                    <span>رؤية</span>
-                                                </label>
-                                            </td>
-                                            <td>
-                                                <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
-                                                    <input type="checkbox" checked="@hasEdit"
-                                                           @onchange="(e) => ToggleEditClaimSelection(feat, (bool)e.Value!)" />
-                                                    <span style="color:var(--accent-text);font-weight:600">تعديل</span>
-                                                </label>
-                                            </td>
-                                            <td>
-                                                @if (hasEdit)
-                                                {
-                                                    <span class="hr-badge hr-badge-accent" style="font-size:0.7rem">رؤية + تعديل</span>
-                                                }
-                                                else if (hasView)
-                                                {
-                                                    <span class="hr-badge hr-badge-neutral" style="font-size:0.7rem">رؤية فقط</span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="hr-meta" style="font-size:0.75rem">معطل</span>
-                                                }
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                }
-            </div>
-        </fieldset>
-
-        <div class="hr-field" style="margin-block-start:1.5rem;padding:var(--s-3);background:var(--surface-raised);border-radius:var(--r-md);border:1px solid var(--line);">
-            <label class="hr-field-label" for="edit-user-formation" style="display:flex;align-items:center;gap:var(--s-1);">
-                <Icon Name="building-office-2" Size="xs" />
-                <span class="hr-cell-strong">ربط التشكيل الإداري (إذن مخصص للتشكيلات)</span>
-            </label>
-            <select id="edit-user-formation" class="hr-select" @bind="selectedUserFormationId">
-                <option value="">-- غير محدد (يعتمد تشكيل الموظف المرتبط تلقائياً) --</option>
-                @foreach (var f in allFormations)
-                {
-                    <option value="@f.Id">@f.Name</option>
-                }
-            </select>
-            <p class="hr-help" style="margin-block-start:.35rem">
-                المستخدم الذي يحصل على دور <strong>FormationManager</strong> أو إذن <strong>تصفح لوحة مؤشرات التشكيل الإداري</strong> يتم قفل لوحة مؤشراته على هذا التشكيل الإداري حصراً.
-            </p>
+        <div class="hr-tabs mb-3" role="tablist">
+            <button type="button" role="tab" class="hr-tab"
+                    aria-selected="@(rolesModalTab == "direct" ? "true" : "false")"
+                    @onclick='() => rolesModalTab = "direct"'>
+                <Icon Name="adjustments-horizontal" Size="xs" />
+                <span>الأدوار والصلاحيات المباشرة</span>
+            </button>
+            <button type="button" role="tab" class="hr-tab"
+                    aria-selected="@(rolesModalTab == "effective" ? "true" : "false")"
+                    @onclick='() => rolesModalTab = "effective"'>
+                <Icon Name="check-badge" Size="xs" />
+                <span>معاينة الصلاحيات الفعلية المحسوبة (Effective Matrix)</span>
+            </button>
         </div>
+
+        @if (rolesModalTab == "effective")
+        {
+            var effPerms = FeaturePermissionCatalog.CalculateEffectivePermissions(editingRoles, editingClaims)
+                .ToDictionary(p => p.PermissionCode, StringComparer.OrdinalIgnoreCase);
+            var isFullAdmin = editingRoles.Contains("Admin");
+
+            @if (isFullAdmin)
+            {
+                <div class="hr-alert hr-alert-ok mb-3">
+                    <Icon Name="shield-check" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <strong>حساب مدير نظام (Admin)</strong>
+                        <p>يمتلك هذا الحساب وصولاً كاملاً ومطلقاً لكافة وظائف وأقسام النظام دون قيود.</p>
+                    </div>
+                </div>
+            }
+
+            <div class="hr-table-container">
+                <table class="hr-table" style="font-size:0.875rem">
+                    <thead>
+                        <tr>
+                            <th style="width:30%">الميزة / القسم</th>
+                            <th style="width:35%">صلاحية الرؤية الفعلية</th>
+                            <th style="width:35%">صلاحية التعديل الفعلية</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var feat in FeaturePermissionCatalog.AllFeatures)
+                        {
+                            var viewEff = effPerms.TryGetValue(feat.ViewPermission.Code, out var vEff) && vEff.IsEffective;
+                            var editEff = effPerms.TryGetValue(feat.EditPermission.Code, out var eEff) && eEff.IsEffective;
+                            <tr>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                        <Icon Name="@feat.Icon" Size="xs" />
+                                        <span class="hr-cell-strong">@feat.FeatureName</span>
+                                    </div>
+                                    <small class="hr-meta">@feat.GroupName</small>
+                                </td>
+                                <td>
+                                    @if (viewEff)
+                                    {
+                                        <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                            <span class="hr-badge hr-badge-ok">متاحة</span>
+                                            <span class="hr-meta" style="font-size:0.75rem;">(@vEff?.SourceReason)</span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-neutral">محجوبة</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (editEff)
+                                    {
+                                        <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                            <span class="hr-badge hr-badge-accent">متاحة</span>
+                                            <span class="hr-meta" style="font-size:0.75rem;">(@eEff?.SourceReason)</span>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-badge hr-badge-neutral">محجوبة</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="hr-card p-3 mb-3" style="background:var(--surface-raised); border:1px solid var(--line); border-radius:var(--r-md);">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--s-2); margin-block-end:.5rem;">
+                    <div>
+                        <strong style="display:block;">تطبيق باقة أدوار وصلاحيات قياسية (Presets)</strong>
+                        <small class="hr-meta">إسناد باقة صلاحيات معتمدة بنقرة واحدة</small>
+                    </div>
+                    <div style="display:flex; gap:var(--s-1); flex-wrap:wrap;">
+                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Employee")'>موظف</button>
+                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Supervisor")'>مشرف</button>
+                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("FormationManager")'>مدير تشكيل</button>
+                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("HRManager")'>مدير موارد بشرية</button>
+                        @if (isCallerAdmin)
+                        {
+                            <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Admin")'>مدير نظام</button>
+                        }
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:var(--s-2); flex-wrap:wrap; border-block-start:1px dashed var(--line-subtle); padding-block-start:.5rem; margin-block-start:.5rem;">
+                    <span class="hr-meta" style="font-size:0.8rem;">نسخ الصلاحيات من حساب آخر:</span>
+                    <select class="hr-select hr-select-sm" style="max-width:14rem;" @bind="cloneSourceUserId">
+                        <option value="">-- اختر مستخدماً للنسخ منه --</option>
+                        @foreach (var otherUser in usersList.Where(u => u.Id != selectedUserForRoles.Id))
+                        {
+                            var isOtherAdmin = otherUser.AssignedRoles.Contains("Admin");
+                            if (!isCallerAdmin && isOtherAdmin) continue;
+                            <option value="@otherUser.Id">@otherUser.UserName (@(otherUser.LinkedEmployeeName ?? otherUser.EmployeeID ?? "غير مرتبط"))</option>
+                        }
+                    </select>
+                    <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" disabled="@string.IsNullOrWhiteSpace(cloneSourceUserId)" @onclick="CloneFromUserAsync">
+                        <Icon Name="document-duplicate" Size="xs" />
+                        <span>استنساخ الصلاحيات</span>
+                    </button>
+                </div>
+            </div>
+
+            @if (HasSensitivePermissionsSelected())
+            {
+                <div class="hr-alert hr-alert-warn mb-3">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <strong>تنبيه أمني لصلاحيات حساسة</strong>
+                        <p style="margin:0; font-size:0.85rem;">تم تحديد صلاحيات إدارية وأمنية حساسة (مثل إدارة المستخدمين أو سجل التدقيق أو الرواتب أو ضبط النظام). يرجى التأكد من أهلية المستخدم ومسؤوليته الإدارية قبل الحفظ.</p>
+                    </div>
+                </div>
+            }
+
+            <fieldset class="hr-fieldset">
+                <legend class="hr-legend-title">أدوار النظام</legend>
+                <p class="hr-help" style="margin-block-end:.75rem">
+                    يمنح الدور مجموعة صلاحيات جاهزة. يمكن دمج أكثر من دور للحساب الواحد.
+                </p>
+                <div class="hr-optiongrid">
+                    @foreach (var role in rolesList)
+                    {
+                        var rName = role.RoleName;
+                        var isChecked = editingRoles.Contains(rName);
+                        var isAdminRole = string.Equals(rName, "Admin", StringComparison.OrdinalIgnoreCase);
+                        var isDisabled = isAdminRole && !isCallerAdmin;
+                        <label class="hr-optioncard @(isChecked ? "is-selected" : "") @(isDisabled ? "is-disabled" : "")" style="@(isDisabled ? "opacity:0.5;cursor:not-allowed;" : "")">
+                            <input type="checkbox" checked="@isChecked" disabled="@isDisabled"
+                                   @onchange='(e) => ToggleRoleSelection(rName, (bool)e.Value!)' />
+                            <span class="hr-optioncard-text">
+                                @rName
+                                @if (isAdminRole)
+                                {
+                                    <span class="hr-badge hr-badge-neutral" style="font-size:0.65rem;margin-inline-start:0.35rem">محصور بمدير النظام</span>
+                                }
+                            </span>
+                        </label>
+                    }
+                </div>
+            </fieldset>
+
+            <fieldset class="hr-fieldset" style="margin-block-start:1.5rem">
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);margin-block-end:.75rem">
+                    <div>
+                        <legend class="hr-legend-title" style="margin:0">الصلاحيات التفصيلية (رؤية وتعديل لكل ميزة وتاب)</legend>
+                        <p class="hr-help" style="margin-block-start:.25rem">
+                            حدد صلاحيات الرؤية والتعديل لكل قسم وتبويب في النظام. تتيح للمستخدم الوصول وإجراء العمليات بدقة.
+                        </p>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:var(--s-1);flex-wrap:wrap">
+                        <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllPermissions">
+                            <Icon Name="check-badge" Size="xs" />
+                            <span>منح الكل (رؤية وتعديل)</span>
+                        </button>
+                        <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllViewPermissions">
+                            <Icon Name="eye" Size="xs" />
+                            <span>منح الرؤية فقط للجميع</span>
+                        </button>
+                        <button type="button" class="hr-btn hr-btn-sm hr-btn-quiet" @onclick="ClearAllPermissions">
+                            <Icon Name="x-mark" Size="xs" />
+                            <span>إلغاء التحديد</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div style="margin-block-end:1rem">
+                    <input type="search" class="hr-input" placeholder="بحث سريع في الصلاحيات والميزات..."
+                           @bind="permissionSearchTerm" @bind:event="oninput" />
+                </div>
+
+                <div class="hr-stack" style="gap:var(--s-3)">
+                    @foreach (var group in GetFilteredPermissionGroups())
+                    {
+                        <div class="hr-card" style="padding:var(--s-3);background:var(--surface-raised);border:1px solid var(--line);border-radius:var(--r-md)">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-2);padding-block-end:var(--s-2);border-block-end:1px solid var(--line-subtle);margin-block-end:var(--s-2)">
+                                <div style="display:flex;align-items:center;gap:var(--s-2)">
+                                    <span class="hr-iconplate" aria-hidden="true" style="width:28px;height:28px">
+                                        <Icon Name="@group.Icon" Size="xs" />
+                                    </span>
+                                    <strong>@group.GroupTitle</strong>
+                                    <span class="hr-meta">(@group.Features.Count ميزة)</span>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, false)">
+                                        تحديد المجموعة
+                                    </button>
+                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, true)">
+                                        رؤية فقط
+                                    </button>
+                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-quiet" @onclick="() => ClearGroupPermissions(group)">
+                                        إلغاء
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="hr-table-container" style="background:transparent;border:none">
+                                <table class="hr-table" style="font-size:0.875rem">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:38%">الميزة / التبويب</th>
+                                            <th style="width:23%">صلاحية الرؤية (View)</th>
+                                            <th style="width:23%">صلاحية التعديل (Edit)</th>
+                                            <th style="width:16%">الحالة</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var feat in group.Features)
+                                        {
+                                            var hasView = editingClaims.Contains(feat.ViewPermission.Code);
+                                            var hasEdit = editingClaims.Contains(feat.EditPermission.Code);
+                                            <tr>
+                                                <td>
+                                                    <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                                        <Icon Name="@feat.Icon" Size="xs" />
+                                                        <span class="hr-cell-strong">@feat.FeatureName</span>
+                                                    </div>
+                                                    <small class="hr-meta" style="display:block;font-size:0.75rem">@feat.ViewPermission.Description</small>
+                                                </td>
+                                                <td>
+                                                    <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
+                                                        <input type="checkbox" checked="@hasView"
+                                                               @onchange="(e) => ToggleClaimSelection(feat.ViewPermission.Code, (bool)e.Value!)" />
+                                                        <span>رؤية</span>
+                                                    </label>
+                                                </td>
+                                                <td>
+                                                    <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
+                                                        <input type="checkbox" checked="@hasEdit"
+                                                               @onchange="(e) => ToggleEditClaimSelection(feat, (bool)e.Value!)" />
+                                                        <span style="color:var(--accent-text);font-weight:600">تعديل</span>
+                                                    </label>
+                                                </td>
+                                                <td>
+                                                    @if (hasEdit)
+                                                    {
+                                                        <span class="hr-badge hr-badge-accent" style="font-size:0.7rem">رؤية + تعديل</span>
+                                                    }
+                                                    else if (hasView)
+                                                    {
+                                                        <span class="hr-badge hr-badge-neutral" style="font-size:0.7rem">رؤية فقط</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="hr-meta" style="font-size:0.75rem">معطل</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </fieldset>
+
+            <div class="hr-field" style="margin-block-start:1.5rem;padding:var(--s-3);background:var(--surface-raised);border-radius:var(--r-md);border:1px solid var(--line);">
+                <label class="hr-field-label" for="edit-user-formation" style="display:flex;align-items:center;gap:var(--s-1);">
+                    <Icon Name="building-office-2" Size="xs" />
+                    <span class="hr-cell-strong">ربط التشكيل الإداري (إذن مخصص للتشكيلات)</span>
+                </label>
+                <select id="edit-user-formation" class="hr-select" @bind="selectedUserFormationId">
+                    <option value="">-- غير محدد (يعتمد تشكيل الموظف المرتبط تلقائياً) --</option>
+                    @foreach (var f in allFormations)
+                    {
+                        <option value="@f.Id">@f.Name</option>
+                    }
+                </select>
+                <p class="hr-help" style="margin-block-start:.35rem">
+                    المستخدم الذي يحصل على دور <strong>FormationManager</strong> أو إذن <strong>تصفح لوحة مؤشرات التشكيل الإداري</strong> يتم قفل لوحة مؤشراته على هذا التشكيل الإداري حصراً.
+                </p>
+            </div>
+        }
     </Body>
     <Footer>
-        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
-        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserRolesAndPermissions" disabled="@isProcessing">
-            @if (isProcessing)
-            {
-                <span class="hr-spinner" aria-hidden="true"></span>
-                <span>جارٍ الحفظ…</span>
-            }
-            else
-            {
-                <Icon Name="check" Size="xs" />
-                <span>حفظ التغييرات</span>
-            }
-        </button>
+        <div style="display:flex; align-items:center; justify-content:space-between; width:100%; flex-wrap:wrap; gap:var(--s-2);">
+            <label style="display:inline-flex; align-items:center; gap:var(--s-1); cursor:pointer;">
+                <input type="checkbox" @bind="forceLogoutAfterSave" />
+                <span class="hr-meta" style="font-size:0.875rem; font-weight:500;">إنهاء كافة جلسات المستخدم فوراً بعد الحفظ (Force Logout)</span>
+            </label>
+            <div style="display:flex; gap:var(--s-1);">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserRolesAndPermissions" disabled="@isProcessing">
+                    @if (isProcessing)
+                    {
+                        <span class="hr-spinner" aria-hidden="true"></span>
+                        <span>جارٍ الحفظ…</span>
+                    }
+                    else
+                    {
+                        <Icon Name="check" Size="xs" />
+                        <span>حفظ التغييرات</span>
+                    }
+                </button>
+            </div>
+        </div>
     </Footer>
 </Modal>
 
@@ -702,12 +869,75 @@
                        Help="يُنصح بأن يغيّرها المستخدم عند أول دخول."
                        @bind-Value="newUserModel.Password" />
 
-        <div class="hr-field">
-            <label class="hr-field-label" for="nu-empid">الرقم الوظيفي المرتبط</label>
-            <input id="nu-empid" type="text" inputmode="numeric" class="hr-input"
-                   placeholder="اختياري" @bind="newUserModel.EmployeeID" />
-            <p class="hr-help">اتركه فارغاً إن لم يكن الحساب مرتبطاً بسجل موظف.</p>
-        </div>
+        @if (isCallerAdmin)
+        {
+            <div class="hr-field">
+                <label style="display:flex; align-items:center; gap:var(--s-1); cursor:pointer;">
+                    <input type="checkbox" @bind="isTechnicalAccount" />
+                    <span class="hr-cell-strong text-primary">حساب تقني نظامي استثنائي (Technical Account - systemadmin / svc.*)</span>
+                </label>
+                <p class="hr-help">الحسابات التقنية فقط معفية من شرط الارتباط الإلزامي بسجل موظف.</p>
+            </div>
+        }
+
+        @if (!isTechnicalAccount)
+        {
+            <div class="hr-field" style="background:var(--surface-raised); border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s-3);">
+                <label class="hr-field-label">
+                    الموظف المرتبط بالحساب <span class="hr-req" aria-hidden="true">*</span>
+                </label>
+                @if (selectedEmployeeForCreate != null)
+                {
+                    <div class="hr-alert hr-alert-ok" style="margin:0; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:var(--s-2);">
+                            <Icon Name="user" Size="sm" />
+                            <div>
+                                <strong style="display:block;">@selectedEmployeeForCreate.Name</strong>
+                                <span class="hr-meta" style="font-size:0.8rem;">الرقم: @selectedEmployeeForCreate.EmployeeID | التشكيل: @(selectedEmployeeForCreate.FormationName ?? "غير محدد") | العنوان: @(selectedEmployeeForCreate.JobTitleName ?? "غير محدد")</span>
+                            </div>
+                        </div>
+                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="ClearEmployeeForCreate">تغيير الموظف</button>
+                    </div>
+                }
+                else
+                {
+                    <div style="display:flex; gap:var(--s-1); margin-block-end:.5rem;">
+                        <input type="text" class="hr-input" placeholder="ابحث باسم الموظف أو الرقم الوظيفي..."
+                               @bind="createEmpSearchTerm" @bind:event="oninput" @onkeyup="HandleCreateEmpSearchKeyUp" />
+                        <button type="button" class="hr-btn hr-btn-secondary" @onclick="SearchEmployeesForCreateAsync" disabled="@(isSearchingEmployeesForCreate || string.IsNullOrWhiteSpace(createEmpSearchTerm))">
+                            <Icon Name="magnifying-glass" Size="xs" />
+                            <span>بحث</span>
+                        </button>
+                    </div>
+                    @if (isSearchingEmployeesForCreate)
+                    {
+                        <div class="hr-meta"><span class="hr-spinner" aria-hidden="true"></span> جارٍ البحث في سجلات الموظفين…</div>
+                    }
+                    else if (foundEmployeesForCreate.Count > 0)
+                    {
+                        <div style="max-height:180px; overflow-y:auto; border:1px solid var(--line-subtle); border-radius:var(--r-sm); background:var(--surface);">
+                            @foreach (var emp in foundEmployeesForCreate)
+                            {
+                                <div style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0.6rem; border-block-end:1px solid var(--line-subtle);">
+                                    <div>
+                                        <strong>@emp.Name</strong>
+                                        <span class="hr-meta" style="font-size:0.75rem; margin-inline-start:.5rem;">(الرقم: @emp.EmployeeID - @emp.FormationName)</span>
+                                    </div>
+                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-primary" @onclick="() => SelectEmployeeForCreate(emp)">اختيار</button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(createEmpSearchTerm))
+                    {
+                        <p class="hr-help text-danger">لم يتم العثور على أي موظف يطابق البحث.</p>
+                    }
+                    <p class="hr-help" style="margin-block-start:.25rem">
+                        حسب السياسة الأمنية، يجب ربط حساب كل مستخدم بسجل موظف معتمد في النظام.
+                    </p>
+                }
+            </div>
+        }
 
         <div class="hr-field">
             <label class="hr-field-label" for="nu-formation">التشكيل الإداري المرتبط</label>
@@ -818,34 +1048,93 @@
     </Footer>
 </Modal>
 
-@* ---------- employee link ---------- *@
-<Modal IsOpen="@(selectedUserForLinking != null)"
-       Title="ربط الحساب بسجل موظف"
-       Subtitle="@selectedUserForLinking?.UserName"
+@* ---------- employee relink modal (No unlinking to orphans) ---------- *@
+<Modal IsOpen="@(selectedUserForRelinking != null)"
+       Title="تغيير الموظف المرتبط بالحساب (Relink)"
+       Subtitle="@selectedUserForRelinking?.UserName"
        Icon="link"
-       Size="sm"
+       Size="md"
        OnClose="CloseModals">
     <Body>
-        <div class="hr-field">
-            <label class="hr-field-label" for="lk-empid">الرقم الوظيفي</label>
-            <input id="lk-empid" type="text" inputmode="numeric" class="hr-input"
-                   placeholder="مثال: 1001" @bind="inputEmployeeIdToLink" />
-            <p class="hr-help">يجب أن يكون الرقم موجوداً في سجلات الموظفين.</p>
+        <div class="hr-alert hr-alert-ok mb-3">
+            <Icon Name="identification" Size="sm" />
+            <div class="hr-alert-grow">
+                <strong>الموظف المرتبط حالياً:</strong>
+                <p style="margin:0;">
+                    @(selectedUserForRelinking?.LinkedEmployeeName ?? "غير محدد")
+                    <span class="hr-meta font-monospace">(@(selectedUserForRelinking?.EmployeeID ?? "لا يوجد"))</span>
+                </p>
+            </div>
         </div>
+
+        <div class="hr-field">
+            <label class="hr-field-label">البحث عن الموظف الجديد للربط</label>
+            <div style="display:flex; gap:var(--s-1); margin-block-end:.5rem;">
+                <input type="text" class="hr-input" placeholder="ابحث باسم الموظف أو الرقم الوظيفي..."
+                       @bind="relinkEmpSearchTerm" @bind:event="oninput" @onkeyup="HandleRelinkEmpSearchKeyUp" />
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="SearchEmployeesForRelinkAsync" disabled="@(isSearchingEmployeesForRelink || string.IsNullOrWhiteSpace(relinkEmpSearchTerm))">
+                    <Icon Name="magnifying-glass" Size="xs" />
+                    <span>بحث</span>
+                </button>
+            </div>
+
+            @if (isSearchingEmployeesForRelink)
+            {
+                <div class="hr-meta"><span class="hr-spinner" aria-hidden="true"></span> جارٍ البحث…</div>
+            }
+            else if (foundEmployeesForRelink.Count > 0)
+            {
+                <div style="max-height:180px; overflow-y:auto; border:1px solid var(--line-subtle); border-radius:var(--r-sm); background:var(--surface);">
+                    @foreach (var emp in foundEmployeesForRelink)
+                    {
+                        var isCurrent = emp.EmployeeID == selectedUserForRelinking?.EmployeeID;
+                        var isChosen = selectedEmployeeForRelink?.EmployeeID == emp.EmployeeID;
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0.6rem; border-block-end:1px solid var(--line-subtle); background:@(isChosen ? "var(--surface-raised)" : "transparent");">
+                            <div>
+                                <strong>@emp.Name</strong>
+                                <span class="hr-meta" style="font-size:0.75rem; margin-inline-start:.5rem;">(الرقم: @emp.EmployeeID - @emp.FormationName)</span>
+                                @if (isCurrent)
+                                {
+                                    <span class="badge bg-secondary ms-1">الحالي</span>
+                                }
+                            </div>
+                            <button type="button" class="hr-btn hr-btn-xs @(isChosen ? "hr-btn-ok" : "hr-btn-primary")" disabled="@isCurrent" @onclick="() => SelectEmployeeForRelink(emp)">
+                                @(isChosen ? "محدد" : "اختيار")
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (selectedEmployeeForRelink != null)
+        {
+            <div class="hr-alert hr-alert-warn mb-3">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">
+                    <strong>تأكيد أمني</strong>
+                    <p style="margin:0; font-size:0.85rem;">
+                        سيتم ربط الحساب <strong>@selectedUserForRelinking?.UserName</strong> بالموظف: <strong>@selectedEmployeeForRelink.Name</strong> (الرقم: @selectedEmployeeForRelink.EmployeeID).
+                        سيتم فوراً <strong>إنهاء كافة جلسات الحساب (Force Logout)</strong> وتحديث الختم الأمني.
+                    </p>
+                </div>
+            </div>
+        }
     </Body>
     <Footer>
         <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
-        @if (!string.IsNullOrEmpty(selectedUserForLinking?.EmployeeID))
-        {
-            <button type="button" class="hr-btn hr-btn-danger-quiet" @onclick="UnlinkUserEmployee" disabled="@isProcessing">
-                <Icon Name="link-slash" Size="xs" />
-                <span>فك الربط</span>
-            </button>
-        }
-        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserEmployeeLink"
-                disabled="@(string.IsNullOrWhiteSpace(inputEmployeeIdToLink) || isProcessing)">
-            <Icon Name="check" Size="xs" />
-            <span>حفظ الربط</span>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="ConfirmRelinkUser"
+                disabled="@(selectedEmployeeForRelink == null || isProcessing)">
+            @if (isProcessing)
+            {
+                <span class="hr-spinner" aria-hidden="true"></span>
+                <span>جارٍ الربط…</span>
+            }
+            else
+            {
+                <Icon Name="check" Size="xs" />
+                <span>تأكيد الربط بالموظف الجديد</span>
+            }
         </button>
     </Footer>
 </Modal>
@@ -910,12 +1199,112 @@
                Subject="@pendingLockout?.UserName"
                Message="@(pendingLockout?.IsLockedOut == true
                             ? "سيتمكن المستخدم من تسجيل الدخول مجدداً."
-                            : "سيُمنع المستخدم من تسجيل الدخول حتى إلغاء الحظر.")"
-               ConfirmText="@(pendingLockout?.IsLockedOut == true ? "إلغاء الحظر" : "حظر الحساب")"
+                            : "سيُمنع المستخدم من تسجيل الدخول وتُنْهَى كافة جلساته النشطة فوراً.")"
+               ConfirmText="@(pendingLockout?.IsLockedOut == true ? "إلغاء الحظر" : "حظر الحساب وإنهاء الجلسات")"
                Destructive="@(pendingLockout?.IsLockedOut != true)"
                IsBusy="@isProcessing"
                OnConfirm="ConfirmToggleLockout"
                OnCancel="() => pendingLockout = null" />
+
+<ConfirmDialog IsOpen="@(pendingForceLogout is not null)"
+               Title="إنهاء كافة جلسات المستخدم (Force Logout)"
+               Subject="@pendingForceLogout?.UserName"
+               Message="سيتم فوراً تسجيل خروج المستخدم من كافة الأجهزة والمتصفحات وإبطال كافة رموز التحديث وتحديث الختم الأمني. سيُطلب من المستخدم إعادة تسجيل الدخول."
+               ConfirmText="إنهاء الجلسات فوراً"
+               Destructive="true"
+               IsBusy="@isProcessing"
+               OnConfirm="ConfirmForceLogout"
+               OnCancel="() => pendingForceLogout = null" />
+
+@* ---------- batch repair report modal ---------- *@
+<Modal IsOpen="@(batchRepairReport != null)"
+       Title="تقرير فحص وإصلاح ربط الحسابات بسجلات الموظفين"
+       Icon="wrench-screwdriver"
+       Size="lg"
+       OnClose="() => batchRepairReport = null">
+    <Body>
+        @if (batchRepairReport != null)
+        {
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:var(--s-2); margin-block-end:1rem;">
+                <div class="hr-card" style="padding:var(--s-2); text-align:center;">
+                    <span class="hr-meta" style="font-size:0.75rem;">إجمالي المفحوص</span>
+                    <h3 class="hr-h2 hr-num" style="margin:0;">@batchRepairReport.TotalUsers</h3>
+                </div>
+                <div class="hr-card" style="padding:var(--s-2); text-align:center;">
+                    <span class="hr-meta" style="font-size:0.75rem;">تم إصلاحها تلقائياً</span>
+                    <h3 class="hr-h2 hr-num" style="margin:0; color:var(--brand, #00875a);">@batchRepairReport.RepairedCount</h3>
+                </div>
+                <div class="hr-card" style="padding:var(--s-2); text-align:center;">
+                    <span class="hr-meta" style="font-size:0.75rem;">مرتبطة مسبقاً / مستثناة</span>
+                    <h3 class="hr-h2 hr-num" style="margin:0; color:#0052cc;">@batchRepairReport.AlreadyLinkedCount</h3>
+                </div>
+                <div class="hr-card" style="padding:var(--s-2); text-align:center;">
+                    <span class="hr-meta" style="font-size:0.75rem;">متبقي بحاجة لربط</span>
+                    <h3 class="hr-h2 hr-num" style="margin:0; color:var(--danger, #de350b);">@batchRepairReport.UnresolvedCount</h3>
+                </div>
+            </div>
+
+            @if (batchRepairReport.RepairedCount > 0)
+            {
+                <h4 class="hr-h3" style="margin-block-end:.5rem; color:var(--brand, #00875a);">الحسابات التي تم إصلاح ربطها بنجاح:</h4>
+                <div class="hr-table-container mb-3">
+                    <table class="hr-table" style="font-size:0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>اسم المستخدم</th>
+                                <th>البريد الإلكتروني</th>
+                                <th>الموظف المرتبط</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in batchRepairReport.RepairedUsers)
+                            {
+                                <tr>
+                                    <td><strong>@r.UserName</strong></td>
+                                    <td>@r.Email</td>
+                                    <td><span class="hr-badge hr-badge-ok">@r.MatchedEmployeeName (@r.MatchedEmployeeId)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            @if (batchRepairReport.UnresolvedCount > 0)
+            {
+                <h4 class="hr-h3" style="margin-block-end:.5rem; color:var(--danger, #de350b);">حسابات تتطلب ربطاً يدوياً (لا يوجد بريد مطابق):</h4>
+                <div class="hr-table-container">
+                    <table class="hr-table" style="font-size:0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>اسم المستخدم</th>
+                                <th>البريد الإلكتروني</th>
+                                <th>الإجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var unlinked in batchRepairReport.UnresolvedUsers)
+                            {
+                                <tr>
+                                    <td><strong>@unlinked.UserName</strong></td>
+                                    <td>@(unlinked.Email ?? "لا يوجد")</td>
+                                    <td>
+                                        <button type="button" class="hr-btn hr-btn-xs hr-btn-primary" @onclick="() => SelectUserForRelinkingFromReport(unlinked.UserId)">
+                                            ربط الآن بموظف
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="() => batchRepairReport = null">إغلاق التقرير</button>
+    </Footer>
+</Modal>
 
 @code {
     public sealed class UserViewModel
@@ -1029,9 +1418,17 @@
     private HashSet<string> editingClaims = new();
     private List<Formation> allFormations = [];
     private int? selectedUserFormationId;
+    private string rolesModalTab = "direct";
+    private bool forceLogoutAfterSave = true;
+    private string? cloneSourceUserId;
 
     private bool showCreateUserModal;
     private CreateUserModel newUserModel = new();
+    private bool isTechnicalAccount;
+    private string createEmpSearchTerm = "";
+    private List<EmployeePickerItem> foundEmployeesForCreate = [];
+    private EmployeePickerItem? selectedEmployeeForCreate;
+    private bool isSearchingEmployeesForCreate;
 
     private bool showCreateRoleModal;
     private string? newRoleNameInput;
@@ -1040,19 +1437,27 @@
     private WhitelistModel newWhitelistModel = new();
 
     private UserViewModel? selectedUserForLinking;
+    private UserViewModel? selectedUserForRelinking;
     private string? inputEmployeeIdToLink;
+    private string relinkEmpSearchTerm = "";
+    private List<EmployeePickerItem> foundEmployeesForRelink = [];
+    private EmployeePickerItem? selectedEmployeeForRelink;
+    private bool isSearchingEmployeesForRelink;
 
     private UserViewModel? selectedUserForPasswordReset;
     private string? newPasswordInput;
 
-    // Pending destructive actions
+    // Pending destructive & administrative actions
     private RoleViewModel? pendingRole;
     private AllowedUser? pendingWhitelist;
     private UserViewModel? pendingLockout;
+    private UserViewModel? pendingForceLogout;
+    private BatchRepairReport? batchRepairReport;
 
     private string? currentUserId;
     private string? currentUserName;
     private bool isCallerAdmin;
+    private bool canEditUsers;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1065,6 +1470,14 @@
                         principal.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)) ||
                         string.Equals(currentUserName, "admin", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(currentUserName, "systemadmin", StringComparison.OrdinalIgnoreCase);
+
+        canEditUsers = isCallerAdmin || principal.HasPermission(Permissions.UsersEdit);
+
+        var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("search", out var sVal))
+        {
+            searchTerm = sVal.ToString();
+        }
 
         await RefreshAllData();
     }
@@ -1202,7 +1615,54 @@
     private void OpenCreateUserModal()
     {
         newUserModel = new CreateUserModel();
+        isTechnicalAccount = false;
+        selectedEmployeeForCreate = null;
+        createEmpSearchTerm = "";
+        foundEmployeesForCreate.Clear();
         showCreateUserModal = true;
+    }
+
+    private async Task HandleCreateEmpSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchEmployeesForCreateAsync();
+        }
+    }
+
+    private async Task SearchEmployeesForCreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(createEmpSearchTerm))
+        {
+            foundEmployeesForCreate.Clear();
+            return;
+        }
+
+        isSearchingEmployeesForCreate = true;
+        try
+        {
+            foundEmployeesForCreate = await UserEmployeeService.SearchEmployeesAsync(createEmpSearchTerm.Trim());
+        }
+        finally
+        {
+            isSearchingEmployeesForCreate = false;
+        }
+    }
+
+    private void SelectEmployeeForCreate(EmployeePickerItem emp)
+    {
+        selectedEmployeeForCreate = emp;
+        newUserModel.EmployeeID = emp.EmployeeID;
+        if (string.IsNullOrWhiteSpace(newUserModel.Email) && !string.IsNullOrWhiteSpace(emp.Email))
+        {
+            newUserModel.Email = emp.Email;
+        }
+    }
+
+    private void ClearEmployeeForCreate()
+    {
+        selectedEmployeeForCreate = null;
+        newUserModel.EmployeeID = null;
     }
 
     private void OpenCreateRoleModal()
@@ -1217,10 +1677,46 @@
         showAddWhitelistModal = true;
     }
 
-    private void OpenLinkModal(UserViewModel user)
+    private void OpenLinkModal(UserViewModel user) => OpenRelinkModal(user);
+
+    private void OpenRelinkModal(UserViewModel user)
     {
-        selectedUserForLinking = user;
-        inputEmployeeIdToLink = user.EmployeeID;
+        selectedUserForRelinking = user;
+        relinkEmpSearchTerm = "";
+        foundEmployeesForRelink.Clear();
+        selectedEmployeeForRelink = null;
+    }
+
+    private async Task HandleRelinkEmpSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchEmployeesForRelinkAsync();
+        }
+    }
+
+    private async Task SearchEmployeesForRelinkAsync()
+    {
+        if (string.IsNullOrWhiteSpace(relinkEmpSearchTerm))
+        {
+            foundEmployeesForRelink.Clear();
+            return;
+        }
+
+        isSearchingEmployeesForRelink = true;
+        try
+        {
+            foundEmployeesForRelink = await UserEmployeeService.SearchEmployeesAsync(relinkEmpSearchTerm.Trim());
+        }
+        finally
+        {
+            isSearchingEmployeesForRelink = false;
+        }
+    }
+
+    private void SelectEmployeeForRelink(EmployeePickerItem emp)
+    {
+        selectedEmployeeForRelink = emp;
     }
 
     private void OpenResetPasswordModal(UserViewModel user)
@@ -1236,10 +1732,20 @@
         showCreateRoleModal = false;
         showAddWhitelistModal = false;
         selectedUserForLinking = null;
+        selectedUserForRelinking = null;
         selectedUserForPasswordReset = null;
         inputEmployeeIdToLink = null;
         newPasswordInput = null;
         newRoleNameInput = null;
+        selectedEmployeeForCreate = null;
+        foundEmployeesForCreate.Clear();
+        createEmpSearchTerm = "";
+        selectedEmployeeForRelink = null;
+        foundEmployeesForRelink.Clear();
+        relinkEmpSearchTerm = "";
+        isTechnicalAccount = false;
+        rolesModalTab = "direct";
+        cloneSourceUserId = null;
     }
 
     // Role & Claim Checkbox Handlers
@@ -1400,9 +1906,14 @@
 
                 // 4. Audit Log
                 await LogSecurityAuditAsync("UPDATE_USER_ROLES_PERMISSIONS", user.EmployeeID ?? user.UserName ?? user.Id, true,
-                    $"Target: {user.UserName}, Roles: [{string.Join(", ", editingRoles)}], PermissionsCount: {editingClaims.Count}");
+                    $"Target: {user.UserName}, Roles: [{string.Join(", ", editingRoles)}], PermissionsCount: {editingClaims.Count}, ForceLogout: {forceLogoutAfterSave}");
 
-                ShowStatus($"تم تحديث أدوار وصلاحيات وتشكيل الحساب ({user.UserName}) بنجاح.");
+                if (forceLogoutAfterSave)
+                {
+                    await UserEmployeeService.ForceLogoutUserAsync(user.Id, currentUserId ?? "SYSTEM");
+                }
+
+                ShowStatus($"تم تحديث أدوار وصلاحيات وتشكيل الحساب ({user.UserName}) بنجاح{(forceLogoutAfterSave ? "، وتم إنهاء جلسات الحساب لتطبيق الصلاحيات فوراً" : "")}.");
                 CloseModals();
                 await RefreshAllData();
             }
@@ -1420,10 +1931,39 @@
 
     private async Task CreateUserSubmit()
     {
+        if (!canEditUsers)
+        {
+            ShowStatus("لا تملك صلاحية إنشاء حسابات المستخدمين (Users.Edit).", isError: true);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(newUserModel.Username) || string.IsNullOrWhiteSpace(newUserModel.Email) || string.IsNullOrWhiteSpace(newUserModel.Password))
         {
             ShowStatus("يرجى ملء اسم المستخدم والبريد الإلكتروني وكلمة المرور.", isError: true);
             return;
+        }
+
+        if (!isTechnicalAccount)
+        {
+            if (string.IsNullOrWhiteSpace(newUserModel.EmployeeID))
+            {
+                ShowStatus("يجب اختيار وربط موظف رسمي لكل حساب مستخدم في النظام.", isError: true);
+                return;
+            }
+
+            if (!await UserEmployeeService.ValidateEmployeeExistsAsync(newUserModel.EmployeeID))
+            {
+                ShowStatus("الموظف المحدد غير موجود في قاعدة بيانات الموظفين.", isError: true);
+                return;
+            }
+        }
+        else
+        {
+            if (!isCallerAdmin)
+            {
+                ShowStatus("إنشاء الحسابات التقنية الاستثنائية محصور بمدير النظام فقط.", isError: true);
+                return;
+            }
         }
 
         // Security Check: Non-admins cannot create Admin accounts
@@ -1670,38 +2210,37 @@
         }
     }
 
-    private async Task SaveUserEmployeeLink()
+    private async Task ConfirmRelinkUser()
     {
-        if (selectedUserForLinking == null || string.IsNullOrWhiteSpace(inputEmployeeIdToLink)) return;
+        if (selectedUserForRelinking == null || selectedEmployeeForRelink == null) return;
+        if (!canEditUsers)
+        {
+            ShowStatus("لا تملك صلاحية تعديل ربط حسابات المستخدمين (Users.Edit).", isError: true);
+            return;
+        }
 
         isProcessing = true;
         try
         {
-            using var scope = ScopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var empId = inputEmployeeIdToLink.Trim();
-
-            var emp = await dbContext.Employees.FirstOrDefaultAsync(e => e.EmployeeID == empId);
-            if (emp == null)
+            var res = await UserEmployeeService.RelinkUserAsync(selectedUserForRelinking.Id, selectedEmployeeForRelink.EmployeeID, currentUserId ?? "SYSTEM");
+            if (res.Succeeded)
             {
-                ShowStatus("الرقم الوظيفي غير موجود في قاعدة بيانات الموظفين.", isError: true);
-                return;
-            }
+                await LogSecurityAuditAsync("RELINK_USER_EMPLOYEE", selectedEmployeeForRelink.EmployeeID, true,
+                    $"Relinked user {selectedUserForRelinking.UserName} from {selectedUserForRelinking.EmployeeID} to {selectedEmployeeForRelink.EmployeeID} with Force Logout.");
 
-            var userToUpdate = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == selectedUserForLinking.Id);
-            if (userToUpdate != null)
-            {
-                userToUpdate.EmployeeID = empId;
-                await dbContext.SaveChangesAsync();
-                ShowStatus($"تم ربط الحساب ({userToUpdate.UserName}) بالموظف {emp.Name} — الرقم {empId}.");
+                ShowStatus($"تم تغيير الموظف المرتبط بالحساب ({selectedUserForRelinking.UserName}) إلى {selectedEmployeeForRelink.Name} (الرقم: {selectedEmployeeForRelink.EmployeeID}) وتم إنهاء كافة الجلسات السابقة بنجاح.");
                 CloseModals();
                 await RefreshAllData();
+            }
+            else
+            {
+                ShowStatus($"فشل تعديل ربط الموظف: {res.ErrorMessage ?? "خطأ غير متوقع"}", isError: true);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to link employee ID to user.");
-            ShowStatus("حدث خطأ أثناء ربط الرقم الوظيفي بالحساب.", isError: true);
+            Logger.LogError(ex, "Failed to relink user.");
+            ShowStatus("حدث خطأ أثناء تغيير ربط الموظف.", isError: true);
         }
         finally
         {
@@ -1709,40 +2248,144 @@
         }
     }
 
-    private async Task UnlinkUserEmployee()
+    private void AskForceLogout(UserViewModel user) => pendingForceLogout = user;
+
+    private async Task ConfirmForceLogout()
     {
-        if (selectedUserForLinking == null) return;
+        if (pendingForceLogout == null) return;
+        if (!canEditUsers)
+        {
+            ShowStatus("لا تملك صلاحية إنهاء جلسات المستخدمين (Users.Edit).", isError: true);
+            return;
+        }
 
         isProcessing = true;
         try
         {
-            using var scope = ScopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-            var userToUpdate = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == selectedUserForLinking.Id);
-            if (userToUpdate != null)
+            var res = await UserEmployeeService.ForceLogoutUserAsync(pendingForceLogout.Id, currentUserId ?? "SYSTEM");
+            if (res.Succeeded)
             {
-                userToUpdate.EmployeeID = null;
-                await dbContext.SaveChangesAsync();
-                ShowStatus($"تم فك ربط الحساب ({userToUpdate.UserName}) من سجل الموظف.");
-                CloseModals();
-                await RefreshAllData();
+                await LogSecurityAuditAsync("FORCE_LOGOUT_USER", pendingForceLogout.EmployeeID ?? pendingForceLogout.UserName ?? pendingForceLogout.Id, true,
+                    $"Forced logout for user {pendingForceLogout.UserName}. Revoked {res.SessionsRevokedCount} active devices.");
+
+                ShowStatus($"تم إنهاء كافة جلسات المستخدم ({pendingForceLogout.UserName}) فوراً بنجاح (إبطال {res.SessionsRevokedCount} جهاز وتحديث الختم الأمني).");
+                pendingForceLogout = null;
+            }
+            else
+            {
+                ShowStatus($"فشل إنهاء الجلسات: {res.ErrorMessage ?? "خطأ غير متوقع"}", isError: true);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to unlink employee ID from user.");
-            ShowStatus("حدث خطأ أثناء فك الربط.", isError: true);
+            Logger.LogError(ex, "Failed to force logout user.");
+            ShowStatus("حدث خطأ أثناء إنهاء الجلسات.", isError: true);
         }
         finally
         {
             isProcessing = false;
         }
+    }
+
+    private async Task RunAutoRepairAsync()
+    {
+        if (!canEditUsers)
+        {
+            ShowStatus("لا تملك صلاحية فحص وإصلاح المستخدمين (Users.Edit).", isError: true);
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            batchRepairReport = await UserEmployeeService.RepairOrphanedUsersAsync(currentUserId ?? "SYSTEM");
+            await RefreshAllData();
+            ShowStatus($"اكتمل فحص الحسابات: تم فحص {batchRepairReport.TotalUsers} حساباً، تم إصلاح {batchRepairReport.RepairedCount}، ومتبقي {batchRepairReport.UnresolvedCount} بحاجة لربط يدوي.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to run batch repair.");
+            ShowStatus("حدث خطأ أثناء فحص وإصلاح ربط الحسابات.", isError: true);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void SelectUserForRelinkingFromReport(string userId)
+    {
+        batchRepairReport = null;
+        var u = usersList.FirstOrDefault(x => x.Id == userId);
+        if (u != null)
+        {
+            OpenRelinkModal(u);
+        }
+    }
+
+    private void ApplyPreset(string presetName)
+    {
+        if (presetName == "Admin" && !isCallerAdmin) return;
+
+        if (FeaturePermissionCatalog.RolePermissionPackages.TryGetValue(presetName, out var permissions))
+        {
+            editingRoles.Clear();
+            editingRoles.Add(presetName);
+            editingClaims.Clear();
+            foreach (var p in permissions)
+            {
+                editingClaims.Add(p);
+            }
+            ShowStatus($"تم تطبيق باقة ({FormatRole(presetName)}) بنجاح. يمكنك المراجعة قبل الحفظ.");
+        }
+    }
+
+    private async Task CloneFromUserAsync()
+    {
+        if (string.IsNullOrWhiteSpace(cloneSourceUserId)) return;
+        var sourceUser = usersList.FirstOrDefault(u => u.Id == cloneSourceUserId);
+        if (sourceUser == null) return;
+
+        if (!isCallerAdmin && sourceUser.AssignedRoles.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowStatus("لا تملك صلاحية استنساخ صلاحيات حساب مدير النظام (Admin).", isError: true);
+            return;
+        }
+
+        using var scope = ScopeFactory.CreateScope();
+        var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var uObj = await userMgr.FindByIdAsync(sourceUser.Id);
+        if (uObj != null)
+        {
+            var roles = await userMgr.GetRolesAsync(uObj);
+            editingRoles = new HashSet<string>(roles);
+            var claims = await userMgr.GetClaimsAsync(uObj);
+            editingClaims.Clear();
+            foreach (var c in claims.Where(c => c.Type == "permission" || c.Type == "Permission"))
+            {
+                editingClaims.Add(c.Value);
+            }
+            ShowStatus($"تم استنساخ أدوار وصلاحيات الحساب ({sourceUser.UserName}) بنجاح. يمكنك المراجعة قبل الحفظ.");
+        }
+    }
+
+    private bool HasSensitivePermissionsSelected()
+    {
+        return editingClaims.Contains(Permissions.UsersEdit) ||
+               editingClaims.Contains(Permissions.AuditLogsView) ||
+               editingClaims.Contains(Permissions.FeaturesEdit) ||
+               editingClaims.Contains(Permissions.DataImportEdit) ||
+               editingClaims.Contains(Permissions.SalariesEdit);
     }
 
     private async Task ResetPasswordSubmit()
     {
         if (selectedUserForPasswordReset == null || string.IsNullOrWhiteSpace(newPasswordInput)) return;
+        if (!canEditUsers)
+        {
+            ShowStatus("لا تملك صلاحية إعادة تعيين كلمات المرور (Users.Edit).", isError: true);
+            return;
+        }
 
         isProcessing = true;
         try
@@ -1757,7 +2400,8 @@
                 var res = await userMgr.ResetPasswordAsync(user, token, newPasswordInput.Trim());
                 if (res.Succeeded)
                 {
-                    ShowStatus($"تم تغيير كلمة المرور للمستخدم ({user.UserName}) بنجاح.");
+                    await UserEmployeeService.ForceLogoutUserAsync(user.Id, currentUserId ?? "SYSTEM");
+                    ShowStatus($"تم تغيير كلمة المرور للمستخدم ({user.UserName}) بنجاح وتحديث الختم الأمني.");
                     CloseModals();
                 }
                 else
@@ -1783,6 +2427,11 @@
     private async Task ConfirmToggleLockout()
     {
         if (pendingLockout is null) return;
+        if (!canEditUsers)
+        {
+            ShowStatus("لا تملك صلاحية تعديل حالة الحسابات (Users.Edit).", isError: true);
+            return;
+        }
 
         isProcessing = true;
         var userVM = pendingLockout;
@@ -1803,7 +2452,8 @@
                 else
                 {
                     await userMgr.SetLockoutEndDateAsync(user, DateTimeOffset.UtcNow.AddYears(100));
-                    ShowStatus($"تم حظر حساب المستخدم ({user.UserName}).");
+                    await UserEmployeeService.ForceLogoutUserAsync(user.Id, currentUserId ?? "SYSTEM");
+                    ShowStatus($"تم حظر حساب المستخدم ({user.UserName}) وإنهاء كافة جلساته النشطة فوراً.");
                 }
 
                 pendingLockout = null;
