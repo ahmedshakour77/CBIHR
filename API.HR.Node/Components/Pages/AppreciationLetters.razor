@@ -4,7 +4,8 @@
 @implements IDisposable
 @using System.Globalization
 @using API.HR.Node.Services.ProfilePhotos
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.AppreciationLettersView)]
 
 @inject IServiceScopeFactory ScopeFactory
 @inject IEmployeeProfilePhotoService PhotoService

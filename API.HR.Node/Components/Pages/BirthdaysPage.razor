@@ -1,6 +1,7 @@
 @page "/admin/birthdays"
 @page "/birthdays"
-@attribute [Authorize(Roles = "Admin")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.BirthdaysView)]
 @rendermode InteractiveServer
 
 @using System.Globalization

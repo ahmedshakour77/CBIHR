@@ -63,7 +63,25 @@ public sealed record NavEntry(
                 return true;
             }
 
-            // Deny-by-default: لا يتم التراجع إطلاقاً للأدوار (Roles) إذا كان العنصر يملك صلاحيات دقيقة
+            // إذا كان لدى المستخدم أي أذونات مخصصة (Claims صريحة)، نعتمد حصراً على أذوناته ميزة بميزة
+            var hasAnyExplicitPermissions = user.Claims.Any(c => (c.Type == "permission" || c.Type == "Permission") && !string.IsNullOrWhiteSpace(c.Value));
+            if (hasAnyExplicitPermissions)
+            {
+                return false;
+            }
+
+            // للمستخدمين الذين يملكون أدواراً كلاسيكية فقط ولم تُخصص لهم أذونات بعد، نتحقق من الدور
+            if (Roles != null && Roles.Length > 0)
+            {
+                foreach (var role in Roles)
+                {
+                    if (user.IsInRole(role))
+                    {
+                        return true;
+                    }
+                }
+            }
+
             return false;
         }
 

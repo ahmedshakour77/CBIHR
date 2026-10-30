@@ -6,7 +6,8 @@
 @using API.HR.Node.Services.Localization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
-@attribute [Authorize(Roles = "Admin")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.LookupsView)]
 @rendermode InteractiveServer
 @inject ApplicationDbContext Db
 @inject ILanguageService Lang

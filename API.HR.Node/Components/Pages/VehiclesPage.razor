@@ -8,7 +8,8 @@
 @using API.HR.Node.Services.Employees
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.VehiclesView)]
 
 @inject IEmployeeVehicleService VehicleService
 @inject IDbContextFactory<ApplicationDbContext> DbFactory

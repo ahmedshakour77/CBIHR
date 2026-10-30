@@ -13,5 +13,8 @@ public static class StaffRoles
     public static readonly string[] All = ["Admin", "HRManager", "FormationManager", "Supervisor"];
 
     public static bool IsStaff(ClaimsPrincipal? principal) =>
-        principal != null && All.Any(principal.IsInRole);
+        principal != null && (
+            All.Any(principal.IsInRole) ||
+            principal.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") && !string.IsNullOrWhiteSpace(c.Value))
+        );
 }

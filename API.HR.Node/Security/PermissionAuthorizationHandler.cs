@@ -43,6 +43,13 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
             return Task.CompletedTask;
         }
 
+        var isFormationManager = context.User.IsInRole("FormationManager") || context.User.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("FormationManager", StringComparison.OrdinalIgnoreCase));
+        if (isFormationManager && (req.EndsWith(".View", StringComparison.OrdinalIgnoreCase) || req is Permissions.FormationDashboardEdit or Permissions.WorkflowsEdit))
+        {
+            context.Succeed(requirement);
+            return Task.CompletedTask;
+        }
+
         // Check if user has explicit matching permission claim or implied Edit permission
         var hasPermission = context.User.HasClaim(c =>
         {

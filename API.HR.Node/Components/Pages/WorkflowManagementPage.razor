@@ -1,5 +1,6 @@
 @page "/workflows"
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.WorkflowsView)]
 @rendermode InteractiveServer
 
 @using API.HR.Node.Data.Workflows

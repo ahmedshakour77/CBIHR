@@ -1,5 +1,6 @@
 @page "/sessions"
-@attribute [Authorize(Roles = "Admin")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.SessionsView)]
 @rendermode InteractiveServer
 
 @inject ApplicationDbContext DbContext

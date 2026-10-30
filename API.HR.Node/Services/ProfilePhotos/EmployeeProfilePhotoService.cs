@@ -108,9 +108,10 @@ public sealed class EmployeeProfilePhotoService(
                     }
                 }
 
-                var canReplace = isOwnPhoto || user.IsInRole("Admin") || user.HasClaim(c =>
-                    (c.Type == "permission" || c.Type == "Permission") &&
-                    c.Value.Equals(Permissions.ProfilePhotoReplace, StringComparison.OrdinalIgnoreCase));
+                var canReplace = isOwnPhoto || user.IsInRole("Admin") ||
+                    user.HasPermission(Permissions.ProfilePhotoReplace) ||
+                    user.HasPermission(Permissions.EmployeesEdit) ||
+                    user.HasPermission(Permissions.GalleryEdit);
 
                 if (!canReplace)
                 {

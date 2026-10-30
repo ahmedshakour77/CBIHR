@@ -1,5 +1,6 @@
 @page "/passkeys"
-@attribute [Authorize(Roles = "Admin,HRManager")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.PasskeysView)]
 @rendermode InteractiveServer
 
 @using Microsoft.AspNetCore.Identity

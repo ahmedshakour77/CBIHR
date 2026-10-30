@@ -79,6 +79,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddProblemDetails();
 builder.Services.AddHttpClient();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ActionLoggingInterceptor>();
 
 // Rate limiting for auth and sensitive APIs
 builder.Services.AddRateLimiter(options =>
@@ -450,14 +451,16 @@ foreach (var permissionCode in FeaturePermissionCatalog.AllPermissionCodes)
 var connectionString = builder.Configuration.GetConnectionString("liveDB")
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'liveDB' or 'DefaultConnection' not found.");
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+builder.Services.AddDbContext<ApplicationDbContext>((services, options) =>
 {
     options.UseSqlServer(connectionString);
+    options.AddInterceptors(services.GetRequiredService<ActionLoggingInterceptor>());
     options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
-builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
+builder.Services.AddDbContextFactory<ApplicationDbContext>((services, options) =>
 {
     options.UseSqlServer(connectionString);
+    options.AddInterceptors(services.GetRequiredService<ActionLoggingInterceptor>());
     options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 }, ServiceLifetime.Scoped);
 
@@ -481,6 +484,12 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager()
     .AddDefaultTokenProviders();
+
+// Permission claims are baked into the login cookie. The validator rebuilds them
+// from the database on this interval, so permission changes made on the Users page
+// reach the user on their next page load instead of after the default 30 minutes.
+builder.Services.Configure<SecurityStampValidatorOptions>(options =>
+    options.ValidationInterval = TimeSpan.FromMinutes(1));
 
 builder.Services.ConfigureApplicationCookie(options =>
 {

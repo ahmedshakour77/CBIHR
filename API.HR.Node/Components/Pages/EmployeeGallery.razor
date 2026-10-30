@@ -5,7 +5,8 @@
 @using API.HR.Node.Services.ProfilePhotos
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
-@attribute [Authorize(Roles = "Admin,HRManager")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.GalleryView)]
 
 @inject IServiceScopeFactory ScopeFactory
 @inject ILogger<EmployeeGallery> Logger

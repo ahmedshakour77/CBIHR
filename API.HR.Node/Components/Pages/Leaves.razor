@@ -3,7 +3,8 @@
 @implements IDisposable
 @using System.Globalization
 @using API.HR.Node.Services.ProfilePhotos
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.LeavesView)]
 
 @inject IServiceScopeFactory ScopeFactory
 @inject NavigationManager Nav

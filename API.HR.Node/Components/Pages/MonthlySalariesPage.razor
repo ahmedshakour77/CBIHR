@@ -11,7 +11,8 @@
 @using API.HR.Node.Services.Salary
 @using Microsoft.AspNetCore.Authorization
 
-@attribute [Authorize(Roles = "Admin,HRManager")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.SalariesView)]
 @inject IFormationPayrollService PayrollService
 @inject IEmployeeAllowanceService AllowanceService
 @inject API.HR.Node.Services.Localization.ILanguageService Lang

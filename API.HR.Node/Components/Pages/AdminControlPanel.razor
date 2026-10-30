@@ -1,5 +1,6 @@
 @page "/admin/features"
-@attribute [Authorize(Roles = "Admin")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.FeaturesView)]
 @rendermode InteractiveServer
 
 @using System.Security.Claims

@@ -1,6 +1,7 @@
 @page "/job-hierarchy"
 @rendermode InteractiveServer
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.JobHierarchyView)]
 
 @using API.HR.Node.Services.OrganizationalHierarchy
 @using API.HR.Node.Services.Localization

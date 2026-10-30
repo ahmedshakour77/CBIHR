@@ -3,6 +3,7 @@
 @using API.HR.Node.Services.Employees
 @using API.HR.Node.Services.OrganizationalHierarchy
 @using Microsoft.AspNetCore.Authorization
+@using API.HR.Node.Security
 @attribute [Authorize]
 
 @inject WorkforceSnapshotService Snapshots
@@ -865,7 +866,8 @@
     protected override async Task OnInitializedAsync()
     {
         var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
-        if (!(user.IsInRole("Admin") || user.IsInRole("HRManager") || user.IsInRole("FormationManager")))
+        // Same rule as the "الرئيسية" entry in NavCatalog: the Dashboard permission, or one of the dashboard roles.
+        if (!user.CanView(Permissions.DashboardView, "HRManager", "FormationManager"))
         {
             NavigationManager.NavigateTo("portal", replace: true);
             return;

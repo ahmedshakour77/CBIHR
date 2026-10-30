@@ -1,6 +1,7 @@
 @page "/org-hierarchy"
 @rendermode InteractiveServer
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.OrgHierarchyView)]
 @using API.HR.Node.Data.OrganizationalHierarchy
 @using API.HR.Node.Services.OrganizationalHierarchy
 @using API.HR.Node.Services.Localization

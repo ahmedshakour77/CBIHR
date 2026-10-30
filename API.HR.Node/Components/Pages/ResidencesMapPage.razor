@@ -4,7 +4,8 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
 @* Every employee's home address and position: staff only, same as the nav entry. *@
-@attribute [Authorize(Roles = API.HR.Node.Security.StaffRoles.Csv)]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.ResidencesView)]
 
 @inject IServiceScopeFactory ScopeFactory
 @inject IJSRuntime JS

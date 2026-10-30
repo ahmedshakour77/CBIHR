@@ -1,6 +1,7 @@
 @page "/design-system"
 @rendermode InteractiveServer
-@attribute [Authorize(Roles = "Admin,HRManager")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.DesignSystemView)]
 @inject IToastService Toast
 @inject API.HR.Node.Services.Localization.ILanguageService Lang
 

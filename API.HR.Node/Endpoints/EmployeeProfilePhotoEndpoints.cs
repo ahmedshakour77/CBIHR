@@ -231,8 +231,15 @@ public static class EmployeeProfilePhotoEndpoints
         if (user.IsInRole("Admin") || user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)))
             return true;
 
-        // 2. Global Read Permission
-        if (user.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") && c.Value.Equals(Permissions.ProfilePhotoRead, StringComparison.OrdinalIgnoreCase)))
+        // 2. Global Read Permission or Page Permissions that display employee photos
+        if (user.HasPermission(Permissions.ProfilePhotoRead) ||
+            user.HasPermission(Permissions.EmployeesView) ||
+            user.HasPermission(Permissions.EmployeesEdit) ||
+            user.HasPermission(Permissions.GalleryView) ||
+            user.HasPermission(Permissions.GalleryEdit) ||
+            user.HasPermission(Permissions.ContactsView) ||
+            user.HasPermission(Permissions.LeavesView) ||
+            user.HasPermission(Permissions.CoursesView))
             return true;
 
         // 3. Staff roles whose pages (directory, gallery, leaves) show the roster's
@@ -267,6 +274,12 @@ public static class EmployeeProfilePhotoEndpoints
         if (user.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") && c.Value.Equals(Permissions.ProfilePhotoUpload, StringComparison.OrdinalIgnoreCase)))
             return true;
 
+        if (user.HasPermission(Permissions.EmployeesEdit) || user.HasPermission(Permissions.GalleryEdit))
+            return true;
+
+        if (PhotoReaderRoles.Any(user.IsInRole))
+            return true;
+
         var claimEmpId = user.FindFirst("employee_id")?.Value;
         if (!string.IsNullOrWhiteSpace(claimEmpId) && claimEmpId.Equals(targetEmployeeID, StringComparison.OrdinalIgnoreCase))
             return true;
@@ -290,6 +303,12 @@ public static class EmployeeProfilePhotoEndpoints
             return true;
 
         if (user.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") && c.Value.Equals(Permissions.ProfilePhotoDelete, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        if (user.HasPermission(Permissions.EmployeesEdit) || user.HasPermission(Permissions.GalleryEdit))
+            return true;
+
+        if (PhotoReaderRoles.Any(user.IsInRole))
             return true;
 
         var claimEmpId = user.FindFirst("employee_id")?.Value;

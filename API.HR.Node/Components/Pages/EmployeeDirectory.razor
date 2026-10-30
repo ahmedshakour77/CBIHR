@@ -5,7 +5,8 @@
 @using API.HR.Node.Services.ProfilePhotos
 @using API.HR.Node.Services.Employees
 @using API.HR.Node.Data
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.EmployeesView)]
 
 @inject IServiceScopeFactory ScopeFactory
 @inject IEmployeeProfilePhotoService PhotoService

@@ -3,7 +3,8 @@
 @using API.HR.Node.Data
 @using API.HR.Node.Services.Salary
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "Admin,HRManager,FormationManager,Supervisor")]
+@using API.HR.Node.Security
+@attribute [Authorize(Policy = Permissions.SalaryScaleView)]
 @inject ISalaryScaleService SalaryService
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
