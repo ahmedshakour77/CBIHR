@@ -6,6 +6,7 @@ using Fido2NetLib;
 using Fido2NetLib.Objects;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 
 namespace API.HR.Node.Services.Security;
 
@@ -16,86 +17,96 @@ public sealed class PasskeyService : IPasskeyService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IHttpContextAccessor? _httpContextAccessor;
     private readonly ILogger<PasskeyService> _logger;
+    private readonly IHostEnvironment? _environment;
+    private readonly IFido2? _fido2;
 
     public PasskeyService(
         Fido2Configuration baseConfig,
         ApplicationDbContext dbContext,
         UserManager<ApplicationUser> userManager,
         ILogger<PasskeyService> logger,
-        IHttpContextAccessor? httpContextAccessor = null)
+        IHttpContextAccessor? httpContextAccessor = null,
+        IHostEnvironment? environment = null,
+        IFido2? fido2 = null)
     {
         _baseConfig = baseConfig;
         _dbContext = dbContext;
         _userManager = userManager;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
+        _environment = environment;
+        _fido2 = fido2;
     }
 
-    private IFido2 GetFido2(string? customHost = null, string? customOrigin = null)
+    internal Fido2Configuration BuildFido2Configuration(string? customHost = null, string? customOrigin = null)
     {
+        var isDev = _environment?.IsDevelopment() ?? false;
         var http = _httpContextAccessor?.HttpContext;
-        var host = customHost ?? http?.Request.Host.Host;
 
         string domain = _baseConfig.ServerDomain ?? "portal.aml.lan";
-        if (!string.IsNullOrWhiteSpace(host))
-        {
-            var cleanHost = host.Trim();
-            if (cleanHost.Contains(':'))
-            {
-                cleanHost = cleanHost.Split(':')[0];
-            }
-
-            if (string.Equals(cleanHost, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(cleanHost, "localhost", StringComparison.OrdinalIgnoreCase))
-            {
-                domain = "localhost";
-            }
-            else
-            {
-                domain = cleanHost;
-            }
-        }
-
         var origins = _baseConfig.Origins != null
             ? new HashSet<string>(_baseConfig.Origins, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (!string.IsNullOrWhiteSpace(customOrigin))
+        if (isDev)
         {
-            origins.Add(customOrigin.TrimEnd('/'));
+            var host = customHost ?? http?.Request.Host.Host;
+            if (!string.IsNullOrWhiteSpace(host))
+            {
+                var cleanHost = host.Trim();
+                if (cleanHost.Contains(':'))
+                {
+                    cleanHost = cleanHost.Split(':')[0];
+                }
+
+                if (string.Equals(cleanHost, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(cleanHost, "localhost", StringComparison.OrdinalIgnoreCase))
+                {
+                    domain = "localhost";
+                }
+            }
+
+            if (http != null)
+            {
+                origins.Add($"{http.Request.Scheme}://{http.Request.Host.Value}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(customOrigin))
+            {
+                origins.Add(customOrigin.TrimEnd('/'));
+            }
         }
-        if (http != null)
+        else
         {
-            origins.Add($"{http.Request.Scheme}://{http.Request.Host.Value}");
+            // Production Mode: Strict origin allowlist based strictly on DI Fido2Configuration.
+            // NO http, NO localhost, NO 127.0.0.1, NO arbitrary dynamic request hosts.
+            if (!string.IsNullOrWhiteSpace(customOrigin))
+            {
+                var trimmed = customOrigin.TrimEnd('/');
+                if (_baseConfig.Origins != null && _baseConfig.Origins.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                {
+                    origins.Add(trimmed);
+                }
+            }
         }
 
-        // Always allow portal.aml.lan, aml.lan, localhost and 127.0.0.1 origins
-        origins.Add("https://portal.aml.lan");
-        origins.Add("http://portal.aml.lan");
-        origins.Add("https://portal.aml.lan:7266");
-        origins.Add("https://aml.lan");
-        origins.Add("http://aml.lan");
-        origins.Add("https://apihr.iraqservice.uk");
-        origins.Add("https://localhost:7266");
-        origins.Add("http://localhost:5058");
-        origins.Add("https://localhost:5058");
-        origins.Add("http://localhost");
-        origins.Add("https://localhost");
-        origins.Add("https://127.0.0.1:7266");
-        origins.Add("http://127.0.0.1:5058");
-        origins.Add("https://127.0.0.1:5058");
-        origins.Add("http://127.0.0.1");
-        origins.Add("https://127.0.0.1");
-
-        var cfg = new Fido2Configuration
+        return new Fido2Configuration
         {
             ServerDomain = domain,
             ServerName = _baseConfig.ServerName ?? "API.HR.Node Passkeys",
             Origins = origins,
             TimestampDriftTolerance = _baseConfig.TimestampDriftTolerance > 0 ? _baseConfig.TimestampDriftTolerance : 300000
         };
+    }
 
-        return new Fido2(cfg);
+    internal IFido2 GetFido2(string? customHost = null, string? customOrigin = null)
+    {
+        if (_fido2 != null)
+        {
+            return _fido2;
+        }
+
+        return new Fido2(BuildFido2Configuration(customHost, customOrigin));
     }
 
     public Task<CredentialCreateOptions> MakeRegistrationOptionsAsync(
@@ -255,12 +266,6 @@ public sealed class PasskeyService : IPasskeyService
             throw new Fido2VerificationException("Registered passkey credential not found or deactivated.");
         }
 
-        var user = await _userManager.FindByIdAsync(passkey.UserId);
-        if (user is null || (!SystemAccounts.IsTechnicalAccount(user.UserName) && !SystemAccounts.IsTechnicalAccount(user.Email) && string.IsNullOrWhiteSpace(user.EmployeeID)))
-        {
-            throw new Fido2VerificationException("Employee user account not found or unlinked.");
-        }
-
         IsUserHandleOwnerOfCredentialIdAsync isUserHandleOwner = async (args, ct) =>
         {
             var all = await _dbContext.EmployeePasskeys.ToListAsync(ct);
@@ -268,6 +273,7 @@ public sealed class PasskeyService : IPasskeyService
             return stored != null && stored.UserHandle.SequenceEqual(args.UserHandle.ToArray());
         };
 
+        // 1. Cryptographic verification FIRST: Validate assertion signature, challenge, and owner callback
         var fido = GetFido2(host, origin);
         var res = await fido.MakeAssertionAsync(new MakeAssertionParams
         {
@@ -281,6 +287,13 @@ public sealed class PasskeyService : IPasskeyService
         passkey.SignatureCounter = res.SignCount;
         passkey.LastUsedAt = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // 2. Resolve authenticated user from trusted stored passkey owner strictly AFTER verification succeeds
+        var user = await _userManager.FindByIdAsync(passkey.UserId);
+        if (user is null || (!SystemAccounts.IsTechnicalAccount(user.UserName) && !SystemAccounts.IsTechnicalAccount(user.Email) && string.IsNullOrWhiteSpace(user.EmployeeID)))
+        {
+            throw new Fido2VerificationException("Employee user account not found or unlinked.");
+        }
 
         _logger.LogInformation("Passkey authentication successful for employee {EmployeeID}.", passkey.EmployeeID);
 

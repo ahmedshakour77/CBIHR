@@ -431,41 +431,48 @@
 
         if (!string.IsNullOrEmpty(PasskeyInput?.CredentialJson))
         {
-            var authedUser = await ResolvePasskeyUserAsync(PasskeyInput.CredentialJson);
-            if (authedUser == null)
+            // 1. Cryptographic verification FIRST: Never execute state-changing repairs or link mutations before verification succeeds
+            var passkeyResult = await SignInManager.PasskeySignInAsync(PasskeyInput.CredentialJson);
+            if (!passkeyResult.Succeeded)
             {
-                Logger.LogWarning("Passkey sign-in rejected: could not resolve user from passkey credentials.");
-                SetStatus(L("تعذّر تحديد الحساب المقترن بمفتاح المرور، أو أن المفتاح غير مسجّل.",
-                            "نەتوانرا هەژماری بەستراوە بە کلیلی تێپەڕین دەستنیشان بکرێت یان کلیلەکە تۆمار نەکراوە."), isError: true);
+                if (passkeyResult.IsLockedOut)
+                {
+                    Logger.LogWarning("Passkey sign-in refused: account locked.");
+                    RedirectManager.RedirectTo("Account/Lockout");
+                    return;
+                }
+
+                Logger.LogWarning("Passkey cryptographic verification failed or credential not recognized.");
+                SetStatus(L("تعذّر تسجيل الدخول بمفتاح المرور، أو أن المفتاح غير مقترن بحساب مسجل.",
+                            "چوونەژوورەوە بە کلیلی تێپەڕین سەرکەوتوو نەبوو یان کلیلەکە بە هەژمارێکی تۆمارکراوەوە پەیوەست نەکراوە."), isError: true);
                 return;
             }
 
+            // 2. Cryptographic verification succeeded: resolve authenticated passkey owner from trusted stored credential
+            var authedUser = await ResolveVerifiedPasskeyUserAsync(PasskeyInput.CredentialJson);
+            if (authedUser == null)
+            {
+                await SignInManager.SignOutAsync();
+                Logger.LogWarning("Passkey sign-in rejected: could not resolve user from verified stored credential or credential is deactivated.");
+                SetStatus(L("تعذّر تحديد الحساب المقترن بمفتاح المرور، أو أن المفتاح معطّل أو غير مسجّل.",
+                            "نەتوانرا هەژماری بەستراوە بە کلیلی تێپەڕین دەستنیشان بکرێت یان کلیلەکە ناچالاکە یان تۆمار نەکراوە."), isError: true);
+                return;
+            }
+
+            // 3. Perform employee-link validation / repair ONLY on the verified authenticated user
             var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(authedUser);
             if (!linkRes.IsValid)
             {
+                await SignInManager.SignOutAsync();
                 Logger.LogWarning("Passkey sign-in refused for '{Username}': not linked to employee record.", authedUser.UserName);
                 SetStatus(L(linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.",
                             "ئەم هەژمارە بە هیچ تۆمارێکی فەرمانبەرەوە نەبەستراوەتەوە لە سیستەمی سەرچاوە مرۆییەکاندا."), isError: true);
                 return;
             }
 
-            var passkeyResult = await SignInManager.PasskeySignInAsync(PasskeyInput.CredentialJson);
-            if (passkeyResult.Succeeded)
-            {
-                Logger.LogInformation("Passkey sign-in succeeded for user '{Username}'.", authedUser.UserName);
-                await CompleteLoginRedirect(authedUser);
-                return;
-            }
-
-            if (passkeyResult.IsLockedOut)
-            {
-                Logger.LogWarning("Passkey sign-in refused: account locked.");
-                RedirectManager.RedirectTo("Account/Lockout");
-                return;
-            }
-
-            SetStatus(L("تعذّر تسجيل الدخول بمفتاح المرور، أو أن المفتاح غير مقترن بحساب مسجل.",
-                        "چوونەژوورەوە بە کلیلی تێپەڕین سەرکەوتوو نەبوو یان کلیلەکە بە هەژمارێکی تۆمارکراوەوە پەیوەست نەکراوە."), isError: true);
+            // 4. Complete login successfully
+            Logger.LogInformation("Passkey sign-in succeeded for user '{Username}'.", authedUser.UserName);
+            await CompleteLoginRedirect(authedUser);
             return;
         }
 
@@ -734,7 +741,7 @@
         RedirectManager.RedirectTo(targetUrl);
     }
 
-    private async Task<ApplicationUser?> ResolvePasskeyUserAsync(string? credentialJson)
+    private async Task<ApplicationUser?> ResolveVerifiedPasskeyUserAsync(string? credentialJson)
     {
         if (string.IsNullOrWhiteSpace(credentialJson)) return null;
 
@@ -743,29 +750,7 @@
             using var doc = JsonDocument.Parse(credentialJson);
             var root = doc.RootElement;
 
-            // 1. Try resolving via userHandle in response
-            if (root.TryGetProperty("response", out var respProp) &&
-                respProp.TryGetProperty("userHandle", out var userHandleProp) &&
-                userHandleProp.ValueKind == JsonValueKind.String)
-            {
-                var userHandleStr = userHandleProp.GetString();
-                if (!string.IsNullOrWhiteSpace(userHandleStr))
-                {
-                    try
-                    {
-                        var userHandleBytes = Base64Url.DecodeFromChars(userHandleStr);
-                        var userId = Encoding.UTF8.GetString(userHandleBytes);
-                        var user = await UserManager.FindByIdAsync(userId);
-                        if (user != null) return user;
-                    }
-                    catch
-                    {
-                        // Fallback to credential id
-                    }
-                }
-            }
-
-            // 2. Try resolving via credential id (id or rawId)
+            // Resolve credential ID strictly from cryptographic payload (id or rawId)
             string? credIdStr = null;
             if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String)
             {
@@ -776,48 +761,104 @@
                 credIdStr = rawIdProp.GetString();
             }
 
-            if (!string.IsNullOrWhiteSpace(credIdStr))
+            if (string.IsNullOrWhiteSpace(credIdStr)) return null;
+
+            byte[] credBytes;
+            try
             {
-                byte[] credBytes;
-                try
+                credBytes = Base64Url.DecodeFromChars(credIdStr);
+            }
+            catch
+            {
+                return null;
+            }
+
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            // 1. Resolve from EmployeePasskeys store (custom enterprise passkeys)
+            var empPasskeys = await db.EmployeePasskeys
+                .AsNoTracking()
+                .ToListAsync();
+            var empMatch = empPasskeys.FirstOrDefault(p => p.CredentialId.SequenceEqual(credBytes));
+            if (empMatch != null)
+            {
+                // Deactivated or revoked passkeys are strictly denied
+                if (!empMatch.IsActive)
                 {
-                    credBytes = Base64Url.DecodeFromChars(credIdStr);
-                }
-                catch
-                {
+                    Logger.LogWarning("Passkey credential {CredId} is deactivated.", credIdStr);
                     return null;
                 }
 
-                using var scope = ScopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-                // A. Check AspNetUserPasskeys
-                var identityPasskeys = await db.Set<IdentityUserPasskey<string>>()
-                    .AsNoTracking()
-                    .ToListAsync();
-                var identityMatch = identityPasskeys.FirstOrDefault(p => p.CredentialId.SequenceEqual(credBytes));
-                if (identityMatch != null)
+                // Never trust unverified client userHandle to impersonate another user (Scenario E)
+                if (root.TryGetProperty("response", out var respProp) &&
+                    respProp.TryGetProperty("userHandle", out var userHandleProp) &&
+                    userHandleProp.ValueKind == JsonValueKind.String)
                 {
-                    var user = await UserManager.FindByIdAsync(identityMatch.UserId);
-                    if (user != null) return user;
+                    var userHandleStr = userHandleProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(userHandleStr))
+                    {
+                        try
+                        {
+                            var userHandleBytes = Base64Url.DecodeFromChars(userHandleStr);
+                            var clientUserId = Encoding.UTF8.GetString(userHandleBytes);
+                            if (!string.Equals(clientUserId, empMatch.UserId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Logger.LogWarning("Passkey sign-in rejected: client userHandle '{ClientUserId}' does not match stored passkey owner '{OwnerUserId}'.",
+                                    clientUserId, empMatch.UserId);
+                                return null;
+                            }
+                        }
+                        catch
+                        {
+                            // ignore decode error on optional client handle
+                        }
+                    }
                 }
 
-                // B. Check EmployeePasskeys
-                var empPasskeys = await db.EmployeePasskeys
-                    .AsNoTracking()
-                    .Where(p => p.IsActive)
-                    .ToListAsync();
-                var empMatch = empPasskeys.FirstOrDefault(p => p.CredentialId.SequenceEqual(credBytes));
-                if (empMatch != null)
+                var user = await UserManager.FindByIdAsync(empMatch.UserId);
+                if (user != null) return user;
+            }
+
+            // 2. Resolve from AspNetUserPasskeys store (built-in Identity passkeys)
+            var identityPasskeys = await db.Set<IdentityUserPasskey<string>>()
+                .AsNoTracking()
+                .ToListAsync();
+            var identityMatch = identityPasskeys.FirstOrDefault(p => p.CredentialId.SequenceEqual(credBytes));
+            if (identityMatch != null)
+            {
+                if (root.TryGetProperty("response", out var respProp) &&
+                    respProp.TryGetProperty("userHandle", out var userHandleProp) &&
+                    userHandleProp.ValueKind == JsonValueKind.String)
                 {
-                    var user = await UserManager.FindByIdAsync(empMatch.UserId);
-                    if (user != null) return user;
+                    var userHandleStr = userHandleProp.GetString();
+                    if (!string.IsNullOrWhiteSpace(userHandleStr))
+                    {
+                        try
+                        {
+                            var userHandleBytes = Base64Url.DecodeFromChars(userHandleStr);
+                            var clientUserId = Encoding.UTF8.GetString(userHandleBytes);
+                            if (!string.Equals(clientUserId, identityMatch.UserId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Logger.LogWarning("Passkey sign-in rejected: client userHandle '{ClientUserId}' does not match Identity passkey owner '{OwnerUserId}'.",
+                                    clientUserId, identityMatch.UserId);
+                                return null;
+                            }
+                        }
+                        catch
+                        {
+                            // ignore decode error on optional client handle
+                        }
+                    }
                 }
+
+                var user = await UserManager.FindByIdAsync(identityMatch.UserId);
+                if (user != null) return user;
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to resolve user from passkey credential JSON.");
+            Logger.LogWarning(ex, "Failed to resolve owner from verified stored passkey credential.");
         }
 
         return null;

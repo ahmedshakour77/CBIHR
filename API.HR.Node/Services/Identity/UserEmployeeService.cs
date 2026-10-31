@@ -344,6 +344,19 @@ public sealed class UserEmployeeService : IUserEmployeeService
         return new RelinkResult(true, null, oldEmployeeId, newEmployeeId);
     }
 
+    /// <summary>
+    /// Forces user logout across all sessions, tokens, and registered devices.
+    /// <para>
+    /// <b>Force Logout Guarantees &amp; Token Semantics:</b>
+    /// <list type="bullet">
+    ///   <item><description><b>Active UserDevices:</b> Revoked immediately (<c>IsActive = false</c>) in the database.</description></item>
+    ///   <item><description><b>SecurityStamp:</b> Regenerated immediately via <c>UpdateSecurityStampAsync</c>.</description></item>
+    ///   <item><description><b>Refresh Tokens:</b> Rejected immediately on the next token refresh request because ASP.NET Core Identity bearer endpoint validates the user's current security stamp.</description></item>
+    ///   <item><description><b>Cookie Sessions:</b> Invalidated on next validation cycle per <c>SecurityStampValidatorOptions.ValidationInterval</c> (configured to 1 minute).</description></item>
+    ///   <item><description><b>Existing Access Tokens:</b> Self-contained signed bearer tokens remain valid until expiration (configured to 15 minutes) unless per-request server-side revocation lookup is enforced.</description></item>
+    /// </list>
+    /// </para>
+    /// </summary>
     public async Task<ForceLogoutResult> ForceLogoutUserAsync(
         string userId,
         string actorUserId,

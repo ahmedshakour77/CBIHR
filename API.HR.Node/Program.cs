@@ -312,7 +312,13 @@ var authentication = builder.Services.AddAuthentication(options =>
 });
 
 authentication.AddIdentityCookies();
-authentication.AddBearerToken(IdentityConstants.BearerScheme);
+authentication.AddBearerToken(IdentityConstants.BearerScheme, options =>
+{
+    // Access token is short-lived (15 minutes) for sensitive enterprise operations
+    options.BearerTokenExpiration = TimeSpan.FromMinutes(15);
+    // Refresh token is longer-lived (7 days) and validated server-side against SecurityStamp
+    options.RefreshTokenExpiration = TimeSpan.FromDays(7);
+});
 authentication.AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>(
     BasicAuthenticationHandler.SchemeName, _ => { });
 
