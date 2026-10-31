@@ -7,6 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
+
   build-and-test:
     name: Build, Test & Security Audit
     runs-on: ubuntu-latest
@@ -29,8 +30,41 @@ jobs:
     - name: Build Application (Release)
       run: dotnet build --no-restore --configuration Release
 
-    - name: Run Test Suite
-      run: dotnet test --no-build --configuration Release --verbosity normal
+    - name: Run Cross-Platform Test Suite
+      run: >
+        dotnet test
+        --no-build
+        --configuration Release
+        --verbosity normal
+        --filter "FullyQualifiedName!~Defender_FindEngine_DiscoversEngineOnWindows"
 
     - name: Vulnerability Scan on Packages
       run: dotnet list package --vulnerable --include-transitive
+
+
+  windows-security-tests:
+    name: Windows Security Tests
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build Application (Release)
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Run Windows Defender Tests
+      run: >
+        dotnet test
+        --no-build
+        --configuration Release
+        --verbosity normal
+        --filter "FullyQualifiedName~Defender_FindEngine_DiscoversEngineOnWindows"
