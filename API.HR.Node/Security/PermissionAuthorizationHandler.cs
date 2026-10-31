@@ -41,6 +41,8 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
             {
                 var editEquiv = req[..^5] + ".Edit";
                 if (c.Value.Equals(editEquiv, StringComparison.OrdinalIgnoreCase)) return true;
+                if (req.Equals(Permissions.UsersView, StringComparison.OrdinalIgnoreCase) &&
+                    c.Value.Equals(Permissions.UsersPermissionsEdit, StringComparison.OrdinalIgnoreCase)) return true;
             }
 
             // Legacy mappings check
@@ -61,7 +63,7 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
     {
         return (userClaim, requestedPermission) switch
         {
-            (Permissions.ManageUsers, Permissions.UsersView or Permissions.UsersEdit) => true,
+            (Permissions.ManageUsers, Permissions.UsersView or Permissions.UsersEdit or Permissions.UsersPermissionsEdit) => true,
             (Permissions.ManageDevices, Permissions.DevicesView or Permissions.DevicesEdit) => true,
             (Permissions.ViewAuditLogs, Permissions.AuditLogsView) => true,
             (Permissions.ManageWorkflows, Permissions.WorkflowsView or Permissions.WorkflowsEdit) => true,

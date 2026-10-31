@@ -355,4 +355,148 @@ public sealed class UserEmployeeLinkTests
             permClaims.Should().Contain(expectedPerm, $"desired permission '{expectedPerm}' must be seeded for role");
         }
     }
+
+    [Fact]
+    public async Task CheckSameEmployeePrivilegeEscalationAsync_SameEmployeeNonAdmin_ShouldBlockAndLogAudit()
+    {
+        var (_, db, service, userManager) = CreateTestEnvironment();
+
+        db.Employees.Add(new Employee
+        {
+            EmployeeID = "EMP_ESC_100",
+            Name = "سعيد أحمد"
+        });
+        await db.SaveChangesAsync();
+
+        var userA = new ApplicationUser
+        {
+            Id = "user-a-guid",
+            UserName = "user.a",
+            Email = "user.a@company.local",
+            EmployeeID = "EMP_ESC_100"
+        };
+        var userB = new ApplicationUser
+        {
+            Id = "user-b-guid",
+            UserName = "user.b",
+            Email = "user.b@company.local",
+            EmployeeID = "EMP_ESC_100"
+        };
+        await userManager.CreateAsync(userA);
+        await userManager.CreateAsync(userB);
+
+        // Caller User A is NOT Admin, has Users.Edit
+        var identity = new System.Security.Claims.ClaimsIdentity("TestAuth");
+        identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, userA.Id));
+        identity.AddClaim(new System.Security.Claims.Claim("permission", Permissions.UsersEdit));
+        var callerPrincipal = new System.Security.Claims.ClaimsPrincipal(identity);
+
+        var result = await service.CheckSameEmployeePrivilegeEscalationAsync(userA.Id, userB.Id, callerPrincipal);
+
+        result.IsAllowed.Should().BeFalse("non-admin caller cannot modify another account belonging to the same employee");
+        result.IsSameEmployee.Should().BeTrue();
+        result.CallerEmployeeId.Should().Be("EMP_ESC_100");
+        result.TargetEmployeeId.Should().Be("EMP_ESC_100");
+    }
+
+    [Fact]
+    public async Task CheckSameEmployeePrivilegeEscalationAsync_AdminCaller_ShouldAllowSameEmployeeTarget()
+    {
+        var (_, db, service, userManager) = CreateTestEnvironment();
+
+        db.Employees.Add(new Employee
+        {
+            EmployeeID = "EMP_ESC_200",
+            Name = "محمود حسن"
+        });
+        await db.SaveChangesAsync();
+
+        var userA = new ApplicationUser
+        {
+            Id = "admin-guid",
+            UserName = "admin.user",
+            Email = "admin@company.local",
+            EmployeeID = "EMP_ESC_200"
+        };
+        var userB = new ApplicationUser
+        {
+            Id = "target-guid",
+            UserName = "target.user",
+            Email = "target@company.local",
+            EmployeeID = "EMP_ESC_200"
+        };
+        await userManager.CreateAsync(userA);
+        await userManager.CreateAsync(userB);
+
+        // Caller has Admin role
+        var identity = new System.Security.Claims.ClaimsIdentity("TestAuth");
+        identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, userA.Id));
+        identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "Admin"));
+        var adminPrincipal = new System.Security.Claims.ClaimsPrincipal(identity);
+
+        var result = await service.CheckSameEmployeePrivilegeEscalationAsync(userA.Id, userB.Id, adminPrincipal);
+
+        result.IsAllowed.Should().BeTrue("Admin is allowed full administrative governance over any account");
+    }
+
+    [Fact]
+    public async Task CheckSameEmployeePrivilegeEscalationAsync_DifferentEmployee_ShouldAllow()
+    {
+        var (_, db, service, userManager) = CreateTestEnvironment();
+
+        db.Employees.Add(new Employee { EmployeeID = "EMP_DIFF_1", Name = "زيد علي" });
+        db.Employees.Add(new Employee { EmployeeID = "EMP_DIFF_2", Name = "عمر خالد" });
+        await db.SaveChangesAsync();
+
+        var userA = new ApplicationUser
+        {
+            Id = "user-diff-a",
+            UserName = "user.diff.a",
+            Email = "diff.a@company.local",
+            EmployeeID = "EMP_DIFF_1"
+        };
+        var userC = new ApplicationUser
+        {
+            Id = "user-diff-c",
+            UserName = "user.diff.c",
+            Email = "diff.c@company.local",
+            EmployeeID = "EMP_DIFF_2"
+        };
+        await userManager.CreateAsync(userA);
+        await userManager.CreateAsync(userC);
+
+        var identity = new System.Security.Claims.ClaimsIdentity("TestAuth");
+        identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, userA.Id));
+        identity.AddClaim(new System.Security.Claims.Claim("permission", Permissions.UsersPermissionsEdit));
+        var callerPrincipal = new System.Security.Claims.ClaimsPrincipal(identity);
+
+        var result = await service.CheckSameEmployeePrivilegeEscalationAsync(userA.Id, userC.Id, callerPrincipal);
+
+        result.IsAllowed.Should().BeTrue();
+        result.IsSameEmployee.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CheckSameEmployeePrivilegeEscalationAsync_SelfModification_NonAdmin_ShouldBlock()
+    {
+        var (_, db, service, userManager) = CreateTestEnvironment();
+
+        var userA = new ApplicationUser
+        {
+            Id = "self-user-id",
+            UserName = "self.user",
+            Email = "self@company.local",
+            EmployeeID = "EMP_SELF"
+        };
+        await userManager.CreateAsync(userA);
+
+        var identity = new System.Security.Claims.ClaimsIdentity("TestAuth");
+        identity.AddClaim(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, userA.Id));
+        identity.AddClaim(new System.Security.Claims.Claim("permission", Permissions.UsersEdit));
+        var callerPrincipal = new System.Security.Claims.ClaimsPrincipal(identity);
+
+        var result = await service.CheckSameEmployeePrivilegeEscalationAsync(userA.Id, userA.Id, callerPrincipal);
+
+        result.IsAllowed.Should().BeFalse("self-modification of permissions/roles by non-admin must always be blocked");
+    }
 }

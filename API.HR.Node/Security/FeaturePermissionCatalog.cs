@@ -169,9 +169,14 @@ public static class FeaturePermissionCatalog
         new MenuGroupDefinition("governance", "الحسابات والأمان", "shield-check",
         [
             new FeatureDefinition(
-                "users", "المستخدمون والأدوار والصلاحيات", "shield-check", "الحسابات والأمان",
+                "users", "المستخدمون وإدارة الحسابات", "users", "الحسابات والأمان",
                 new PermissionDefinition(Permissions.UsersView, "رؤية المستخدمين والأدوار", "استعراض حسابات المستخدمين، الأدوار الممنوحة، وربط الموظفين", false),
-                new PermissionDefinition(Permissions.UsersEdit, "تعديل المستخدمين والأدوار", "إنشاء وتعديل الحسابات، تعيين الصلاحيات والأدوار، وإعادة تعيين كلمات المرور", true)),
+                new PermissionDefinition(Permissions.UsersEdit, "إدارة حسابات المستخدمين", "إنشاء الحسابات، إعادة ربط الموظفين، القفل، وإعادة تعيين كلمات المرور وتأمين الأجهزة", true)),
+
+            new FeatureDefinition(
+                "user-permissions", "صلاحيات وأدوار المستخدمين", "shield-check", "الحسابات والأمان",
+                new PermissionDefinition(Permissions.UsersView, "رؤية الصلاحيات والأدوار", "استعراض الأدوار والصلاحيات الممنوحة للمستخدمين", false),
+                new PermissionDefinition(Permissions.UsersPermissionsEdit, "تعديل الصلاحيات والأدوار", "إسناد وتعديل الأدوار والصلاحيات المباشرة وحزم الأذونات وتغيير النطاق الإداري", true)),
 
             new FeatureDefinition(
                 "user-devices", "الأجهزة المقترنة بالموظفين", "device-phone-mobile", "الحسابات والأمان",
@@ -244,6 +249,7 @@ public static class FeaturePermissionCatalog
 
             ["HRManager"] = AllPermissionCodes
                 .Where(p => p is not Permissions.UsersEdit
+                            and not Permissions.UsersPermissionsEdit
                             and not Permissions.AuditLogsView
                             and not Permissions.AuditLogsEdit
                             and not Permissions.FeaturesView
@@ -406,7 +412,29 @@ public static class FeaturePermissionCatalog
             }
         }
 
-        return results;
+        return results
+            .GroupBy(p => p.PermissionCode, StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var first = g.First();
+                var anyEffective = g.Any(x => x.IsEffective);
+                var anyRoleGrant = g.Any(x => x.GrantedByRole);
+                var anyDirectGrant = g.Any(x => x.GrantedDirectly);
+                var allRoles = g.SelectMany(x => x.GrantedByRolesList).Distinct().ToList();
+                var bestReason = g.FirstOrDefault(x => x.IsEffective)?.SourceReason ?? first.SourceReason;
+
+                return new EffectivePermissionItem(
+                    PermissionCode: g.Key,
+                    FeatureName: first.FeatureName,
+                    PermissionTitle: first.PermissionTitle,
+                    IsEdit: first.IsEdit,
+                    GrantedByRole: anyRoleGrant,
+                    GrantedByRolesList: allRoles,
+                    GrantedDirectly: anyDirectGrant,
+                    IsEffective: anyEffective,
+                    SourceReason: bestReason);
+            })
+            .ToList();
     }
 
     /// <summary>

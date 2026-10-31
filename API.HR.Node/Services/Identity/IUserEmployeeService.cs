@@ -44,6 +44,13 @@ public sealed record ForceLogoutResult(
     DateTimeOffset Timestamp,
     string? ErrorMessage);
 
+public sealed record SameEmployeeCheckResult(
+    bool IsAllowed,
+    string? Reason,
+    bool IsSameEmployee,
+    string? CallerEmployeeId,
+    string? TargetEmployeeId);
+
 public sealed record EmployeePickerItem(
     string EmployeeID,
     string Name,
@@ -53,6 +60,16 @@ public sealed record EmployeePickerItem(
 
 public interface IUserEmployeeService
 {
+    /// <summary>
+    /// Checks and prevents privilege escalation when a user attempts to modify permissions/roles
+    /// of their own account or another account belonging to the same employee.
+    /// Admin callers bypass this restriction.
+    /// </summary>
+    Task<SameEmployeeCheckResult> CheckSameEmployeePrivilegeEscalationAsync(
+        string callerUserId,
+        string targetUserId,
+        System.Security.Claims.ClaimsPrincipal callerPrincipal,
+        CancellationToken ct = default);
     /// <summary>
     /// Validates the human employee invariant (User MUST be linked to an existing Employee).
     /// If EmployeeID is missing or orphaned, attempts safe auto-repair via EmployeeEmails matching User.Email.

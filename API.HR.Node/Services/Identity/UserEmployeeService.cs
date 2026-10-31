@@ -3,6 +3,7 @@ using API.HR.Node.Security;
 using API.HR.Node.Services.Audit;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace API.HR.Node.Services.Identity;
 
@@ -521,6 +522,85 @@ public sealed class UserEmployeeService : IUserEmployeeService
     {
         if (string.IsNullOrWhiteSpace(employeeId)) return false;
         return await _dbContext.Employees.AsNoTracking().AnyAsync(e => e.EmployeeID == employeeId, ct);
+    }
+
+    public async Task<SameEmployeeCheckResult> CheckSameEmployeePrivilegeEscalationAsync(
+        string callerUserId,
+        string targetUserId,
+        ClaimsPrincipal callerPrincipal,
+        CancellationToken ct = default)
+    {
+        // 1. Admin bypass: Full admins are trusted to manage permissions across all accounts
+        var isAdmin = callerPrincipal.IsInRole("Admin") ||
+                      callerPrincipal.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)) ||
+                      string.Equals(callerPrincipal.Identity?.Name, "admin", StringComparison.OrdinalIgnoreCase) ||
+                      string.Equals(callerPrincipal.Identity?.Name, "systemadmin", StringComparison.OrdinalIgnoreCase);
+
+        if (isAdmin)
+        {
+            return new SameEmployeeCheckResult(true, null, false, null, null);
+        }
+
+        // 2. Direct self-modification prevention
+        if (string.Equals(callerUserId, targetUserId, StringComparison.OrdinalIgnoreCase))
+        {
+            await _auditLogger.LogAsync(
+                action: "UNAUTHORIZED_SELF_ROLE_MODIFICATION_ATTEMPT",
+                employeeID: callerPrincipal.FindFirst("employee_id")?.Value ?? callerUserId,
+                photoId: null,
+                success: false,
+                user: callerPrincipal,
+                ipAddress: null,
+                userAgent: null,
+                failureReason: "Caller attempted to modify their own roles/permissions directly.",
+                correlationId: $"Caller: {callerUserId}, Target: {targetUserId}",
+                cancellationToken: ct);
+
+            return new SameEmployeeCheckResult(false, "لا يمكنك تعديل أدوارك أو صلاحياتك بنفسك لتفادي رفع الصلاحيات غير المصرّح به.", true, null, null);
+        }
+
+        // 3. Resolve caller EmployeeID
+        string? callerEmpId = callerPrincipal.FindFirst("employee_id")?.Value;
+        if (string.IsNullOrWhiteSpace(callerEmpId))
+        {
+            var callerUser = await _userManager.FindByIdAsync(callerUserId);
+            callerEmpId = callerUser?.EmployeeID;
+        }
+
+        // 4. Resolve target EmployeeID
+        var targetUser = await _userManager.FindByIdAsync(targetUserId);
+        var targetEmpId = targetUser?.EmployeeID;
+
+        // 5. If both accounts belong to the same employee (and caller is not Admin), block!
+        if (!string.IsNullOrWhiteSpace(callerEmpId) &&
+            !string.IsNullOrWhiteSpace(targetEmpId) &&
+            string.Equals(callerEmpId, targetEmpId, StringComparison.OrdinalIgnoreCase))
+        {
+            await _auditLogger.LogAsync(
+                action: "UNAUTHORIZED_SAME_EMPLOYEE_PRIVILEGE_ESCALATION_ATTEMPT",
+                employeeID: callerEmpId,
+                photoId: null,
+                success: false,
+                user: callerPrincipal,
+                ipAddress: null,
+                userAgent: null,
+                failureReason: $"Non-admin caller '{callerPrincipal.Identity?.Name}' (User: {callerUserId}) attempted to modify permissions of target user '{targetUser?.UserName}' (User: {targetUserId}) sharing EmployeeID '{callerEmpId}'.",
+                correlationId: $"CallerUser: {callerUserId}, TargetUser: {targetUserId}, SharedEmployee: {callerEmpId}",
+                cancellationToken: ct);
+
+            _logger.LogWarning(
+                "SECURITY ALERT: Blocked privilege escalation attempt. Caller user {CallerUserId} attempted to modify permissions of user {TargetUserId} with shared EmployeeID {EmpId}",
+                callerUserId, targetUserId, callerEmpId);
+
+            return new SameEmployeeCheckResult(
+                false,
+                "لا يمكنك تعديل أدوار أو صلاحيات حساب آخر مرتبط بنفس سجلك الوظيفي لمنع رفع الصلاحيات غير المصرّح به.",
+                true,
+                callerEmpId,
+                targetEmpId);
+        }
+
+        return new SameEmployeeCheckResult(true, null, false, callerEmpId, targetEmpId);
     }
 
     private async Task EnsureDefaultRoleIfNoneAsync(ApplicationUser user, CancellationToken ct = default)

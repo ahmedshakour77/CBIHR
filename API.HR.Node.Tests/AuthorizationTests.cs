@@ -196,6 +196,149 @@ public sealed class AuthorizationTests
     }
 
     [Fact]
+    public async Task HandleAsync_UserWithDevicesViewOnly_CannotSatisfyDevicesEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.DevicesView));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.DevicesEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeFalse("Devices.View only must DENY mutations requiring Devices.Edit");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithDevicesEdit_SatisfiesDevicesEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.DevicesEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.DevicesEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Devices.Edit must ALLOW mutations requiring Devices.Edit");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithDevicesEdit_SatisfiesDevicesViewRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.DevicesEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.DevicesView);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Devices.Edit implies Devices.View");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithFeedbackViewOnly_CannotSatisfyFeedbackEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.FeedbackView));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.FeedbackEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeFalse("Feedback.View only must DENY mutations requiring Feedback.Edit");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithFeedbackEdit_SatisfiesFeedbackEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.FeedbackEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.FeedbackEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Feedback.Edit must ALLOW operations requiring Feedback.Edit");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithFeedbackEdit_SatisfiesFeedbackViewRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.FeedbackEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.FeedbackView);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Feedback.Edit implies Feedback.View");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithUsersEditOnly_CannotSatisfyUsersPermissionsEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.UsersEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.UsersPermissionsEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeFalse("Users.Edit lifecycle permission must NOT satisfy Users.PermissionsEdit");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithUsersPermissionsEdit_SatisfiesUsersPermissionsEditRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.UsersPermissionsEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.UsersPermissionsEdit);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Users.PermissionsEdit satisfies Users.PermissionsEdit requirement");
+    }
+
+    [Fact]
+    public async Task HandleAsync_UserWithUsersPermissionsEdit_SatisfiesUsersViewRequirement()
+    {
+        var identity = new ClaimsIdentity("TestAuth");
+        identity.AddClaim(new Claim("permission", Permissions.UsersPermissionsEdit));
+        var principal = new ClaimsPrincipal(identity);
+
+        var requirement = new PermissionRequirement(Permissions.UsersView);
+        var context = new AuthorizationHandlerContext([requirement], principal, null);
+
+        await _handler.HandleAsync(context);
+
+        context.HasSucceeded.Should().BeTrue("Users.PermissionsEdit implies Users.View");
+    }
+
+    [Fact]
+    public void FeaturePermissionCatalog_UsersPermissionsEdit_RegisteredAndExcludedFromStandardHrManagerPackage()
+    {
+        FeaturePermissionCatalog.AllPermissionCodes.Should().Contain(Permissions.UsersPermissionsEdit);
+        FeaturePermissionCatalog.RolePermissionPackages["HRManager"].Should().NotContain(Permissions.UsersPermissionsEdit,
+            "Users.PermissionsEdit is sensitive and must not be part of the default HRManager package");
+    }
+
+    [Fact]
     public void NavCatalog_AllMenuPermissions_MustExistInFeaturePermissionCatalog()
     {
         var allPerms = FeaturePermissionCatalog.AllPermissionCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);

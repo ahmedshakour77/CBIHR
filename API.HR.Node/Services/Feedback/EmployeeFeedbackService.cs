@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using API.HR.Node.Data;
 using API.HR.Node.Data.Feedback;
 using API.HR.Node.Services.Security;
+using Microsoft.AspNetCore.Authorization;
+using API.HR.Node.Security;
 using API.HR.Node.Services.Storage;
 
 namespace API.HR.Node.Services.Feedback;
@@ -16,6 +18,7 @@ public class EmployeeFeedbackService(
     IFileStorageService fileStorage,
     IFileMalwareScanner malwareScanner,
     API.HR.Node.Services.Features.ISystemFeatureService featureService,
+    IAuthorizationService authorizationService,
     ILogger<EmployeeFeedbackService> logger) : IEmployeeFeedbackService
 {
     public const long MaxFileSizeBytes = 2 * 1024 * 1024; // 2 MB limit
@@ -352,6 +355,15 @@ public class EmployeeFeedbackService(
         ClaimsPrincipal adminUser,
         CancellationToken cancellationToken = default)
     {
+        // 1. Server-side Authorization Check: Caller MUST satisfy Feedback.Edit (Canonical)
+        var authResult = await authorizationService.AuthorizeAsync(adminUser, null, new PermissionRequirement(Permissions.FeedbackEdit));
+        if (!authResult.Succeeded)
+        {
+            logger.LogWarning("SECURITY ALERT: Unauthorized attempt to update feedback status without Feedback.Edit: FeedbackId={Id}, User={User}",
+                id, adminUser.Identity?.Name ?? "UNKNOWN");
+            return false;
+        }
+
         var feedback = await dbContext.EmployeeFeedbacks.FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
         if (feedback == null)
         {
@@ -383,8 +395,9 @@ public class EmployeeFeedbackService(
             return null;
         }
 
-        // Authorization check: User must be Admin/HRManager OR the author of the feedback
-        var isStaff = user.IsInRole("Admin") || user.IsInRole("HRManager") || user.HasClaim("permission", "EmployeeFeedback.Manage");
+        // Authorization check: Staff with Feedback.View (Canonical) OR the author of the feedback
+        var authResult = await authorizationService.AuthorizeAsync(user, null, new PermissionRequirement(Permissions.FeedbackView));
+        var isStaff = authResult.Succeeded;
         var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         int.TryParse(user.FindFirst("employee_id")?.Value, out var empId);
 

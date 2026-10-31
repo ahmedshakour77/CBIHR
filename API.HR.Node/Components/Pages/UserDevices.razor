@@ -5,6 +5,9 @@
 
 @inject ApplicationDbContext DbContext
 @inject ILogger<UserDevices> Logger
+@inject IAuthorizationService AuthorizationService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject API.HR.Node.Services.Audit.IAuditLogger AuditLogger
 
 <PageTitle>الأجهزة المقترنة | الموظف ٣٦٠°   </PageTitle>
 
@@ -163,21 +166,28 @@
                                     }
                                 </td>
                                 <td>
-                                    @if (dev.IsActive)
+                                    @if (canEditDevices)
                                     {
-                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm"
-                                                @onclick="() => AskRevoke(dev)">
-                                            <Icon Name="no-symbol" Size="xs" />
-                                            <span>سحب الاعتماد</span>
-                                        </button>
+                                        @if (dev.IsActive)
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm"
+                                                    @onclick="() => AskRevoke(dev)">
+                                                <Icon Name="no-symbol" Size="xs" />
+                                                <span>سحب الاعتماد</span>
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                    @onclick="() => RebindDeviceAsync(dev)">
+                                                <Icon Name="link" Size="xs" />
+                                                <span>إعادة الاقتران</span>
+                                            </button>
+                                        }
                                     }
                                     else
                                     {
-                                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
-                                                @onclick="() => RebindDeviceAsync(dev)">
-                                            <Icon Name="link" Size="xs" />
-                                            <span>إعادة الاقتران</span>
-                                        </button>
+                                        <span class="hr-meta" style="font-size:0.75rem;">عرض فقط</span>
                                     }
                                 </td>
                             </tr>
@@ -221,6 +231,8 @@
 
     private int activeDevicesCount => allDevices.Count(d => d.IsActive);
 
+    private bool canEditDevices;
+
     private string PendingLabel =>
         pendingDevice is null
             ? string.Empty
@@ -229,7 +241,14 @@
     private static string Display(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value;
 
-    protected override async Task OnInitializedAsync() => await LoadDevicesAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, null, new PermissionRequirement(Permissions.DevicesEdit));
+        canEditDevices = authResult.Succeeded;
+
+        await LoadDevicesAsync();
+    }
 
     private async Task LoadDevicesAsync()
     {
@@ -292,6 +311,24 @@
             return;
         }
 
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, null, new PermissionRequirement(Permissions.DevicesEdit));
+        if (!authResult.Succeeded)
+        {
+            statusMessage = "غير مصرّح لك بسحب اعتماد الأجهزة (Devices.Edit مطلوب).";
+            await AuditLogger.LogAsync(
+                action: "UNAUTHORIZED_DEVICE_REVOCATION_ATTEMPT",
+                employeeID: pendingDevice.EmployeeID,
+                photoId: null,
+                success: false,
+                user: authState.User,
+                ipAddress: null,
+                userAgent: null,
+                failureReason: "User lacks Devices.Edit permission.");
+            pendingDevice = null;
+            return;
+        }
+
         isRevoking = true;
         var label = pendingDevice.EmployeeID;
 
@@ -299,6 +336,16 @@
         {
             pendingDevice.IsActive = false;
             await DbContext.SaveChangesAsync();
+            await AuditLogger.LogAsync(
+                action: "DEVICE_REVOKED",
+                employeeID: label,
+                photoId: null,
+                success: true,
+                user: authState.User,
+                ipAddress: null,
+                userAgent: null,
+                correlationId: $"DeviceId: {pendingDevice.DeviceId}, Model: {pendingDevice.DeviceModel}");
+
             statusMessage = $"تم سحب اعتماد جهاز الموظف {label}.";
             pendingDevice = null;
             await LoadDevicesAsync();
@@ -316,10 +363,37 @@
 
     private async Task RebindDeviceAsync(UserDevice dev)
     {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, null, new PermissionRequirement(Permissions.DevicesEdit));
+        if (!authResult.Succeeded)
+        {
+            statusMessage = "غير مصرّح لك بإعادة اقتران الأجهزة (Devices.Edit مطلوب).";
+            await AuditLogger.LogAsync(
+                action: "UNAUTHORIZED_DEVICE_REBIND_ATTEMPT",
+                employeeID: dev.EmployeeID,
+                photoId: null,
+                success: false,
+                user: authState.User,
+                ipAddress: null,
+                userAgent: null,
+                failureReason: "User lacks Devices.Edit permission.");
+            return;
+        }
+
         try
         {
             dev.IsActive = true;
             await DbContext.SaveChangesAsync();
+            await AuditLogger.LogAsync(
+                action: "DEVICE_REBOUND",
+                employeeID: dev.EmployeeID,
+                photoId: null,
+                success: true,
+                user: authState.User,
+                ipAddress: null,
+                userAgent: null,
+                correlationId: $"DeviceId: {dev.DeviceId}, Model: {dev.DeviceModel}");
+
             statusMessage = $"تمت إعادة اقتران جهاز الموظف {dev.EmployeeID}.";
             await LoadDevicesAsync();
         }

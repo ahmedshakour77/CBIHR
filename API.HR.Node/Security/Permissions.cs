@@ -97,6 +97,7 @@ public static class Permissions
     // ==========================================
     public const string UsersView = "Users.View";
     public const string UsersEdit = "Users.Edit";
+    public const string UsersPermissionsEdit = "Users.PermissionsEdit";
 
     public const string DevicesView = "Devices.View";
     public const string DevicesEdit = "Devices.Edit";

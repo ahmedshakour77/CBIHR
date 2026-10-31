@@ -12,6 +12,7 @@
 @inject ILanguageService Lang
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Nav
+@inject IAuthorizationService AuthorizationService
 
 <PageTitle>مشاركات الموظفين | إدارة الموارد البشرية</PageTitle>
 
@@ -484,24 +485,46 @@
                 <hr style="border:0; border-top:1px solid var(--line); margin:0.5rem 0;" />
 
                 <!-- Status Update Section -->
-                <div class="hr-feedback-field">
-                    <label class="hr-label" for="update-status">تحديث الحالة الإدارية</label>
-                    <select id="update-status" class="hr-input" @bind="modalStatus">
-                        <option value="@FeedbackStatus.Pending">بانتظار المراجعة</option>
-                        <option value="@FeedbackStatus.InProgress">قيد المعالجة والدراسة</option>
-                        <option value="@FeedbackStatus.Resolved">تمت المعالجة والرد</option>
-                        <option value="@FeedbackStatus.Rejected">مرفوض أو محفوظ</option>
-                    </select>
-                </div>
+                @if (canEditFeedback)
+                {
+                    <div class="hr-feedback-field">
+                        <label class="hr-label" for="update-status">تحديث الحالة الإدارية</label>
+                        <select id="update-status" class="hr-input" @bind="modalStatus">
+                            <option value="@FeedbackStatus.Pending">بانتظار المراجعة</option>
+                            <option value="@FeedbackStatus.InProgress">قيد المعالجة والدراسة</option>
+                            <option value="@FeedbackStatus.Resolved">تمت المعالجة والرد</option>
+                            <option value="@FeedbackStatus.Rejected">مرفوض أو محفوظ</option>
+                        </select>
+                    </div>
 
-                <div class="hr-feedback-field">
-                    <label class="hr-label" for="admin-reply">ملاحظات الإدارة أو الرد على الموظف</label>
-                    <textarea id="admin-reply"
-                              class="hr-input"
-                              rows="3"
-                              placeholder="اكتب رد الإدارة أو التوجيهات الصادرة بخصوص هذه المشاركة..."
-                              @bind="modalAdminNotes"></textarea>
-                </div>
+                    <div class="hr-feedback-field">
+                        <label class="hr-label" for="admin-reply">ملاحظات الإدارة أو الرد على الموظف</label>
+                        <textarea id="admin-reply"
+                                  class="hr-input"
+                                  rows="3"
+                                  placeholder="اكتب رد الإدارة أو التوجيهات الصادرة بخصوص هذه المشاركة..."
+                                  @bind="modalAdminNotes"></textarea>
+                    </div>
+                }
+                else
+                {
+                    <div class="hr-feedback-field">
+                        <label class="hr-label">الحالة الإدارية للمشاركة</label>
+                        <div class="hr-input" style="background:var(--subtle, rgba(0,0,0,0.03)); cursor:not-allowed; display:flex; align-items:center;">
+                            @GetStatusName(activeFeedback.Status)
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(activeFeedback.AdminNotes))
+                    {
+                        <div class="hr-feedback-field">
+                            <label class="hr-label">رد أو ملاحظات الإدارة</label>
+                            <div class="hr-input" style="background:var(--subtle, rgba(0,0,0,0.03)); min-height:4rem; white-space:pre-wrap; cursor:not-allowed;">
+                                @activeFeedback.AdminNotes
+                            </div>
+                        </div>
+                    }
+                }
 
                 @if (activeFeedback.RespondedAt.HasValue)
                 {
@@ -512,19 +535,22 @@
             </div>
 
             <div class="hr-feedback-foot">
-                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CloseDetailModal">إلغاء</button>
-                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="SaveStatusUpdateAsync" disabled="@isSavingStatus">
-                    @if (isSavingStatus)
-                    {
-                        <span class="hr-spinner hr-spinner-xs" aria-hidden="true"></span>
-                        <span>جارٍ الحفظ…</span>
-                    }
-                    else
-                    {
-                        <Icon Name="check" Size="xs" />
-                        <span>حفظ التعديلات والرد</span>
-                    }
-                </button>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="CloseDetailModal">إغلاق</button>
+                @if (canEditFeedback)
+                {
+                    <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="SaveStatusUpdateAsync" disabled="@isSavingStatus">
+                        @if (isSavingStatus)
+                        {
+                            <span class="hr-spinner hr-spinner-xs" aria-hidden="true"></span>
+                            <span>جارٍ الحفظ…</span>
+                        }
+                        else
+                        {
+                            <Icon Name="check" Size="xs" />
+                            <span>حفظ التعديلات والرد</span>
+                        }
+                    </button>
+                }
             </div>
         </div>
     </div>
@@ -545,9 +571,14 @@
     private EmployeeFeedback? activeFeedback;
     private FeedbackStatus modalStatus;
     private string modalAdminNotes = string.Empty;
+    private bool canEditFeedback;
 
     protected override async Task OnInitializedAsync()
     {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(auth.User, null, new PermissionRequirement(Permissions.FeedbackEdit));
+        canEditFeedback = authResult.Succeeded;
+
         await LoadDataAsync();
     }
 
@@ -630,10 +661,16 @@
     {
         if (activeFeedback == null || isSavingStatus) return;
 
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(auth.User, null, new PermissionRequirement(Permissions.FeedbackEdit));
+        if (!authResult.Succeeded)
+        {
+            return;
+        }
+
         isSavingStatus = true;
         try
         {
-            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
             var success = await FeedbackService.UpdateFeedbackStatusAsync(
                 activeFeedback.Id,
                 modalStatus,
@@ -653,6 +690,15 @@
             isSavingStatus = false;
         }
     }
+
+    private static string GetStatusName(FeedbackStatus status) => status switch
+    {
+        FeedbackStatus.Pending => "بانتظار المراجعة",
+        FeedbackStatus.InProgress => "قيد المعالجة والدراسة",
+        FeedbackStatus.Resolved => "تمت المعالجة والرد",
+        FeedbackStatus.Rejected => "مرفوض أو محفوظ",
+        _ => status.ToString()
+    };
 
     private string FormatFileSize(long bytes)
     {

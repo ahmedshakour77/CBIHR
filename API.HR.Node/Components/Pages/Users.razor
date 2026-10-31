@@ -346,10 +346,13 @@
                         الأدوار التي يُبنى عليها التحكم بالوصول عبر صفحات النظام.
                     </p>
                 </div>
-                <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenCreateRoleModal">
-                    <Icon Name="plus" Size="sm" />
-                    <span>دور جديد</span>
-                </button>
+                @if (canEditUserPermissions)
+                {
+                    <button type="button" class="hr-btn hr-btn-secondary" @onclick="OpenCreateRoleModal">
+                        <Icon Name="plus" Size="sm" />
+                        <span>دور جديد</span>
+                    </button>
+                }
             </div>
 
             @if (rolesList.Count == 0)
@@ -407,7 +410,7 @@
 
                             @* The Admin role is the system's own floor and is not
                                offered for deletion. *@
-                            @if (role.RoleName != "Admin")
+                            @if (role.RoleName != "Admin" && canEditUserPermissions)
                             {
                                 <div class="hr-card-foot" style="display:flex;justify-content:flex-end">
                                     <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm"
@@ -545,6 +548,27 @@
             </button>
         </div>
 
+        @if (IsTargetUserSameEmployeeAsCaller(selectedUserForRoles))
+        {
+            <div class="hr-alert hr-alert-danger mb-3" role="alert">
+                <Icon Name="shield-exclamation" Size="sm" />
+                <div class="hr-alert-grow">
+                    <strong>منع تصعيد الصلاحيات (Privilege Escalation Block)</strong>
+                    <p>لا يمكن لمستخدم تعديل صلاحيات أو أدوار حساب آخر مرتبط بنفس الموظف (@(selectedUserForRoles?.EmployeeID)). تم قفل إمكانية التعديل لحماية أمن النظام.</p>
+                </div>
+            </div>
+        }
+        else if (!canEditUserPermissions)
+        {
+            <div class="hr-alert hr-alert-neutral mb-3" role="alert">
+                <Icon Name="eye" Size="sm" />
+                <div class="hr-alert-grow">
+                    <strong>وضع العرض فقط (Read-only)</strong>
+                    <p>حسابك يمتلك إذن استعراض الحسابات (Users.View) دون إذن تعديل الصلاحيات والأدوار (Users.PermissionsEdit). المحتوى معروض للقراءة فقط.</p>
+                </div>
+            </div>
+        }
+
         @if (rolesModalTab == "effective")
         {
             var effPerms = FeaturePermissionCatalog.CalculateEffectivePermissions(editingRoles, editingClaims)
@@ -618,41 +642,44 @@
         }
         else
         {
-            <div class="hr-card p-3 mb-3" style="background:var(--surface-raised); border:1px solid var(--line); border-radius:var(--r-md);">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--s-2); margin-block-end:.5rem;">
-                    <div>
-                        <strong style="display:block;">تطبيق باقة أدوار وصلاحيات قياسية (Presets)</strong>
-                        <small class="hr-meta">إسناد باقة صلاحيات معتمدة بنقرة واحدة</small>
+            @if (!IsRolesModalReadOnly)
+            {
+                <div class="hr-card p-3 mb-3" style="background:var(--surface-raised); border:1px solid var(--line); border-radius:var(--r-md);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--s-2); margin-block-end:.5rem;">
+                        <div>
+                            <strong style="display:block;">تطبيق باقة أدوار وصلاحيات قياسية (Presets)</strong>
+                            <small class="hr-meta">إسناد باقة صلاحيات معتمدة بنقرة واحدة</small>
+                        </div>
+                        <div style="display:flex; gap:var(--s-1); flex-wrap:wrap;">
+                            <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Employee")'>موظف</button>
+                            <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Supervisor")'>مشرف</button>
+                            <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("FormationManager")'>مدير تشكيل</button>
+                            <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("HRManager")'>مدير موارد بشرية</button>
+                            @if (isCallerAdmin)
+                            {
+                                <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Admin")'>مدير نظام</button>
+                            }
+                        </div>
                     </div>
-                    <div style="display:flex; gap:var(--s-1); flex-wrap:wrap;">
-                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Employee")'>موظف</button>
-                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Supervisor")'>مشرف</button>
-                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("FormationManager")'>مدير تشكيل</button>
-                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("HRManager")'>مدير موارد بشرية</button>
-                        @if (isCallerAdmin)
-                        {
-                            <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick='() => ApplyPreset("Admin")'>مدير نظام</button>
-                        }
-                    </div>
-                </div>
 
-                <div style="display:flex; align-items:center; gap:var(--s-2); flex-wrap:wrap; border-block-start:1px dashed var(--line-subtle); padding-block-start:.5rem; margin-block-start:.5rem;">
-                    <span class="hr-meta" style="font-size:0.8rem;">نسخ الصلاحيات من حساب آخر:</span>
-                    <select class="hr-select hr-select-sm" style="max-width:14rem;" @bind="cloneSourceUserId">
-                        <option value="">-- اختر مستخدماً للنسخ منه --</option>
-                        @foreach (var otherUser in usersList.Where(u => u.Id != selectedUserForRoles.Id))
-                        {
-                            var isOtherAdmin = otherUser.AssignedRoles.Contains("Admin");
-                            if (!isCallerAdmin && isOtherAdmin) continue;
-                            <option value="@otherUser.Id">@otherUser.UserName (@(otherUser.LinkedEmployeeName ?? otherUser.EmployeeID ?? "غير مرتبط"))</option>
-                        }
-                    </select>
-                    <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" disabled="@string.IsNullOrWhiteSpace(cloneSourceUserId)" @onclick="CloneFromUserAsync">
-                        <Icon Name="document-duplicate" Size="xs" />
-                        <span>استنساخ الصلاحيات</span>
-                    </button>
+                    <div style="display:flex; align-items:center; gap:var(--s-2); flex-wrap:wrap; border-block-start:1px dashed var(--line-subtle); padding-block-start:.5rem; margin-block-start:.5rem;">
+                        <span class="hr-meta" style="font-size:0.8rem;">نسخ الصلاحيات من حساب آخر:</span>
+                        <select class="hr-select hr-select-sm" style="max-width:14rem;" @bind="cloneSourceUserId">
+                            <option value="">-- اختر مستخدماً للنسخ منه --</option>
+                            @foreach (var otherUser in usersList.Where(u => u.Id != selectedUserForRoles.Id))
+                            {
+                                var isOtherAdmin = otherUser.AssignedRoles.Contains("Admin");
+                                if (!isCallerAdmin && isOtherAdmin) continue;
+                                <option value="@otherUser.Id">@otherUser.UserName (@(otherUser.LinkedEmployeeName ?? otherUser.EmployeeID ?? "غير مرتبط"))</option>
+                            }
+                        </select>
+                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" disabled="@string.IsNullOrWhiteSpace(cloneSourceUserId)" @onclick="CloneFromUserAsync">
+                            <Icon Name="document-duplicate" Size="xs" />
+                            <span>استنساخ الصلاحيات</span>
+                        </button>
+                    </div>
                 </div>
-            </div>
+            }
 
             @if (HasSensitivePermissionsSelected())
             {
@@ -660,7 +687,7 @@
                     <Icon Name="exclamation-triangle" Size="sm" />
                     <div class="hr-alert-grow">
                         <strong>تنبيه أمني لصلاحيات حساسة</strong>
-                        <p style="margin:0; font-size:0.85rem;">تم تحديد صلاحيات إدارية وأمنية حساسة (مثل إدارة المستخدمين أو سجل التدقيق أو الرواتب أو ضبط النظام). يرجى التأكد من أهلية المستخدم ومسؤوليته الإدارية قبل الحفظ.</p>
+                        <p style="margin:0; font-size:0.85rem;">تم تحديد صلاحيات إدارية وأمنية حساسة (مثل إدارة المستخدمين أو الصلاحيات أو سجل التدقيق أو الرواتب أو ضبط النظام). يرجى التأكد من أهلية المستخدم ومسؤوليته الإدارية قبل الحفظ.</p>
                     </div>
                 </div>
             }
@@ -677,8 +704,8 @@
                         var isChecked = editingRoles.Contains(rName);
                         var isAdminRole = string.Equals(rName, "Admin", StringComparison.OrdinalIgnoreCase);
                         var isDisabled = isAdminRole && !isCallerAdmin;
-                        <label class="hr-optioncard @(isChecked ? "is-selected" : "") @(isDisabled ? "is-disabled" : "")" style="@(isDisabled ? "opacity:0.5;cursor:not-allowed;" : "")">
-                            <input type="checkbox" checked="@isChecked" disabled="@isDisabled"
+                        <label class="hr-optioncard @(isChecked ? "is-selected" : "") @(isDisabled || IsRolesModalReadOnly ? "is-disabled" : "")" style="@(isDisabled || IsRolesModalReadOnly ? "opacity:0.5;cursor:not-allowed;" : "")">
+                            <input type="checkbox" checked="@isChecked" disabled="@(isDisabled || IsRolesModalReadOnly)"
                                    @onchange='(e) => ToggleRoleSelection(rName, (bool)e.Value!)' />
                             <span class="hr-optioncard-text">
                                 @rName
@@ -700,20 +727,23 @@
                             حدد صلاحيات الرؤية والتعديل لكل قسم وتبويب في النظام. تتيح للمستخدم الوصول وإجراء العمليات بدقة.
                         </p>
                     </div>
-                    <div style="display:flex;align-items:center;gap:var(--s-1);flex-wrap:wrap">
-                        <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllPermissions">
-                            <Icon Name="check-badge" Size="xs" />
-                            <span>منح الكل (رؤية وتعديل)</span>
-                        </button>
-                        <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllViewPermissions">
-                            <Icon Name="eye" Size="xs" />
-                            <span>منح الرؤية فقط للجميع</span>
-                        </button>
-                        <button type="button" class="hr-btn hr-btn-sm hr-btn-quiet" @onclick="ClearAllPermissions">
-                            <Icon Name="x-mark" Size="xs" />
-                            <span>إلغاء التحديد</span>
-                        </button>
-                    </div>
+                    @if (!IsRolesModalReadOnly)
+                    {
+                        <div style="display:flex;align-items:center;gap:var(--s-1);flex-wrap:wrap">
+                            <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllPermissions">
+                                <Icon Name="check-badge" Size="xs" />
+                                <span>منح الكل (رؤية وتعديل)</span>
+                            </button>
+                            <button type="button" class="hr-btn hr-btn-sm hr-btn-secondary" @onclick="SelectAllViewPermissions">
+                                <Icon Name="eye" Size="xs" />
+                                <span>منح الرؤية فقط للجميع</span>
+                            </button>
+                            <button type="button" class="hr-btn hr-btn-sm hr-btn-quiet" @onclick="ClearAllPermissions">
+                                <Icon Name="x-mark" Size="xs" />
+                                <span>إلغاء التحديد</span>
+                            </button>
+                        </div>
+                    }
                 </div>
 
                 <div style="margin-block-end:1rem">
@@ -733,17 +763,20 @@
                                     <strong>@group.GroupTitle</strong>
                                     <span class="hr-meta">(@group.Features.Count ميزة)</span>
                                 </div>
-                                <div style="display:flex;align-items:center;gap:var(--s-1)">
-                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, false)">
-                                        تحديد المجموعة
-                                    </button>
-                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, true)">
-                                        رؤية فقط
-                                    </button>
-                                    <button type="button" class="hr-btn hr-btn-xs hr-btn-quiet" @onclick="() => ClearGroupPermissions(group)">
-                                        إلغاء
-                                    </button>
-                                </div>
+                                @if (!IsRolesModalReadOnly)
+                                {
+                                    <div style="display:flex;align-items:center;gap:var(--s-1)">
+                                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, false)">
+                                            تحديد المجموعة
+                                        </button>
+                                        <button type="button" class="hr-btn hr-btn-xs hr-btn-secondary" @onclick="() => SelectGroupPermissions(group, true)">
+                                            رؤية فقط
+                                        </button>
+                                        <button type="button" class="hr-btn hr-btn-xs hr-btn-quiet" @onclick="() => ClearGroupPermissions(group)">
+                                            إلغاء
+                                        </button>
+                                    </div>
+                                }
                             </div>
 
                             <div class="hr-table-container" style="background:transparent;border:none">
@@ -770,15 +803,15 @@
                                                     <small class="hr-meta" style="display:block;font-size:0.75rem">@feat.ViewPermission.Description</small>
                                                 </td>
                                                 <td>
-                                                    <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
-                                                        <input type="checkbox" checked="@hasView"
+                                                    <label style="display:flex;align-items:center;gap:var(--s-1);cursor:@(IsRolesModalReadOnly ? "default" : "pointer")">
+                                                        <input type="checkbox" checked="@hasView" disabled="@IsRolesModalReadOnly"
                                                                @onchange="(e) => ToggleClaimSelection(feat.ViewPermission.Code, (bool)e.Value!)" />
                                                         <span>رؤية</span>
                                                     </label>
                                                 </td>
                                                 <td>
-                                                    <label style="display:flex;align-items:center;gap:var(--s-1);cursor:pointer">
-                                                        <input type="checkbox" checked="@hasEdit"
+                                                    <label style="display:flex;align-items:center;gap:var(--s-1);cursor:@(IsRolesModalReadOnly ? "default" : "pointer")">
+                                                        <input type="checkbox" checked="@hasEdit" disabled="@IsRolesModalReadOnly"
                                                                @onchange="(e) => ToggleEditClaimSelection(feat, (bool)e.Value!)" />
                                                         <span style="color:var(--accent-text);font-weight:600">تعديل</span>
                                                     </label>
@@ -812,7 +845,7 @@
                     <Icon Name="building-office-2" Size="xs" />
                     <span class="hr-cell-strong">ربط التشكيل الإداري (إذن مخصص للتشكيلات)</span>
                 </label>
-                <select id="edit-user-formation" class="hr-select" @bind="selectedUserFormationId">
+                <select id="edit-user-formation" class="hr-select" @bind="selectedUserFormationId" disabled="@IsRolesModalReadOnly">
                     <option value="">-- غير محدد (يعتمد تشكيل الموظف المرتبط تلقائياً) --</option>
                     @foreach (var f in allFormations)
                     {
@@ -827,24 +860,37 @@
     </Body>
     <Footer>
         <div style="display:flex; align-items:center; justify-content:space-between; width:100%; flex-wrap:wrap; gap:var(--s-2);">
-            <label style="display:inline-flex; align-items:center; gap:var(--s-1); cursor:pointer;">
-                <input type="checkbox" @bind="forceLogoutAfterSave" />
-                <span class="hr-meta" style="font-size:0.875rem; font-weight:500;">إنهاء كافة جلسات المستخدم فوراً بعد الحفظ (Force Logout)</span>
-            </label>
+            @if (!IsRolesModalReadOnly)
+            {
+                <label style="display:inline-flex; align-items:center; gap:var(--s-1); cursor:pointer;">
+                    <input type="checkbox" @bind="forceLogoutAfterSave" />
+                    <span class="hr-meta" style="font-size:0.875rem; font-weight:500;">إنهاء كافة جلسات المستخدم فوراً بعد الحفظ (Force Logout)</span>
+                </label>
+            }
+            else
+            {
+                <span class="hr-badge hr-badge-neutral">
+                    <Icon Name="lock-closed" Size="xs" />
+                    <span>وضع القراءة فقط (تعديل الصلاحيات مقفل)</span>
+                </span>
+            }
             <div style="display:flex; gap:var(--s-1);">
                 <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals" disabled="@isProcessing">إلغاء</button>
-                <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserRolesAndPermissions" disabled="@isProcessing">
-                    @if (isProcessing)
-                    {
-                        <span class="hr-spinner" aria-hidden="true"></span>
-                        <span>جارٍ الحفظ…</span>
-                    }
-                    else
-                    {
-                        <Icon Name="check" Size="xs" />
-                        <span>حفظ التغييرات</span>
-                    }
-                </button>
+                @if (!IsRolesModalReadOnly)
+                {
+                    <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveUserRolesAndPermissions" disabled="@isProcessing">
+                        @if (isProcessing)
+                        {
+                            <span class="hr-spinner" aria-hidden="true"></span>
+                            <span>جارٍ الحفظ…</span>
+                        }
+                        else
+                        {
+                            <Icon Name="check" Size="xs" />
+                            <span>حفظ التغييرات</span>
+                        }
+                    </button>
+                }
             </div>
         </div>
     </Footer>
@@ -1470,8 +1516,10 @@
 
     private string? currentUserId;
     private string? currentUserName;
+    private string? currentCallerEmployeeId;
     private bool isCallerAdmin;
     private bool canEditUsers;
+    private bool canEditUserPermissions;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1486,6 +1534,15 @@
                         string.Equals(currentUserName, "systemadmin", StringComparison.OrdinalIgnoreCase);
 
         canEditUsers = isCallerAdmin || principal.HasPermission(Permissions.UsersEdit);
+        canEditUserPermissions = isCallerAdmin || principal.HasPermission(Permissions.UsersPermissionsEdit);
+
+        if (!string.IsNullOrEmpty(currentUserId))
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var callerUser = await userMgr.FindByIdAsync(currentUserId);
+            currentCallerEmployeeId = callerUser?.EmployeeID;
+        }
 
         var uri = NavManager.ToAbsoluteUri(NavManager.Uri);
         if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("search", out var sVal))
@@ -1496,13 +1553,35 @@
         await RefreshAllData();
     }
 
+    private bool IsTargetUserSameEmployeeAsCaller(UserViewModel? targetUser)
+    {
+        if (isCallerAdmin || targetUser == null) return false;
+        if (string.IsNullOrEmpty(currentCallerEmployeeId) || string.IsNullOrEmpty(targetUser.EmployeeID)) return false;
+        return string.Equals(currentCallerEmployeeId, targetUser.EmployeeID, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsRolesModalReadOnly => !canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles);
+
+    private async Task<bool> EnsureUserPermissionsEditAsync(string operationName)
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authResult = await AuthorizationService.AuthorizeAsync(authState.User, null, new PermissionRequirement(Permissions.UsersPermissionsEdit));
+        if (!authResult.Succeeded)
+        {
+            ShowStatus("لا تملك صلاحية تعديل الصلاحيات والأدوار (Users.PermissionsEdit).", isError: true);
+            await LogSecurityAuditAsync("UNAUTHORIZED_MUTATION_ATTEMPT", currentUserName ?? "UNKNOWN", false, $"User attempted {operationName} without Users.PermissionsEdit permission.");
+            return false;
+        }
+        return true;
+    }
+
     private async Task<bool> EnsureUserEditPermissionAsync(string operationName)
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var authResult = await AuthorizationService.AuthorizeAsync(authState.User, null, new PermissionRequirement(Permissions.UsersEdit));
         if (!authResult.Succeeded)
         {
-            ShowStatus("لا تملك صلاحية تعديل المستخدمين والأدوار (Users.Edit).", isError: true);
+            ShowStatus("لا تملك صلاحية إدارة المستخدمين (Users.Edit).", isError: true);
             await LogSecurityAuditAsync("UNAUTHORIZED_MUTATION_ATTEMPT", currentUserName ?? "UNKNOWN", false, $"User attempted {operationName} without Users.Edit permission.");
             return false;
         }
@@ -1813,18 +1892,21 @@
     // Role & Claim Checkbox Handlers
     private void ToggleRoleSelection(string roleName, bool isChecked)
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         if (isChecked) editingRoles.Add(roleName);
         else editingRoles.Remove(roleName);
     }
 
     private void ToggleClaimSelection(string claimValue, bool isChecked)
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         if (isChecked) editingClaims.Add(claimValue);
         else editingClaims.Remove(claimValue);
     }
 
     private void ToggleEditClaimSelection(FeatureDefinition feat, bool isChecked)
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         if (isChecked)
         {
             editingClaims.Add(feat.EditPermission.Code);
@@ -1838,6 +1920,7 @@
 
     private void SelectAllPermissions()
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         foreach (var code in FeaturePermissionCatalog.AllPermissionCodes)
         {
             editingClaims.Add(code);
@@ -1846,6 +1929,7 @@
 
     private void SelectAllViewPermissions()
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         foreach (var feat in FeaturePermissionCatalog.AllFeatures)
         {
             editingClaims.Add(feat.ViewPermission.Code);
@@ -1855,11 +1939,13 @@
 
     private void ClearAllPermissions()
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         editingClaims.Clear();
     }
 
     private void SelectGroupPermissions(MenuGroupDefinition group, bool viewOnly = false)
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         foreach (var feat in group.Features)
         {
             editingClaims.Add(feat.ViewPermission.Code);
@@ -1876,6 +1962,7 @@
 
     private void ClearGroupPermissions(MenuGroupDefinition group)
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         foreach (var feat in group.Features)
         {
             editingClaims.Remove(feat.ViewPermission.Code);
@@ -1893,13 +1980,15 @@
     private async Task SaveUserRolesAndPermissions()
     {
         if (selectedUserForRoles == null) return;
-        if (!await EnsureUserEditPermissionAsync("SAVE_USER_ROLES_PERMISSIONS")) return;
+        if (!await EnsureUserPermissionsEditAsync("SAVE_USER_ROLES_PERMISSIONS")) return;
 
-        // Security Check 1: Prevent Self-Escalation
-        if (string.Equals(selectedUserForRoles.Id, currentUserId, StringComparison.OrdinalIgnoreCase) && !isCallerAdmin)
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+
+        // Security Check 1: Prevent Self-Escalation & Same-Employee Privilege Escalation
+        var escalationCheck = await UserEmployeeService.CheckSameEmployeePrivilegeEscalationAsync(currentUserId ?? string.Empty, selectedUserForRoles.Id, authState.User);
+        if (!escalationCheck.IsAllowed)
         {
-            ShowStatus("لا يمكنك تعديل أدوارك أو صلاحياتك بنفسك لتفادي رفع الصلاحيات غير المصرّح به.", isError: true);
-            await LogSecurityAuditAsync("UNAUTHORIZED_SELF_ROLE_MODIFICATION_ATTEMPT", selectedUserForRoles.UserName ?? selectedUserForRoles.Id, false, "Caller attempted to modify their own roles/permissions.");
+            ShowStatus(escalationCheck.Reason ?? "لا يمكنك تعديل صلاحيات حساب يتبع لنفس الموظف تفادياً لتصعيد الصلاحيات غير المصرّح به.", isError: true);
             return;
         }
 
@@ -2101,7 +2190,7 @@
     private async Task CreateRoleSubmit()
     {
         if (string.IsNullOrWhiteSpace(newRoleNameInput)) return;
-        if (!await EnsureUserEditPermissionAsync("CREATE_ROLE")) return;
+        if (!await EnsureUserPermissionsEditAsync("CREATE_ROLE")) return;
 
         isProcessing = true;
         try
@@ -2149,7 +2238,7 @@
     private async Task ConfirmDeleteRole()
     {
         if (pendingRole is null || pendingRole.RoleName == "Admin") return;
-        if (!await EnsureUserEditPermissionAsync("DELETE_ROLE")) return;
+        if (!await EnsureUserPermissionsEditAsync("DELETE_ROLE")) return;
 
         isProcessing = true;
         var roleName = pendingRole.RoleName;
@@ -2384,6 +2473,7 @@
 
     private void ApplyPreset(string presetName)
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         if (presetName == "Admin" && !isCallerAdmin) return;
 
         editingRoles.Clear();
@@ -2394,6 +2484,7 @@
 
     private async Task CloneFromUserAsync()
     {
+        if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
         if (string.IsNullOrWhiteSpace(cloneSourceUserId)) return;
         var sourceUser = usersList.FirstOrDefault(u => u.Id == cloneSourceUserId);
         if (sourceUser == null) return;
@@ -2424,6 +2515,7 @@
     private bool HasSensitivePermissionsSelected()
     {
         return editingClaims.Contains(Permissions.UsersEdit) ||
+               editingClaims.Contains(Permissions.UsersPermissionsEdit) ||
                editingClaims.Contains(Permissions.AuditLogsView) ||
                editingClaims.Contains(Permissions.FeaturesEdit) ||
                editingClaims.Contains(Permissions.DataImportEdit) ||
