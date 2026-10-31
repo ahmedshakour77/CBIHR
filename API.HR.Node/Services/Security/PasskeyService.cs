@@ -1,6 +1,7 @@
 using System.Text;
 using API.HR.Node.Contracts;
 using API.HR.Node.Data;
+using API.HR.Node.Security;
 using Fido2NetLib;
 using Fido2NetLib.Objects;
 using Microsoft.AspNetCore.Identity;
@@ -255,7 +256,7 @@ public sealed class PasskeyService : IPasskeyService
         }
 
         var user = await _userManager.FindByIdAsync(passkey.UserId);
-        if (user is null || string.IsNullOrWhiteSpace(user.EmployeeID))
+        if (user is null || (!SystemAccounts.IsTechnicalAccount(user.UserName) && !SystemAccounts.IsTechnicalAccount(user.Email) && string.IsNullOrWhiteSpace(user.EmployeeID)))
         {
             throw new Fido2VerificationException("Employee user account not found or unlinked.");
         }
@@ -309,7 +310,7 @@ public sealed class PasskeyService : IPasskeyService
         CancellationToken cancellationToken = default)
     {
         var passkey = await _dbContext.EmployeePasskeys
-            .FirstOrDefaultAsync(p => p.Id == passkeyId && (p.UserId == userId || userId == "admin"), cancellationToken);
+            .FirstOrDefaultAsync(p => p.Id == passkeyId && p.UserId == userId, cancellationToken);
 
         if (passkey is null) return false;
 
@@ -324,7 +325,7 @@ public sealed class PasskeyService : IPasskeyService
         CancellationToken cancellationToken = default)
     {
         var passkey = await _dbContext.EmployeePasskeys
-            .FirstOrDefaultAsync(p => p.Id == passkeyId && (p.UserId == userId || userId == "admin"), cancellationToken);
+            .FirstOrDefaultAsync(p => p.Id == passkeyId && p.UserId == userId, cancellationToken);
 
         if (passkey is null) return false;
 
@@ -339,7 +340,7 @@ public sealed class PasskeyService : IPasskeyService
         CancellationToken cancellationToken = default)
     {
         var passkey = await _dbContext.EmployeePasskeys
-            .FirstOrDefaultAsync(p => p.Id == passkeyId && (p.UserId == userId || userId == "admin"), cancellationToken);
+            .FirstOrDefaultAsync(p => p.Id == passkeyId && p.UserId == userId, cancellationToken);
 
         if (passkey is null) return false;
 

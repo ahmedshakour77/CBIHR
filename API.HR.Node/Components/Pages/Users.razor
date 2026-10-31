@@ -1527,11 +1527,7 @@
         var principal = authState.User;
         currentUserId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
                      ?? principal.FindFirst("sub")?.Value;
-        currentUserName = principal.Identity?.Name;
-        isCallerAdmin = principal.IsInRole("Admin") ||
-                        principal.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)) ||
-                        string.Equals(currentUserName, "admin", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(currentUserName, "systemadmin", StringComparison.OrdinalIgnoreCase);
+        isCallerAdmin = PermissionResolver.IsAdmin(principal);
 
         canEditUsers = isCallerAdmin || principal.HasPermission(Permissions.UsersEdit);
         canEditUserPermissions = isCallerAdmin || principal.HasPermission(Permissions.UsersPermissionsEdit);

@@ -2,6 +2,9 @@
 @layout API.HR.Node.Components.Layout.AuthLayout
 
 @using System.Security.Claims
+@using System.Text.Json
+@using System.Buffers.Text
+@using System.Text
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
@@ -428,25 +431,29 @@
 
         if (!string.IsNullOrEmpty(PasskeyInput?.CredentialJson))
         {
+            var authedUser = await ResolvePasskeyUserAsync(PasskeyInput.CredentialJson);
+            if (authedUser == null)
+            {
+                Logger.LogWarning("Passkey sign-in rejected: could not resolve user from passkey credentials.");
+                SetStatus(L("تعذّر تحديد الحساب المقترن بمفتاح المرور، أو أن المفتاح غير مسجّل.",
+                            "نەتوانرا هەژماری بەستراوە بە کلیلی تێپەڕین دەستنیشان بکرێت یان کلیلەکە تۆمار نەکراوە."), isError: true);
+                return;
+            }
+
+            var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(authedUser);
+            if (!linkRes.IsValid)
+            {
+                Logger.LogWarning("Passkey sign-in refused for '{Username}': not linked to employee record.", authedUser.UserName);
+                SetStatus(L(linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.",
+                            "ئەم هەژمارە بە هیچ تۆمارێکی فەرمانبەرەوە نەبەستراوەتەوە لە سیستەمی سەرچاوە مرۆییەکاندا."), isError: true);
+                return;
+            }
+
             var passkeyResult = await SignInManager.PasskeySignInAsync(PasskeyInput.CredentialJson);
             if (passkeyResult.Succeeded)
             {
-                var authedUser = await UserManager.GetUserAsync(SignInManager.Context.User);
-                if (authedUser != null)
-                {
-                    var linkRes = await UserEmployeeService.ValidateOrRepairUserEmployeeLinkAsync(authedUser);
-                    if (!linkRes.IsValid)
-                    {
-                        await SignInManager.SignOutAsync();
-                        Logger.LogWarning("Passkey sign-in refused for '{Username}': not linked to employee record.", authedUser.UserName);
-                        SetStatus(L(linkRes.FailureReason ?? "هذا الحساب غير مرتبط بسجل موظف في نظام الموارد البشرية. يرجى مراجعة إدارة الموارد البشرية.",
-                                    "ئەم هەژمارە بە هیچ تۆمارێکی فەرمانبەرەوە نەبەستراوەتەوە لە سیستەمی سەرچاوە مرۆییەکاندا."), isError: true);
-                        return;
-                    }
-                }
-
-                Logger.LogInformation("Passkey sign-in succeeded.");
-                RedirectManager.RedirectTo(ReturnUrl);
+                Logger.LogInformation("Passkey sign-in succeeded for user '{Username}'.", authedUser.UserName);
+                await CompleteLoginRedirect(authedUser);
                 return;
             }
 
@@ -725,6 +732,95 @@
             }
         }
         RedirectManager.RedirectTo(targetUrl);
+    }
+
+    private async Task<ApplicationUser?> ResolvePasskeyUserAsync(string? credentialJson)
+    {
+        if (string.IsNullOrWhiteSpace(credentialJson)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(credentialJson);
+            var root = doc.RootElement;
+
+            // 1. Try resolving via userHandle in response
+            if (root.TryGetProperty("response", out var respProp) &&
+                respProp.TryGetProperty("userHandle", out var userHandleProp) &&
+                userHandleProp.ValueKind == JsonValueKind.String)
+            {
+                var userHandleStr = userHandleProp.GetString();
+                if (!string.IsNullOrWhiteSpace(userHandleStr))
+                {
+                    try
+                    {
+                        var userHandleBytes = Base64Url.DecodeFromChars(userHandleStr);
+                        var userId = Encoding.UTF8.GetString(userHandleBytes);
+                        var user = await UserManager.FindByIdAsync(userId);
+                        if (user != null) return user;
+                    }
+                    catch
+                    {
+                        // Fallback to credential id
+                    }
+                }
+            }
+
+            // 2. Try resolving via credential id (id or rawId)
+            string? credIdStr = null;
+            if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String)
+            {
+                credIdStr = idProp.GetString();
+            }
+            else if (root.TryGetProperty("rawId", out var rawIdProp) && rawIdProp.ValueKind == JsonValueKind.String)
+            {
+                credIdStr = rawIdProp.GetString();
+            }
+
+            if (!string.IsNullOrWhiteSpace(credIdStr))
+            {
+                byte[] credBytes;
+                try
+                {
+                    credBytes = Base64Url.DecodeFromChars(credIdStr);
+                }
+                catch
+                {
+                    return null;
+                }
+
+                using var scope = ScopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+                // A. Check AspNetUserPasskeys
+                var identityPasskeys = await db.Set<IdentityUserPasskey<string>>()
+                    .AsNoTracking()
+                    .ToListAsync();
+                var identityMatch = identityPasskeys.FirstOrDefault(p => p.CredentialId.SequenceEqual(credBytes));
+                if (identityMatch != null)
+                {
+                    var user = await UserManager.FindByIdAsync(identityMatch.UserId);
+                    if (user != null) return user;
+                }
+
+                // B. Check EmployeePasskeys
+                var empPasskeys = await db.EmployeePasskeys
+                    .AsNoTracking()
+                    .Where(p => p.IsActive)
+                    .ToListAsync();
+                var empMatch = empPasskeys.FirstOrDefault(p => p.CredentialId.SequenceEqual(credBytes));
+                if (empMatch != null)
+                {
+                    var user = await UserManager.FindByIdAsync(empMatch.UserId);
+                    if (user != null) return user;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to resolve user from passkey credential JSON.");
+        }
+
+        return null;
     }
 
     private sealed class InputModel

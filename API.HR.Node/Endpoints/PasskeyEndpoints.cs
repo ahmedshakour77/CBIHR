@@ -384,7 +384,7 @@ public static class PasskeyEndpoints
         var cleanDeviceId = incomingDeviceId.Trim();
 
         var activeDevice = await dbContext.UserDevices
-            .FirstOrDefaultAsync(d => d.EmployeeID == user.EmployeeID && d.IsActive, cancellationToken);
+            .FirstOrDefaultAsync(d => d.UserId == user.Id && d.IsActive, cancellationToken);
 
         if (activeDevice is null)
         {

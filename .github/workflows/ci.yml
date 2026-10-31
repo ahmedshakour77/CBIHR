@@ -18,16 +18,19 @@ jobs:
     - name: Setup .NET SDK
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
+
+    - name: Display .NET Environment Info
+      run: dotnet --info
 
     - name: Restore Dependencies
       run: dotnet restore
 
     - name: Build Application (Release)
-      run: dotnet build --no-restore --configuration Release /p:TreatWarningsAsErrors=false
+      run: dotnet build --no-restore --configuration Release
 
     - name: Run Test Suite
       run: dotnet test --no-build --configuration Release --verbosity normal
 
     - name: Vulnerability Scan on Packages
-      run: dotnet list package --vulnerable --include-transitive || true
+      run: dotnet list package --vulnerable --include-transitive

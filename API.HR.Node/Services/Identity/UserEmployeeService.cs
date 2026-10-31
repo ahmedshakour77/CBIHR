@@ -349,17 +349,17 @@ public sealed class UserEmployeeService : IUserEmployeeService
         string actorUserId,
         CancellationToken ct = default)
     {
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null)
-        {
-            return new ForceLogoutResult(false, 0, false, DateTimeOffset.UtcNow, "المستخدم غير موجود.");
-        }
-
         var now = DateTimeOffset.UtcNow;
         var revokedDevicesCount = 0;
 
         try
         {
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+            {
+                return new ForceLogoutResult(false, 0, false, now, "المستخدم غير موجود.");
+            }
+
             // 1. Mark all active UserDevices for this specific user as inactive (strictly by UserId)
             var activeDevices = await _dbContext.UserDevices
                 .Where(d => d.UserId == user.Id && d.IsActive)
@@ -381,6 +381,26 @@ public sealed class UserEmployeeService : IUserEmployeeService
             var updateStampResult = await _userManager.UpdateSecurityStampAsync(user);
             var stampUpdated = updateStampResult.Succeeded;
 
+            if (!stampUpdated)
+            {
+                var stampErrors = string.Join(", ", updateStampResult.Errors.Select(e => e.Description));
+                _logger.LogError("Failed to update security stamp for user {UserId} during force logout. Errors: {Errors}", userId, stampErrors);
+
+                await _auditLogger.LogAsync(
+                    action: "USER_FORCE_LOGOUT",
+                    employeeID: user.EmployeeID ?? "SYSTEM",
+                    photoId: null,
+                    success: false,
+                    user: null,
+                    ipAddress: null,
+                    userAgent: null,
+                    failureReason: "SecurityStampUpdateFailed",
+                    correlationId: $"Actor: {actorUserId}, TargetUser: {user.UserName}, DevicesRevoked: {revokedDevicesCount}, StampUpdated: false",
+                    cancellationToken: ct);
+
+                return new ForceLogoutResult(false, revokedDevicesCount, false, now, "تعذر تحديث الختم الأمني للمستخدم.");
+            }
+
             // 3. Log audit event
             await _auditLogger.LogAsync(
                 action: "USER_FORCE_LOGOUT",
@@ -391,19 +411,19 @@ public sealed class UserEmployeeService : IUserEmployeeService
                 ipAddress: null,
                 userAgent: null,
                 failureReason: null,
-                correlationId: $"Actor: {actorUserId}, TargetUser: {user.UserName}, DevicesRevoked: {revokedDevicesCount}, StampUpdated: {stampUpdated}",
+                correlationId: $"Actor: {actorUserId}, TargetUser: {user.UserName}, DevicesRevoked: {revokedDevicesCount}, StampUpdated: true",
                 cancellationToken: ct);
 
             _logger.LogInformation(
-                "Force logout executed for user '{UserName}' by actor '{Actor}'. Devices revoked: {RevokedCount}, Stamp updated: {StampUpdated}.",
-                user.UserName, actorUserId, revokedDevicesCount, stampUpdated);
+                "Force logout executed for user '{UserName}' by actor '{Actor}'. Devices revoked: {RevokedCount}, Stamp updated: true.",
+                user.UserName, actorUserId, revokedDevicesCount);
 
-            return new ForceLogoutResult(true, revokedDevicesCount, stampUpdated, now, null);
+            return new ForceLogoutResult(true, revokedDevicesCount, true, now, null);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error executing force logout for user {UserId}", userId);
-            return new ForceLogoutResult(false, revokedDevicesCount, false, now, ex.Message);
+            _logger.LogError(ex, "Error executing force logout for user {UserId} by actor {ActorId}", userId, actorUserId);
+            return new ForceLogoutResult(false, revokedDevicesCount, false, now, "تعذر إنهاء جلسات المستخدم. يرجى مراجعة سجل النظام.");
         }
     }
 
@@ -417,47 +437,60 @@ public sealed class UserEmployeeService : IUserEmployeeService
             return new ForceLogoutResult(false, 0, false, DateTimeOffset.UtcNow, "رقم الموظف غير محدد.");
         }
 
-        var now = DateTimeOffset.UtcNow;
-        var users = await GetUsersForEmployeeAsync(employeeId, ct);
-        var totalRevoked = 0;
-        var allUpdated = true;
-
-        foreach (var u in users)
+        try
         {
-            var res = await ForceLogoutUserAsync(u.Id, actorUserId, ct);
-            totalRevoked += res.SessionsRevokedCount;
-            if (!res.SecurityStampUpdated) allUpdated = false;
+            var now = DateTimeOffset.UtcNow;
+            var users = await GetUsersForEmployeeAsync(employeeId, ct);
+            var totalRevoked = 0;
+            var allUpdated = true;
+
+            foreach (var u in users)
+            {
+                var res = await ForceLogoutUserAsync(u.Id, actorUserId, ct);
+                totalRevoked += res.SessionsRevokedCount;
+                if (!res.Succeeded || !res.SecurityStampUpdated) allUpdated = false;
+            }
+
+            // Also deactivate any leftover active devices tagged with this EmployeeID
+            var orphanDevices = await _dbContext.UserDevices
+                .Where(d => d.EmployeeID == employeeId && d.IsActive)
+                .ToListAsync(ct);
+
+            foreach (var d in orphanDevices)
+            {
+                d.IsActive = false;
+            }
+
+            if (orphanDevices.Count > 0)
+            {
+                totalRevoked += orphanDevices.Count;
+                await _dbContext.SaveChangesAsync(ct);
+            }
+
+            await _auditLogger.LogAsync(
+                action: "EMPLOYEE_ALL_USERS_FORCE_LOGOUT",
+                employeeID: employeeId,
+                photoId: null,
+                success: allUpdated,
+                user: null,
+                ipAddress: null,
+                userAgent: null,
+                failureReason: allUpdated ? null : "PartialFailureInUserSecurityStamps",
+                correlationId: $"Actor: {actorUserId}, TargetEmployee: {employeeId}, UsersAffected: {users.Count}, DevicesRevoked: {totalRevoked}, AllUpdated: {allUpdated}",
+                cancellationToken: ct);
+
+            return new ForceLogoutResult(
+                Succeeded: allUpdated,
+                SessionsRevokedCount: totalRevoked,
+                SecurityStampUpdated: allUpdated,
+                Timestamp: now,
+                ErrorMessage: allUpdated ? null : "تعذر إنهاء وتحديث الختم الأمني لبعض حسابات الموظف.");
         }
-
-        // Also deactivate any leftover active devices tagged with this EmployeeID
-        var orphanDevices = await _dbContext.UserDevices
-            .Where(d => d.EmployeeID == employeeId && d.IsActive)
-            .ToListAsync(ct);
-
-        foreach (var d in orphanDevices)
+        catch (Exception ex)
         {
-            d.IsActive = false;
+            _logger.LogError(ex, "Error executing employee all users force logout for employee {EmployeeId} by actor {ActorId}", employeeId, actorUserId);
+            return new ForceLogoutResult(false, 0, false, DateTimeOffset.UtcNow, "تعذر إنهاء جلسات مستخدمي الموظف. يرجى مراجعة سجل النظام.");
         }
-
-        if (orphanDevices.Count > 0)
-        {
-            totalRevoked += orphanDevices.Count;
-            await _dbContext.SaveChangesAsync(ct);
-        }
-
-        await _auditLogger.LogAsync(
-            action: "EMPLOYEE_ALL_USERS_FORCE_LOGOUT",
-            employeeID: employeeId,
-            photoId: null,
-            success: true,
-            user: null,
-            ipAddress: null,
-            userAgent: null,
-            failureReason: null,
-            correlationId: $"Actor: {actorUserId}, TargetEmployee: {employeeId}, UsersAffected: {users.Count}, DevicesRevoked: {totalRevoked}",
-            cancellationToken: ct);
-
-        return new ForceLogoutResult(true, totalRevoked, allUpdated, now, null);
     }
 
     public async Task<List<EmployeePickerItem>> SearchEmployeesAsync(
@@ -530,11 +563,8 @@ public sealed class UserEmployeeService : IUserEmployeeService
         ClaimsPrincipal callerPrincipal,
         CancellationToken ct = default)
     {
-        // 1. Admin bypass: Full admins are trusted to manage permissions across all accounts
-        var isAdmin = callerPrincipal.IsInRole("Admin") ||
-                      callerPrincipal.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)) ||
-                      string.Equals(callerPrincipal.Identity?.Name, "admin", StringComparison.OrdinalIgnoreCase) ||
-                      string.Equals(callerPrincipal.Identity?.Name, "systemadmin", StringComparison.OrdinalIgnoreCase);
+        // 1. Admin bypass: Full admins are trusted to manage permissions across all accounts strictly based on roles
+        var isAdmin = PermissionResolver.IsAdmin(callerPrincipal);
 
         if (isAdmin)
         {

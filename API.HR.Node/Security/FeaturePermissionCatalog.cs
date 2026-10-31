@@ -442,42 +442,7 @@ public static class FeaturePermissionCatalog
     /// </summary>
     public static bool HasPermission(this ClaimsPrincipal? user, string permissionCode)
     {
-        if (user == null || user.Identity?.IsAuthenticated != true)
-        {
-            return false;
-        }
-
-        if (user.IsInRole("Admin") || user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") && c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        // مطابقة صريحة لادعاء الصلاحية
-        if (user.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") &&
-                               c.Value.Equals(permissionCode, StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        // صلاحية التعديل (.Edit) تتضمن تلقائياً صلاحية الرؤية (.View)
-        if (permissionCode.EndsWith(".View", StringComparison.OrdinalIgnoreCase))
-        {
-            var editEquivalent = permissionCode[..^5] + ".Edit";
-            if (user.HasClaim(c => (c.Type == "permission" || c.Type == "Permission") &&
-                                   c.Value.Equals(editEquivalent, StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-        }
-
-        // مطابقة الصلاحيات القديمة للتوافق
-        if (user.Claims.Any(c => (c.Type == "permission" || c.Type == "Permission") &&
-                                 PermissionAuthorizationHandler.IsLegacyPermissionMatch(c.Value, permissionCode)))
-        {
-            return true;
-        }
-
-        return false;
+        return PermissionResolver.HasPermission(user, permissionCode);
     }
 
     /// <summary>

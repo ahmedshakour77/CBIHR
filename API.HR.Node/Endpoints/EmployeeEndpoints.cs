@@ -370,7 +370,7 @@ public static class EmployeeEndpoints
 
         // Enforce Remote Force Logout / Active Device Check
         var hasActiveDevice = await dbContext.UserDevices
-            .AnyAsync(d => d.EmployeeID == user.EmployeeID && d.IsActive, cancellationToken);
+            .AnyAsync(d => d.UserId == user.Id && d.IsActive, cancellationToken);
 
         if (!hasActiveDevice)
         {
