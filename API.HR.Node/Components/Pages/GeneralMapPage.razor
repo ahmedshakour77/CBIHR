@@ -1,0 +1,1867 @@
+@page "/general-map"
+@page "/reports/general-map"
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using System.Text
+@using API.HR.Node.Data
+@using API.HR.Node.Security
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize]
+@implements IAsyncDisposable
+
+@inject IServiceScopeFactory ScopeFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<GeneralMapPage> Logger
+
+<PageTitle>الخريطة العامة — توزيع الموظفين على المحافظات | الموظف ٣٦٠°</PageTitle>
+
+@if (!hasAccess && !isLoading)
+{
+    <div class="hr-card" style="padding:var(--s-6);text-align:center;margin-block:var(--s-6);">
+        <Icon Name="shield-exclamation" Size="xl" />
+        <h1 class="hr-h2" style="margin-block:var(--s-2);">غير مصرّح بعرض الخريطة العامة</h1>
+        <p class="hr-muted">يتطلب عرض هذه الصفحة صلاحية الاطلاع على التقارير أو لوحة المؤشرات.</p>
+    </div>
+}
+else
+{
+    <div class="hr-stack general-map-page">
+
+        @* ==================== 1. HEADER & CONTROLS ==================== *@
+        <header class="hr-pagehead">
+            <div class="hr-pagehead-titles">
+                <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                    <span class="hr-eyebrow">المؤشرات والتقارير الجغرافية</span>
+                    <span class="hr-badge hr-badge-accent">
+                        <Icon Name="map" Size="xs" />
+                        <span>التوزيع حسب التشكيلات والفروع</span>
+                    </span>
+                </div>
+
+                <h1 class="hr-h1 hr-balance" style="display:flex;align-items:center;gap:var(--s-2);margin-block-start:.25rem;">
+                    <Icon Name="map" Size="md" />
+                    <span>الخريطة العامة — توزيع الموظفين على المحافظات</span>
+                </h1>
+                <p class="hr-subtitle">
+                    توزيع الكادر الوظيفي على محافظات العراق وفق الحدود الإدارية المعتمدة بالاعتماد على التشكيلات (الفرع الرئيسي في بغداد، فرع الموصل في نينوى، فرع أربيل في أربيل، وفرع البصرة في البصرة).
+                </p>
+            </div>
+
+            <div class="hr-pagehead-actions" style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+                <div class="hr-segmented" role="group" aria-label="نمط عرض الخريطة">
+                    <button type="button"
+                            class="hr-segmented-btn @(mapViewMode == "svg" ? "is-active" : "")"
+                            @onclick='() => SetMapViewModeAsync("svg")'>
+                        <Icon Name="map" Size="xs" />
+                        <span>خارطة الحدود الإدارية</span>
+                    </button>
+                    <button type="button"
+                            class="hr-segmented-btn @(mapViewMode == "leaflet" ? "is-active" : "")"
+                            @onclick='() => SetMapViewModeAsync("leaflet")'>
+                        <Icon Name="globe-alt" Size="xs" />
+                        <span>الخريطة الجغرافية (GIS)</span>
+                    </button>
+                </div>
+
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="LoadDataAsync" disabled="@isLoading" title="تحديث البيانات">
+                    <Icon Name="arrow-path" Size="sm" />
+                    <span>تحديث</span>
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="ExportCsvAsync" disabled="@isLoading" title="تصدير توزيع المحافظات والتشكيلات CSV">
+                    <Icon Name="arrow-down-tray" Size="sm" />
+                    <span>تصدير CSV</span>
+                </button>
+
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="PrintPageAsync" title="طباعة التقرير">
+                    <Icon Name="printer" Size="sm" />
+                    <span>طباعة</span>
+                </button>
+            </div>
+        </header>
+
+        @if (isLoading)
+        {
+            <div class="hr-kpi-grid">
+                @for (int i = 0; i < 4; i++)
+                {
+                    <div class="hr-kpi-card">
+                        <div class="hr-skeleton hr-skeleton-line" style="width:55%;height:1rem;"></div>
+                        <div class="hr-skeleton" style="width:40%;height:2.2rem;margin-block:.6rem;"></div>
+                        <div class="hr-skeleton hr-skeleton-line" style="width:75%;height:.75rem;"></div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            var baghdadStat = GetGovStat("BGD");
+            var mosulStat = GetGovStat("NIN");
+            var erbilStat = GetGovStat("EBL");
+            var basraStat = GetGovStat("BSR");
+
+            @* ==================== 2. EXECUTIVE KPI CARDS ==================== *@
+            <section class="hr-kpi-grid" aria-label="ملخص التوزيع الجغرافي">
+                <div class="hr-kpi-card gm-kpi-card @(selectedGovCode == null ? "is-selected" : "")"
+                     style="cursor:pointer;"
+                     @onclick="() => SelectGovernorateAsync(null)">
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">إجمالي الكادر الوظيفي (العراق)</span>
+                        <span class="hr-iconplate"><Icon Name="users" Size="sm" /></span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-value">@ToArabicDigits(FilteredTotalEmployees)</div>
+                        <div class="hr-kpi-meta">
+                            <span>ذكور: <strong>@ToArabicDigits(FilteredTotalMales)</strong></span>
+                            <span>•</span>
+                            <span>إناث: <strong>@ToArabicDigits(FilteredTotalFemales)</strong></span>
+                            <span>•</span>
+                            <span><strong>@ToArabicDigits(TotalFormationsCount)</strong> تشكيل</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-kpi-card gm-kpi-card @(selectedGovCode == "BGD" ? "is-selected" : "")"
+                     style="cursor:pointer;border-inline-start:4px solid #1a669d;"
+                     @onclick='() => SelectGovernorateAsync("BGD")'>
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">بغداد — الفرع الرئيسي</span>
+                        <span class="hr-badge" style="background:rgba(26,102,157,0.12);color:#1a669d;">@ToArabicDigits(baghdadStat.Percentage.ToString("F1"))٪</span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-value" style="color:#1a669d;">@ToArabicDigits(baghdadStat.EmployeeCount)</div>
+                        <div class="hr-kpi-meta">
+                            <span><strong>@ToArabicDigits(baghdadStat.FormationCount)</strong> تشكيل مركزي</span>
+                            <span>•</span>
+                            <span>ذكور @ToArabicDigits(baghdadStat.MaleCount) / إناث @ToArabicDigits(baghdadStat.FemaleCount)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-kpi-card gm-kpi-card @(selectedGovCode == "NIN" ? "is-selected" : "")"
+                     style="cursor:pointer;border-inline-start:4px solid #0d7a7b;"
+                     @onclick='() => SelectGovernorateAsync("NIN")'>
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">نينوى — فرع الموصل</span>
+                        <span class="hr-badge" style="background:rgba(13,122,123,0.12);color:#0d7a7b;">@ToArabicDigits(mosulStat.Percentage.ToString("F1"))٪</span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-value" style="color:#0d7a7b;">@ToArabicDigits(mosulStat.EmployeeCount)</div>
+                        <div class="hr-kpi-meta">
+                            <span><strong>@ToArabicDigits(mosulStat.FormationCount)</strong> تشكيل</span>
+                            <span>•</span>
+                            <span>ذكور @ToArabicDigits(mosulStat.MaleCount) / إناث @ToArabicDigits(mosulStat.FemaleCount)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-kpi-card gm-kpi-card @(selectedGovCode == "EBL" ? "is-selected" : "")"
+                     style="cursor:pointer;border-inline-start:4px solid #6b4ea2;"
+                     @onclick='() => SelectGovernorateAsync("EBL")'>
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">أربيل — فرع أربيل</span>
+                        <span class="hr-badge" style="background:rgba(107,78,162,0.12);color:#6b4ea2;">@ToArabicDigits(erbilStat.Percentage.ToString("F1"))٪</span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-value" style="color:#6b4ea2;">@ToArabicDigits(erbilStat.EmployeeCount)</div>
+                        <div class="hr-kpi-meta">
+                            <span><strong>@ToArabicDigits(erbilStat.FormationCount)</strong> تشكيل</span>
+                            <span>•</span>
+                            <span>ذكور @ToArabicDigits(erbilStat.MaleCount) / إناث @ToArabicDigits(erbilStat.FemaleCount)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="hr-kpi-card gm-kpi-card @(selectedGovCode == "BSR" ? "is-selected" : "")"
+                     style="cursor:pointer;border-inline-start:4px solid #b45a2a;"
+                     @onclick='() => SelectGovernorateAsync("BSR")'>
+                    <div class="hr-kpi-header">
+                        <span class="hr-kpi-title">البصرة — فرع البصرة</span>
+                        <span class="hr-badge" style="background:rgba(180,90,42,0.12);color:#b45a2a;">@ToArabicDigits(basraStat.Percentage.ToString("F1"))٪</span>
+                    </div>
+                    <div class="hr-kpi-body">
+                        <div class="hr-kpi-value" style="color:#b45a2a;">@ToArabicDigits(basraStat.EmployeeCount)</div>
+                        <div class="hr-kpi-meta">
+                            <span><strong>@ToArabicDigits(basraStat.FormationCount)</strong> تشكيل</span>
+                            <span>•</span>
+                            <span>ذكور @ToArabicDigits(basraStat.MaleCount) / إناث @ToArabicDigits(basraStat.FemaleCount)</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            @* ==================== 3. FILTER RIBBON ==================== *@
+            <section class="hr-card gm-filter-bar" aria-label="فلاتر الخريطة العامة">
+                <div style="display:flex;align-items:center;gap:var(--s-3);flex-wrap:wrap;width:100%;">
+                    <div style="display:flex;align-items:center;gap:var(--s-2);flex:1 1 16rem;">
+                        <Icon Name="magnifying-glass" Size="sm" />
+                        <input type="search"
+                               class="hr-input"
+                               placeholder="ابحث باسم التشكيل، المحافظة، أو اسم/رقم الموظف..."
+                               @bind="searchQuery"
+                               @bind:event="oninput"
+                               @bind:after="OnFilterChangedAsync" />
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        <label class="hr-muted" style="font-size:var(--fs-sm);white-space:nowrap;">المحافظة / الفرع:</label>
+                        <select class="hr-select" style="min-width:13rem;" value="@(selectedGovCode ?? "")" @onchange="OnGovDropdownChangedAsync">
+                            <option value="">كل محافظات العراق (@ToArabicDigits(FilteredTotalEmployees))</option>
+                            @foreach (var gov in GovernorateStats.Where(g => g.EmployeeCount > 0 || g.IsMainBranchHub))
+                            {
+                                <option value="@gov.Code">@gov.Name — @gov.BranchLabel (@ToArabicDigits(gov.EmployeeCount))</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        <label class="hr-muted" style="font-size:var(--fs-sm);white-space:nowrap;">النوع الاجتماعي:</label>
+                        <select class="hr-select" style="min-width:9rem;" @bind="genderFilter" @bind:after="OnFilterChangedAsync">
+                            <option value="all">الكل (ذكور وإناث)</option>
+                            <option value="male">الذكور فقط</option>
+                            <option value="female">الإناث فقط</option>
+                        </select>
+                    </div>
+
+                    @if (selectedGovCode != null || selectedFormationName != null || !string.IsNullOrWhiteSpace(searchQuery) || genderFilter != "all")
+                    {
+                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="ResetFiltersAsync">
+                            <Icon Name="x-mark" Size="xs" />
+                            <span>إعادة ضبط الفلاتر</span>
+                        </button>
+                    }
+                </div>
+            </section>
+
+            @* ==================== 4. MAIN GRID: IRAQ MAP + GOVERNORATE CARDS ==================== *@
+            <div class="gm-main-layout">
+
+                @* ---- RIGHT/CENTER: ADMINISTRATIVE BOUNDARY MAP OF IRAQ (MATCHING REFERENCE DESIGN) ---- *@
+                <section class="hr-card gm-map-poster" aria-label="خارطة العراق — المحافظات الأربع">
+                    @* Poster Header matching user's reference image *@
+                    <div class="gm-poster-header">
+                        <div class="gm-poster-accent-bar"></div>
+                        <h2 class="gm-poster-title">خارطة العراق</h2>
+                        <p class="gm-poster-subtitle">
+                            @(showAllGovernoratesOnMap ? "حدود كافة المحافظات (١٨ محافظة)" : "المحافظات الأربع")
+                        </p>
+
+                        @if (selectedGovCode != null)
+                        {
+                            var activeGov = GetGovStat(selectedGovCode);
+                            <div style="margin-top:.5rem;">
+                                <span class="hr-badge" style="background:@activeGov.Color;color:#fff;display:inline-flex;align-items:center;gap:.4rem;padding:.3rem .75rem;">
+                                    <span>المحافظة المحددة: @activeGov.Name (@activeGov.BranchLabel) — @ToArabicDigits(activeGov.EmployeeCount) موظف</span>
+                                    <button type="button" style="background:none;border:none;color:#fff;cursor:pointer;padding:0;display:inline-flex;" @onclick="() => SelectGovernorateAsync(null)" title="إلغاء التحديد">
+                                        <Icon Name="x-mark" Size="xs" />
+                                    </button>
+                                </span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="gm-poster-divider"></div>
+
+                    @if (mapViewMode == "svg")
+                    {
+                        <div class="gm-svg-stage">
+                            <svg viewBox="0 0 900 565" class="gm-iraq-svg" role="img" aria-label="خارطة العراق — توزيع الموظفين على المحافظات الأربع">
+                                <defs>
+                                    <filter id="gmMapShadow" x="-10%" y="-10%" width="120%" height="120%">
+                                        <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.07" />
+                                    </filter>
+                                    <filter id="gmCalloutShadow" x="-20%" y="-25%" width="140%" height="160%">
+                                        <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.08" />
+                                    </filter>
+                                </defs>
+
+                                @* 1. Base Outer Administrative Boundary of Iraq (ADM0) *@
+                                <g filter="url(#gmMapShadow)">
+                                    <path d="@IraqMapGeometry.IraqOuterPath"
+                                          fill="#e6edf4"
+                                          stroke="#475569"
+                                          stroke-width="1.35"
+                                          stroke-linejoin="round" />
+                                </g>
+
+                                @* 2. Optional 14 Other Governorates Boundaries (when toggled or if they have staff) *@
+                                @foreach (var gov in GovernorateStats.Where(g => !g.IsMainBranchHub))
+                                {
+                                    var isSel = selectedGovCode == gov.Code;
+                                    var hasEmp = gov.EmployeeCount > 0;
+                                    if (showAllGovernoratesOnMap || hasEmp || isSel)
+                                    {
+                                        <g class="gm-gov-region @(isSel ? "is-selected" : "")"
+                                           style="cursor:pointer;"
+                                           @onclick="() => SelectGovernorateAsync(gov.Code)">
+                                            <path d="@gov.SvgPath"
+                                                  fill="@(hasEmp || isSel ? gov.Color : "#e6edf4")"
+                                                  fill-opacity="@(isSel ? "0.92" : (hasEmp ? "0.82" : "1"))"
+                                                  stroke="@(isSel ? "#0f172a" : "#94a3b8")"
+                                                  stroke-width="@(isSel ? "2" : "0.9")"
+                                                  stroke-linejoin="round" />
+                                            <title>@gov.Name: @ToArabicDigits(gov.EmployeeCount) موظف</title>
+                                            @if (showAllGovernoratesOnMap)
+                                            {
+                                                <g>
+                                                    <text x="@gov.SvgX" y="@gov.SvgY" text-anchor="middle" font-size="10.5" font-weight="600" fill="@(hasEmp || isSel ? "#ffffff" : "#64748b")">
+                                                        @gov.ShortName
+                                                    </text>
+                                                </g>
+                                            }
+                                        </g>
+                                    }
+                                }
+
+                                @* 3. The 4 Main Governorates Colored on Exact Administrative Boundaries *@
+
+                                @* ---- نينوى (الموصل) - Teal (#0d7a7b) ---- *@
+                                @{
+                                    var isNinSelected = selectedGovCode == "NIN";
+                                }
+                                <g class="gm-gov-region @(isNinSelected ? "is-selected" : "")"
+                                   style="cursor:pointer;"
+                                   @onclick='() => SelectGovernorateAsync("NIN")'>
+                                    <path d="@mosulStat.SvgPath"
+                                          fill="#0d7a7b"
+                                          stroke="@(isNinSelected ? "#0f172a" : "#095c5d")"
+                                          stroke-width="@(isNinSelected ? "2.6" : "1.2")"
+                                          stroke-linejoin="round" />
+                                    <text x="366" y="152"
+                                          text-anchor="middle"
+                                          dominant-baseline="middle"
+                                          fill="#ffffff"
+                                          font-size="22"
+                                          font-weight="800"
+                                          style="letter-spacing:0.5px;">
+                                        @ToArabicDigits(mosulStat.EmployeeCount)
+                                    </text>
+                                    <title>نينوى (فرع الموصل): @ToArabicDigits(mosulStat.EmployeeCount) موظف (@ToArabicDigits(mosulStat.Percentage.ToString("F1"))٪)</title>
+                                </g>
+
+                                @* ---- أربيل - Purple (#6b4ea2) ---- *@
+                                @{
+                                    var isEblSelected = selectedGovCode == "EBL";
+                                }
+                                <g class="gm-gov-region @(isEblSelected ? "is-selected" : "")"
+                                   style="cursor:pointer;"
+                                   @onclick='() => SelectGovernorateAsync("EBL")'>
+                                    <path d="@erbilStat.SvgPath"
+                                          fill="#6b4ea2"
+                                          stroke="@(isEblSelected ? "#0f172a" : "#533a82")"
+                                          stroke-width="@(isEblSelected ? "2.6" : "1.2")"
+                                          stroke-linejoin="round" />
+                                    <text x="476" y="91"
+                                          text-anchor="middle"
+                                          dominant-baseline="middle"
+                                          fill="#ffffff"
+                                          font-size="18"
+                                          font-weight="800">
+                                        @ToArabicDigits(erbilStat.EmployeeCount)
+                                    </text>
+                                    <title>أربيل (فرع أربيل): @ToArabicDigits(erbilStat.EmployeeCount) موظف (@ToArabicDigits(erbilStat.Percentage.ToString("F1"))٪)</title>
+                                </g>
+
+                                @* ---- بغداد - Royal Blue (#1a669d) ---- *@
+                                @{
+                                    var isBgdSelected = selectedGovCode == "BGD";
+                                }
+                                <g class="gm-gov-region @(isBgdSelected ? "is-selected" : "")"
+                                   style="cursor:pointer;"
+                                   @onclick='() => SelectGovernorateAsync("BGD")'>
+                                    <path d="@baghdadStat.SvgPath"
+                                          transform="translate(480.4, 271.7) scale(1.38) translate(-480.4, -271.7)"
+                                          fill="#1a669d"
+                                          stroke="@(isBgdSelected ? "#0f172a" : "#124b75")"
+                                          stroke-width="@(isBgdSelected ? "2.2" : "1.0")"
+                                          stroke-linejoin="round" />
+                                    <text x="480" y="275"
+                                          text-anchor="middle"
+                                          dominant-baseline="middle"
+                                          fill="#ffffff"
+                                          font-size="16"
+                                          font-weight="800">
+                                        @ToArabicDigits(baghdadStat.EmployeeCount)
+                                    </text>
+                                    <title>بغداد (الفرع الرئيسي والتشكيلات المركزية): @ToArabicDigits(baghdadStat.EmployeeCount) موظف (@ToArabicDigits(baghdadStat.Percentage.ToString("F1"))٪)</title>
+                                </g>
+
+                                @* ---- البصرة - Terracotta (#b45a2a) ---- *@
+                                @{
+                                    var isBsrSelected = selectedGovCode == "BSR";
+                                }
+                                <g class="gm-gov-region @(isBsrSelected ? "is-selected" : "")"
+                                   style="cursor:pointer;"
+                                   @onclick='() => SelectGovernorateAsync("BSR")'>
+                                    <path d="@basraStat.SvgPath"
+                                          fill="#b45a2a"
+                                          stroke="@(isBsrSelected ? "#0f172a" : "#8f441e")"
+                                          stroke-width="@(isBsrSelected ? "2.6" : "1.2")"
+                                          stroke-linejoin="round" />
+                                    <text x="627" y="456"
+                                          text-anchor="middle"
+                                          dominant-baseline="middle"
+                                          fill="#ffffff"
+                                          font-size="20"
+                                          font-weight="800">
+                                        @ToArabicDigits(basraStat.EmployeeCount)
+                                    </text>
+                                    <title>البصرة (فرع البصرة): @ToArabicDigits(basraStat.EmployeeCount) موظف (@ToArabicDigits(basraStat.Percentage.ToString("F1"))٪)</title>
+                                </g>
+
+                                @* 4. Callout Lines & Callout Label Cards (Exact Reference Layout) *@
+
+                                @* ---- Callout: نينوى / الموصل (Left) ---- *@
+                                <g style="cursor:pointer;" @onclick='() => SelectGovernorateAsync("NIN")'>
+                                    <path d="M 412 103 L 266 112" stroke="#ffffff" stroke-width="3.6" fill="none" stroke-linecap="round" />
+                                    <path d="M 412 103 L 266 112" stroke="#0d7a7b" stroke-width="2" fill="none" stroke-linecap="round" />
+                                    <circle cx="412" cy="103" r="4.2" fill="#0d7a7b" stroke="#ffffff" stroke-width="2" />
+
+                                    <g filter="url(#gmCalloutShadow)">
+                                        <rect x="64" y="80" width="202" height="62" rx="10"
+                                              fill="#ffffff"
+                                              stroke="@(isNinSelected ? "#0d7a7b" : "#e2e8f0")"
+                                              stroke-width="@(isNinSelected ? "2.2" : "1")" />
+                                    </g>
+                                    <circle cx="246" cy="111" r="4.5" fill="#0d7a7b" />
+                                    <text x="156" y="106" text-anchor="middle" font-size="20" font-weight="800" fill="#1e293b">نينوى</text>
+                                    <text x="156" y="128" text-anchor="middle" font-size="13.5" font-weight="500" fill="#64748b">الموصل</text>
+                                </g>
+
+                                @* ---- Callout: أربيل (Top Right) ---- *@
+                                <g style="cursor:pointer;" @onclick='() => SelectGovernorateAsync("EBL")'>
+                                    <path d="M 466 106 L 495 96 L 560 96" stroke="#ffffff" stroke-width="3.4" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+                                    <path d="M 466 106 L 495 96 L 560 96" stroke="#6b4ea2" stroke-width="1.8" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+                                    <circle cx="466" cy="106" r="4" fill="#6b4ea2" stroke="#ffffff" stroke-width="2" />
+
+                                    <g filter="url(#gmCalloutShadow)">
+                                        <rect x="560" y="68" width="156" height="56" rx="10"
+                                              fill="#ffffff"
+                                              stroke="@(isEblSelected ? "#6b4ea2" : "#e2e8f0")"
+                                              stroke-width="@(isEblSelected ? "2.2" : "1")" />
+                                    </g>
+                                    <circle cx="696" cy="96" r="4.5" fill="#6b4ea2" />
+                                    <text x="630" y="103" text-anchor="middle" font-size="20" font-weight="800" fill="#1e293b">أربيل</text>
+                                </g>
+
+                                @* ---- Callout: بغداد (Middle Right) ---- *@
+                                <g style="cursor:pointer;" @onclick='() => SelectGovernorateAsync("BGD")'>
+                                    <path d="M 490 264 L 632 268" stroke="#ffffff" stroke-width="3.6" fill="none" stroke-linecap="round" />
+                                    <path d="M 490 264 L 632 268" stroke="#1a669d" stroke-width="2" fill="none" stroke-linecap="round" />
+                                    <circle cx="490" cy="264" r="4.2" fill="#1a669d" stroke="#ffffff" stroke-width="2" />
+
+                                    <g filter="url(#gmCalloutShadow)">
+                                        <rect x="632" y="240" width="158" height="56" rx="10"
+                                              fill="#ffffff"
+                                              stroke="@(isBgdSelected ? "#1a669d" : "#e2e8f0")"
+                                              stroke-width="@(isBgdSelected ? "2.2" : "1")" />
+                                    </g>
+                                    <circle cx="770" cy="268" r="4.5" fill="#1a669d" />
+                                    <text x="702" y="275" text-anchor="middle" font-size="20" font-weight="800" fill="#1e293b">بغداد</text>
+                                </g>
+
+                                @* ---- Callout: البصرة (Bottom Right) ---- *@
+                                <g style="cursor:pointer;" @onclick='() => SelectGovernorateAsync("BSR")'>
+                                    <path d="M 655 443 L 672 452 L 722 452" stroke="#ffffff" stroke-width="3.4" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+                                    <path d="M 655 443 L 672 452 L 722 452" stroke="#b45a2a" stroke-width="1.8" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+                                    <circle cx="655" cy="443" r="4" fill="#b45a2a" stroke="#ffffff" stroke-width="2" />
+
+                                    <g filter="url(#gmCalloutShadow)">
+                                        <rect x="722" y="424" width="154" height="56" rx="10"
+                                              fill="#ffffff"
+                                              stroke="@(isBsrSelected ? "#b45a2a" : "#e2e8f0")"
+                                              stroke-width="@(isBsrSelected ? "2.2" : "1")" />
+                                    </g>
+                                    <circle cx="856" cy="452" r="4.5" fill="#b45a2a" />
+                                    <text x="790" y="459" text-anchor="middle" font-size="20" font-weight="800" fill="#1e293b">البصرة</text>
+                                </g>
+
+                                @* 5. North Arrow (شمال ↑) at Bottom Left *@
+                                <g transform="translate(115, 425)">
+                                    <text x="0" y="0" text-anchor="middle" font-size="15" font-weight="600" fill="#475569">شمال</text>
+                                    <path d="M 0 12 L -8 30 L 0 25 L 8 30 Z" fill="#475569" />
+                                    <line x1="0" y1="23" x2="0" y2="48" stroke="#475569" stroke-width="2.2" stroke-linecap="round" />
+                                </g>
+                            </svg>
+
+                            <div class="gm-poster-divider"></div>
+
+                            @* Footer matching reference image + toggle for all 18 governorates *@
+                            <div class="gm-poster-footer">
+                                <div class="gm-poster-source">
+                                    <div style="font-weight:600;color:#475569;">مصدر الحدود الإدارية</div>
+                                    <div style="font-size:0.75rem;color:#64748b;">FAO Data in Emergencies Hub</div>
+                                </div>
+
+                                <label class="gm-toggle-all-govs">
+                                    <input type="checkbox" @bind="showAllGovernoratesOnMap" />
+                                    <span>إظهار حدود وأسماء كافة المحافظات (١٨ محافظة)</span>
+                                </label>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="gm-leaflet-wrapper">
+                            <div id="hrGeneralLeafletMap" class="gm-leaflet-canvas"></div>
+                        </div>
+                    }
+                </section>
+
+                @* ---- LEFT: GOVERNORATE BREAKDOWN CARDS ---- *@
+                <aside class="hr-card gm-gov-sidebar" aria-label="توزيع المحافظات والفروع">
+                    <div class="gm-panel-head">
+                        <div>
+                            <h2 class="hr-h3" style="margin:0;">توزيع المحافظات والفروع</h2>
+                            <p class="hr-muted" style="font-size:var(--fs-xs);margin-block-start:.2rem;">
+                                التوزيع المعتمد للموظفين حسب موقع التشكيل الإداري
+                            </p>
+                        </div>
+                        <button type="button"
+                                class="hr-btn hr-btn-quiet hr-btn-sm"
+                                @onclick="() => showEmptyGovernoratesInList = !showEmptyGovernoratesInList">
+                            @(showEmptyGovernoratesInList ? "المحافظات الأربع فقط" : "عرض كل المحافظات")
+                        </button>
+                    </div>
+
+                    <div class="gm-gov-cards-list">
+                        @foreach (var gov in VisibleGovernorateCards)
+                        {
+                            var isSel = selectedGovCode == gov.Code;
+                            <div class="gm-gov-card @(isSel ? "is-selected" : "")"
+                                 style="border-inline-start: 4px solid @gov.Color;"
+                                 @onclick="() => SelectGovernorateAsync(gov.Code)">
+                                <div class="gm-gov-card-top">
+                                    <div>
+                                        <div style="display:flex;align-items:center;gap:.4rem;">
+                                            <span class="gm-gov-name">@gov.Name</span>
+                                            <span class="hr-badge" style="font-size:.7rem;">@gov.BranchLabel</span>
+                                        </div>
+                                        <div class="hr-muted" style="font-size:var(--fs-xs);margin-top:.15rem;">
+                                            @ToArabicDigits(gov.FormationCount) تشكيل إداري معتمد
+                                        </div>
+                                    </div>
+
+                                    <div style="text-align:left;">
+                                        <div style="font-size:1.3rem;font-weight:800;color:@gov.Color;line-height:1.1;">
+                                            @ToArabicDigits(gov.EmployeeCount)
+                                        </div>
+                                        <div class="hr-muted" style="font-size:var(--fs-xs);">
+                                            @ToArabicDigits(gov.Percentage.ToString("F1"))٪ من الإجمالي
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="gm-progress-track" title="نسبة المحافظة من إجمالي الموظفين">
+                                    <div class="gm-progress-fill" style="width:@(Math.Clamp(gov.Percentage, 0, 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;background:@gov.Color;"></div>
+                                </div>
+
+                                <div class="gm-gov-card-footer">
+                                    <span>ذكور: <strong>@ToArabicDigits(gov.MaleCount)</strong></span>
+                                    <span>إناث: <strong>@ToArabicDigits(gov.FemaleCount)</strong></span>
+                                    <span style="margin-inline-start:auto;color:@gov.Color;font-weight:700;font-size:var(--fs-xs);">
+                                        @(isSel ? "محدد حالياً ✓" : "استعراض التشكيلات ←")
+                                    </span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </aside>
+            </div>
+
+            @* ==================== 5. FORMATIONS TABLE PER GOVERNORATE ==================== *@
+            <section class="hr-card" aria-label="جدول التشكيلات الإدارية وتوزيعها على المحافظات">
+                <div class="gm-panel-head" style="margin-bottom:var(--s-3);">
+                    <div>
+                        <h2 class="hr-h3" style="display:flex;align-items:center;gap:var(--s-2);margin:0;">
+                            <Icon Name="building-office-2" Size="sm" />
+                            <span>
+                                التشكيلات الإدارية وتوزيعها الجغرافي
+                                @if (selectedGovCode != null)
+                                {
+                                    var g = GetGovStat(selectedGovCode);
+                                    <span> — @g.Name (@g.BranchLabel)</span>
+                                }
+                            </span>
+                        </h2>
+                        <p class="hr-muted" style="font-size:var(--fs-xs);margin-block-start:.2rem;">
+                            انقر على أي تشكيل لعرض قائمة موظفيه أدناه أو الانتقال إلى دليل الموظفين
+                        </p>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        @if (selectedFormationName != null)
+                        {
+                            <span class="hr-badge hr-badge-accent" style="display:inline-flex;align-items:center;gap:.35rem;">
+                                <span>التشكيل المحدد: @selectedFormationName</span>
+                                <button type="button" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;display:inline-flex;" @onclick="() => SelectFormation(null)">
+                                    <Icon Name="x-mark" Size="xs" />
+                                </button>
+                            </span>
+                        }
+                        <span class="hr-badge">@ToArabicDigits(FilteredFormations.Count) تشكيل</span>
+                    </div>
+                </div>
+
+                <div class="hr-table-wrap">
+                    <table class="hr-table">
+                        <thead>
+                            <tr>
+                                <th style="width:3.5rem;">#</th>
+                                <th>اسم التشكيل الإداري</th>
+                                <th>المحافظة / الفرع المعتمد</th>
+                                <th>إجمالي الموظفين</th>
+                                <th>الذكور</th>
+                                <th>الإناث</th>
+                                <th>النسبة من الإجمالي</th>
+                                <th style="text-align:left;">إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (FilteredFormations.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="8" style="text-align:center;padding:var(--s-5);" class="hr-muted">
+                                        لا توجد تشكيلات مطابقة لمعايير البحث الحالية.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                int rowIdx = 1;
+                                @foreach (var form in FilteredFormations)
+                                {
+                                    var isFormSelected = string.Equals(selectedFormationName, form.FormationName, StringComparison.OrdinalIgnoreCase);
+                                    <tr class="@(isFormSelected ? "gm-row-selected" : "")"
+                                        style="cursor:pointer;"
+                                        @onclick="() => SelectFormation(form.FormationName)">
+                                        <td>@ToArabicDigits(rowIdx++)</td>
+                                        <td>
+                                            <div style="font-weight:700;display:flex;align-items:center;gap:.45rem;">
+                                                <Icon Name="building-office-2" Size="xs" />
+                                                <span>@form.FormationName</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="hr-badge" style="border-inline-start:3px solid @form.GovColor;">
+                                                @form.GovernorateName — @form.BranchLabel
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <strong style="font-size:1rem;">@ToArabicDigits(form.TotalCount)</strong>
+                                        </td>
+                                        <td>@ToArabicDigits(form.MaleCount) (@ToArabicDigits(form.MalePercentage.ToString("F0"))٪)</td>
+                                        <td>@ToArabicDigits(form.FemaleCount) (@ToArabicDigits(form.FemalePercentage.ToString("F0"))٪)</td>
+                                        <td style="min-width:9rem;">
+                                            <div style="display:flex;align-items:center;gap:.5rem;">
+                                                <div class="gm-progress-track" style="flex:1;margin:0;">
+                                                    <div class="gm-progress-fill" style="width:@(Math.Clamp(form.ShareOfTotal, 0, 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;background:@form.GovColor;"></div>
+                                                </div>
+                                                <span style="font-size:var(--fs-xs);font-weight:700;min-width:2.8rem;">@ToArabicDigits(form.ShareOfTotal.ToString("F1"))٪</span>
+                                            </div>
+                                        </td>
+                                        <td style="text-align:left;" @onclick:stopPropagation="true">
+                                            <button type="button"
+                                                    class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                    @onclick="() => SelectFormation(form.FormationName)">
+                                                <Icon Name="users" Size="xs" />
+                                                <span>عرض الكادر (@ToArabicDigits(form.TotalCount))</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            @* ==================== 6. EMPLOYEES PREVIEW TABLE ==================== *@
+            <section class="hr-card" aria-label="قائمة الموظفين حسب المحافظة والتشكيل">
+                <div class="gm-panel-head" style="margin-bottom:var(--s-3);">
+                    <div>
+                        <h2 class="hr-h3" style="display:flex;align-items:center;gap:var(--s-2);margin:0;">
+                            <Icon Name="users" Size="sm" />
+                            <span>
+                                كادر الموظفين
+                                @if (selectedFormationName != null)
+                                {
+                                    <span> — @selectedFormationName</span>
+                                }
+                                else if (selectedGovCode != null)
+                                {
+                                    var g = GetGovStat(selectedGovCode);
+                                    <span> — @g.Name (@g.BranchLabel)</span>
+                                }
+                            </span>
+                        </h2>
+                        <p class="hr-muted" style="font-size:var(--fs-xs);margin-block-start:.2rem;">
+                            يتم عرض @ToArabicDigits(Math.Min(FilteredEmployeesList.Count, employeePageSize)) من أصل @ToArabicDigits(FilteredEmployeesList.Count) موظف مطابق للفلتر
+                        </p>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:var(--s-2);">
+                        @if (canViewEmployees)
+                        {
+                            <a href="employees" class="hr-btn hr-btn-secondary hr-btn-sm">
+                                <Icon Name="arrow-top-right-on-square" Size="xs" />
+                                <span>فتح سجل الموظفين الكامل</span>
+                            </a>
+                        }
+                    </div>
+                </div>
+
+                <div class="hr-table-wrap">
+                    <table class="hr-table">
+                        <thead>
+                            <tr>
+                                <th>الرقم الوظيفي</th>
+                                <th>اسم الموظف</th>
+                                <th>التشكيل الإداري</th>
+                                <th>المحافظة / الفرع</th>
+                                <th>العنوان الوظيفي</th>
+                                <th>الدرجة / المرحلة</th>
+                                <th>النوع الاجتماعي</th>
+                                @if (canViewEmployees)
+                                {
+                                    <th style="text-align:left;">الملف</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (PagedEmployees.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="8" style="text-align:center;padding:var(--s-5);" class="hr-muted">
+                                        لا يوجد موظفون مطابقون للفلتر المحدد.
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var emp in PagedEmployees)
+                                {
+                                    <tr>
+                                        <td><span class="hr-mono">@emp.EmployeeID</span></td>
+                                        <td style="font-weight:700;">@emp.Name</td>
+                                        <td>@emp.FormationName</td>
+                                        <td>
+                                            <span class="hr-badge" style="border-inline-start:3px solid @emp.GovColor;">
+                                                @emp.GovernorateName (@emp.BranchLabel)
+                                            </span>
+                                        </td>
+                                        <td>@(emp.JobTitleName ?? "—")</td>
+                                        <td>
+                                            @if (!string.IsNullOrWhiteSpace(emp.GradeName) || !string.IsNullOrWhiteSpace(emp.StageName))
+                                            {
+                                                <span>@(emp.GradeName ?? "—") / @(emp.StageName ?? "—")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="hr-muted">—</span>
+                                            }
+                                        </td>
+                                        <td>@emp.GenderName</td>
+                                        @if (canViewEmployees)
+                                        {
+                                            <td style="text-align:left;">
+                                                <a class="hr-btn hr-btn-quiet hr-btn-sm" href="employees/@emp.EmployeeID" title="فتح إضبارة الموظف">
+                                                    <Icon Name="identification" Size="xs" />
+                                                    <span>الإضبارة</span>
+                                                </a>
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (TotalEmployeePages > 1)
+                {
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:var(--s-3);flex-wrap:wrap;gap:var(--s-2);">
+                        <span class="hr-muted" style="font-size:var(--fs-xs);">
+                            صفحة @ToArabicDigits(currentEmployeePage) من @ToArabicDigits(TotalEmployeePages) (إجمالي @ToArabicDigits(FilteredEmployeesList.Count) موظف)
+                        </span>
+                        <div style="display:flex;align-items:center;gap:var(--s-1);">
+                            <button type="button"
+                                    class="hr-btn hr-btn-secondary hr-btn-sm"
+                                    disabled="@(currentEmployeePage <= 1)"
+                                    @onclick="() => ChangeEmployeePage(currentEmployeePage - 1)">
+                                السابق
+                            </button>
+                            <button type="button"
+                                    class="hr-btn hr-btn-secondary hr-btn-sm"
+                                    disabled="@(currentEmployeePage >= TotalEmployeePages)"
+                                    @onclick="() => ChangeEmployeePage(currentEmployeePage + 1)">
+                                التالي
+                            </button>
+                        </div>
+                    </div>
+                }
+            </section>
+        }
+    </div>
+}
+
+<style>
+    .general-map-page {
+        gap: var(--s-4);
+    }
+
+    .gm-kpi-card {
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .gm-kpi-card:hover {
+        transform: translateY(-2px);
+    }
+
+    .gm-kpi-card.is-selected {
+        outline: 2px solid var(--accent, #1a669d);
+        background: color-mix(in srgb, var(--accent, #1a669d) 6%, var(--surface-1, #ffffff));
+    }
+
+    .gm-filter-bar {
+        padding: var(--s-3) var(--s-4);
+    }
+
+    .gm-main-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(20rem, 0.95fr);
+        gap: var(--s-4);
+        align-items: start;
+    }
+
+    @@media (max-width: 1100px) {
+        .gm-main-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .gm-map-poster {
+        background: #f9fbfd;
+        border: 1px solid #e2e8f0;
+        padding: var(--s-5) var(--s-5) var(--s-4);
+    }
+
+    [data-theme="dark"] .gm-map-poster {
+        background: var(--surface-1, #0f172a);
+        border-color: var(--border, #1e293b);
+    }
+
+    .gm-poster-header {
+        text-align: center;
+        margin-bottom: var(--s-3);
+    }
+
+    .gm-poster-accent-bar {
+        width: 72px;
+        height: 4px;
+        background: #0d7a7b;
+        border-radius: 999px;
+        margin: 0 auto 0.65rem;
+    }
+
+    .gm-poster-title {
+        font-size: clamp(1.65rem, 2.5vw, 2.25rem);
+        font-weight: 800;
+        color: #1e293b;
+        margin: 0;
+        line-height: 1.2;
+    }
+
+    [data-theme="dark"] .gm-poster-title {
+        color: #f8fafc;
+    }
+
+    .gm-poster-subtitle {
+        font-size: 1.1rem;
+        color: #64748b;
+        margin: 0.25rem 0 0;
+        font-weight: 500;
+    }
+
+    .gm-poster-divider {
+        height: 1px;
+        background: #e2e8f0;
+        width: 92%;
+        margin: var(--s-3) auto;
+    }
+
+    [data-theme="dark"] .gm-poster-divider {
+        background: #1e293b;
+    }
+
+    .gm-panel-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--s-2);
+        flex-wrap: wrap;
+        margin-bottom: var(--s-3);
+    }
+
+    .gm-svg-stage {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .gm-iraq-svg {
+        width: 100%;
+        max-width: 860px;
+        height: auto;
+        user-select: none;
+        overflow: visible;
+    }
+
+    .gm-gov-region path {
+        transition: filter 0.18s ease, stroke-width 0.18s ease, opacity 0.18s ease;
+    }
+
+    .gm-gov-region:hover path {
+        filter: brightness(1.08);
+    }
+
+    .gm-poster-footer {
+        width: 92%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--s-3);
+        padding-top: 0.25rem;
+    }
+
+    .gm-poster-source {
+        text-align: center;
+        margin-inline: auto;
+        line-height: 1.4;
+        font-size: 0.82rem;
+    }
+
+    .gm-toggle-all-govs {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: var(--fs-xs);
+        color: #64748b;
+        cursor: pointer;
+    }
+
+    .gm-leaflet-wrapper {
+        width: 100%;
+        height: 560px;
+        border-radius: var(--r-lg);
+        overflow: hidden;
+        border: 1px solid var(--border, #e2e8f0);
+    }
+
+    .gm-leaflet-canvas {
+        width: 100%;
+        height: 100%;
+    }
+
+    .gm-gov-cards-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--s-2);
+        max-height: 640px;
+        overflow-y: auto;
+        padding-inline-end: 0.25rem;
+    }
+
+    .gm-gov-card {
+        padding: var(--s-3);
+        border-radius: var(--r-md);
+        border: 1px solid var(--border, #e2e8f0);
+        background: var(--surface-1, #ffffff);
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+    }
+
+    .gm-gov-card:hover {
+        background: var(--surface-2, #f8fafc);
+        transform: translateX(-2px);
+    }
+
+    .gm-gov-card.is-selected {
+        background: color-mix(in srgb, var(--accent, #1a669d) 7%, var(--surface-1, #ffffff));
+        border-color: var(--accent, #1a669d);
+    }
+
+    .gm-gov-card-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--s-2);
+    }
+
+    .gm-gov-name {
+        font-weight: 800;
+        font-size: var(--fs-body);
+    }
+
+    .gm-progress-track {
+        width: 100%;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--surface-3, #e2e8f0);
+        overflow: hidden;
+        margin-block: 0.55rem;
+    }
+
+    .gm-progress-fill {
+        height: 100%;
+        border-radius: 999px;
+        transition: width 0.3s ease;
+    }
+
+    .gm-gov-card-footer {
+        display: flex;
+        align-items: center;
+        gap: var(--s-3);
+        font-size: var(--fs-xs);
+        color: var(--text-muted, #64748b);
+    }
+
+    .gm-row-selected {
+        background: color-mix(in srgb, var(--accent, #1a669d) 8%, transparent) !important;
+    }
+</style>
+
+@code {
+    private bool isLoading = true;
+    private bool hasAccess = true;
+    private bool canViewEmployees = false;
+
+    private string mapViewMode = "svg"; // "svg" | "leaflet"
+    private bool showAllGovernoratesOnMap = false;
+    private bool showEmptyGovernoratesInList = false;
+
+    private string? selectedGovCode = null;
+    private string? selectedFormationName = null;
+    private string searchQuery = string.Empty;
+    private string genderFilter = "all";
+
+    private int currentEmployeePage = 1;
+    private const int employeePageSize = 25;
+
+    private DotNetObjectReference<GeneralMapPage>? dotNetRef;
+
+    private List<EmployeeMapRow> allEmployees = new();
+    private List<GovernorateMapStat> GovernorateStats = new();
+    private List<FormationMapStat> FilteredFormations = new();
+    private List<EmployeeMapRow> FilteredEmployeesList = new();
+
+    private int FilteredTotalEmployees => FilteredEmployeesList.Count;
+    private int FilteredTotalMales => FilteredEmployeesList.Count(e => !e.IsFemale);
+    private int FilteredTotalFemales => FilteredEmployeesList.Count(e => e.IsFemale);
+    private int TotalFormationsCount => FilteredFormations.Count;
+
+    private int TotalEmployeePages => Math.Max(1, (int)Math.Ceiling((double)FilteredEmployeesList.Count / employeePageSize));
+
+    private List<EmployeeMapRow> PagedEmployees =>
+        FilteredEmployeesList
+            .Skip((currentEmployeePage - 1) * employeePageSize)
+            .Take(employeePageSize)
+            .ToList();
+
+    private IEnumerable<GovernorateMapStat> VisibleGovernorateCards =>
+        showEmptyGovernoratesInList
+            ? GovernorateStats.OrderByDescending(g => g.EmployeeCount).ThenBy(g => g.Order)
+            : GovernorateStats.Where(g => g.EmployeeCount > 0 || g.IsMainBranchHub).OrderByDescending(g => g.EmployeeCount).ThenBy(g => g.Order);
+
+    protected override async Task OnInitializedAsync()
+    {
+        dotNetRef = DotNetObjectReference.Create(this);
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var isAdmin = user.IsInRole("Admin") ||
+                          user.HasClaim(c => (c.Type == ClaimTypes.Role || c.Type == "role") &&
+                                             c.Value.Equals("Admin", StringComparison.OrdinalIgnoreCase));
+
+            hasAccess = isAdmin
+                        || user.HasPermission(Permissions.ReportsView)
+                        || user.HasPermission(Permissions.DashboardView)
+                        || user.HasPermission(Permissions.FormationDashboardView);
+
+            canViewEmployees = isAdmin || user.HasPermission(Permissions.EmployeesView);
+        }
+        else
+        {
+            hasAccess = false;
+        }
+
+        if (hasAccess)
+        {
+            await LoadDataAsync();
+        }
+        else
+        {
+            isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (mapViewMode == "leaflet" && !isLoading && hasAccess)
+        {
+            await RenderLeafletMapAsync();
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var dbGenders = await db.Genders.AsNoTracking().ToListAsync();
+            var femaleGenderIds = dbGenders
+                .Where(g => g.Name.Contains("أنثى") || g.Name.Contains("انثى") || g.Name.Equals("Female", StringComparison.OrdinalIgnoreCase))
+                .Select(g => g.Id)
+                .ToHashSet();
+
+            var dbFormations = await db.Formations.AsNoTracking().ToListAsync();
+            var formationDict = dbFormations.ToDictionary(f => f.Id, f => f.Name.Trim());
+
+            var employees = await db.Employees
+                .AsNoTracking()
+                .Where(e => !e.IsArchived)
+                .Include(e => e.Formation)
+                .Include(e => e.Gender)
+                .Include(e => e.JobTitle)
+                .Include(e => e.Grade)
+                .Include(e => e.Stage)
+                .ToListAsync();
+
+            var rows = new List<EmployeeMapRow>(employees.Count);
+            foreach (var emp in employees)
+            {
+                var formationName = emp.FormationId.HasValue && formationDict.TryGetValue(emp.FormationId.Value, out var fName)
+                    ? fName
+                    : (!string.IsNullOrWhiteSpace(emp.Formation?.Name) ? emp.Formation.Name.Trim() : "الفرع الرئيسي - غير محدد");
+
+                var isFemale = (emp.GenderId.HasValue && femaleGenderIds.Contains(emp.GenderId.Value))
+                               || (emp.Gender != null && (emp.Gender.Name.Contains("أنثى") || emp.Gender.Name.Contains("انثى") || emp.Gender.Name.Equals("Female", StringComparison.OrdinalIgnoreCase)));
+
+                var govMeta = ResolveGovernorateForFormation(formationName);
+
+                rows.Add(new EmployeeMapRow
+                {
+                    EmployeeID = emp.EmployeeID,
+                    Name = emp.Name,
+                    FormationName = formationName,
+                    GovernorateCode = govMeta.Code,
+                    GovernorateName = govMeta.Name,
+                    BranchLabel = govMeta.BranchLabel,
+                    GovColor = govMeta.Color,
+                    IsFemale = isFemale,
+                    GenderName = isFemale ? "أنثى" : "ذكر",
+                    JobTitleName = emp.JobTitle?.Name,
+                    GradeName = emp.Grade?.Name,
+                    StageName = emp.Stage?.Name
+                });
+            }
+
+            allEmployees = rows;
+            RecalculateStats();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading General Map data.");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RecalculateStats()
+    {
+        var catalog = GetIraqGovernoratesCatalog();
+
+        IEnumerable<EmployeeMapRow> baseQuery = allEmployees;
+
+        if (genderFilter == "male")
+            baseQuery = baseQuery.Where(e => !e.IsFemale);
+        else if (genderFilter == "female")
+            baseQuery = baseQuery.Where(e => e.IsFemale);
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            baseQuery = baseQuery.Where(e =>
+                e.FormationName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                e.GovernorateName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                e.BranchLabel.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                e.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                e.EmployeeID.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var baseList = baseQuery.ToList();
+        var grandTotal = baseList.Count;
+
+        var byGov = baseList.GroupBy(e => e.GovernorateCode).ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var gov in catalog)
+        {
+            if (byGov.TryGetValue(gov.Code, out var govEmps))
+            {
+                gov.EmployeeCount = govEmps.Count;
+                gov.MaleCount = govEmps.Count(e => !e.IsFemale);
+                gov.FemaleCount = govEmps.Count(e => e.IsFemale);
+                gov.FormationCount = govEmps.Select(e => e.FormationName).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                gov.Percentage = grandTotal > 0 ? (double)govEmps.Count * 100.0 / grandTotal : 0;
+            }
+            else
+            {
+                gov.EmployeeCount = 0;
+                gov.MaleCount = 0;
+                gov.FemaleCount = 0;
+                gov.FormationCount = 0;
+                gov.Percentage = 0;
+            }
+        }
+
+        GovernorateStats = catalog;
+
+        var govFilteredEmployees = selectedGovCode != null
+            ? baseList.Where(e => e.GovernorateCode == selectedGovCode).ToList()
+            : baseList;
+
+        FilteredFormations = govFilteredEmployees
+            .GroupBy(e => (e.FormationName, e.GovernorateCode, e.GovernorateName, e.BranchLabel, e.GovColor))
+            .Select(g =>
+            {
+                var count = g.Count();
+                var females = g.Count(x => x.IsFemale);
+                var males = count - females;
+                return new FormationMapStat
+                {
+                    FormationName = g.Key.FormationName,
+                    GovernorateCode = g.Key.GovernorateCode,
+                    GovernorateName = g.Key.GovernorateName,
+                    BranchLabel = g.Key.BranchLabel,
+                    GovColor = g.Key.GovColor,
+                    TotalCount = count,
+                    MaleCount = males,
+                    FemaleCount = females,
+                    MalePercentage = count > 0 ? (double)males * 100.0 / count : 0,
+                    FemalePercentage = count > 0 ? (double)females * 100.0 / count : 0,
+                    ShareOfTotal = grandTotal > 0 ? (double)count * 100.0 / grandTotal : 0
+                };
+            })
+            .OrderByDescending(f => f.TotalCount)
+            .ThenBy(f => f.FormationName)
+            .ToList();
+
+        var finalEmps = selectedFormationName != null
+            ? govFilteredEmployees.Where(e => string.Equals(e.FormationName, selectedFormationName, StringComparison.OrdinalIgnoreCase)).ToList()
+            : govFilteredEmployees;
+
+        FilteredEmployeesList = finalEmps;
+        currentEmployeePage = 1;
+    }
+
+    private GovernorateMapStat GetGovStat(string code) =>
+        GovernorateStats.FirstOrDefault(g => g.Code == code)
+        ?? new GovernorateMapStat { Code = code, Name = code, BranchLabel = "" };
+
+    private async Task SelectGovernorateAsync(string? code)
+    {
+        selectedGovCode = selectedGovCode == code ? null : code;
+        selectedFormationName = null;
+        RecalculateStats();
+        StateHasChanged();
+
+        if (mapViewMode == "leaflet")
+        {
+            await RenderLeafletMapAsync();
+        }
+    }
+
+    [JSInvokable]
+    public async Task SelectGovernorateFromJs(string code)
+    {
+        selectedGovCode = selectedGovCode == code ? null : code;
+        selectedFormationName = null;
+        RecalculateStats();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void SelectFormation(string? formationName)
+    {
+        selectedFormationName = string.Equals(selectedFormationName, formationName, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : formationName;
+        RecalculateStats();
+    }
+
+    private async Task OnGovDropdownChangedAsync(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        selectedGovCode = string.IsNullOrWhiteSpace(val) ? null : val;
+        selectedFormationName = null;
+        RecalculateStats();
+
+        if (mapViewMode == "leaflet")
+        {
+            await RenderLeafletMapAsync();
+        }
+    }
+
+    private async Task OnFilterChangedAsync()
+    {
+        RecalculateStats();
+        if (mapViewMode == "leaflet")
+        {
+            await RenderLeafletMapAsync();
+        }
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        selectedGovCode = null;
+        selectedFormationName = null;
+        searchQuery = string.Empty;
+        genderFilter = "all";
+        RecalculateStats();
+
+        if (mapViewMode == "leaflet")
+        {
+            await RenderLeafletMapAsync();
+        }
+    }
+
+    private void ChangeEmployeePage(int page)
+    {
+        currentEmployeePage = Math.Clamp(page, 1, TotalEmployeePages);
+    }
+
+    private async Task SetMapViewModeAsync(string mode)
+    {
+        mapViewMode = mode;
+        StateHasChanged();
+
+        if (mode == "leaflet")
+        {
+            await Task.Delay(50);
+            await RenderLeafletMapAsync();
+        }
+    }
+
+    private async Task RenderLeafletMapAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("hrLoadScript", "js/hr-general-map.js");
+            var payload = GovernorateStats.Select(g => new
+            {
+                code = g.Code,
+                name = g.Name,
+                shortName = g.ShortName,
+                branchLabel = g.BranchLabel,
+                isMainBranchHub = g.IsMainBranchHub,
+                lat = g.Lat,
+                lng = g.Lng,
+                color = g.Color,
+                employeeCount = g.EmployeeCount,
+                arabicCount = ToArabicDigits(g.EmployeeCount),
+                maleCount = g.MaleCount,
+                femaleCount = g.FemaleCount,
+                formationCount = g.FormationCount,
+                percentage = g.Percentage
+            }).ToList();
+
+            await JSRuntime.InvokeVoidAsync("hrGeneralMap.initOrUpdate", "hrGeneralLeafletMap", payload, selectedGovCode, dotNetRef);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Leaflet map initialization warning.");
+        }
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("المحافظة,الفرع,التشكيل الإداري,إجمالي الموظفين,الذكور,الإناث,النسبة من الإجمالي %");
+
+            foreach (var f in FilteredFormations)
+            {
+                var safeName = f.FormationName.Replace("\"", "\"\"");
+                sb.AppendLine($"\"{f.GovernorateName}\",\"{f.BranchLabel}\",\"{safeName}\",{f.TotalCount},{f.MaleCount},{f.FemaleCount},{f.ShareOfTotal:F2}");
+            }
+
+            var csvContent = sb.ToString();
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csvContent)).ToArray();
+            var base64 = Convert.ToBase64String(bytes);
+
+            await JSRuntime.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    var a = document.createElement('a');
+                    a.href = 'data:text/csv;base64,{base64}';
+                    a.download = 'Iraq-General-Map-Formations-{DateTime.Now:yyyyMMdd}.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }})();
+            ");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "CSV export failed.");
+        }
+    }
+
+    private async Task PrintPageAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("window.print");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Print invocation failed.");
+        }
+    }
+
+    private static string ToArabicDigits(object? value)
+    {
+        if (value == null) return "٠";
+        var s = value.ToString() ?? "0";
+        return s
+            .Replace('0', '٠')
+            .Replace('1', '١')
+            .Replace('2', '٢')
+            .Replace('3', '٣')
+            .Replace('4', '٤')
+            .Replace('5', '٥')
+            .Replace('6', '٦')
+            .Replace('7', '٧')
+            .Replace('8', '٨')
+            .Replace('9', '٩');
+    }
+
+    private static (string Code, string Name, string BranchLabel, string Color) ResolveGovernorateForFormation(string? formationName)
+    {
+        if (string.IsNullOrWhiteSpace(formationName))
+        {
+            return ("BGD", "بغداد", "الفرع الرئيسي — المقر العام", "#1a669d");
+        }
+
+        var norm = formationName.Trim();
+
+        if (norm.Contains("الموصل", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("موصل", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("نينوى", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("NIN", "نينوى", "فرع الموصل", "#0d7a7b");
+        }
+
+        if (norm.Contains("أربيل", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("اربيل", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("إربيل", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("هولير", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("EBL", "أربيل", "فرع أربيل", "#6b4ea2");
+        }
+
+        if (norm.Contains("البصرة", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("بصرة", StringComparison.OrdinalIgnoreCase) ||
+            norm.Contains("البصره", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("BSR", "البصرة", "فرع البصرة", "#b45a2a");
+        }
+
+        if (norm.Contains("النجف", StringComparison.OrdinalIgnoreCase) || norm.Contains("نجف", StringComparison.OrdinalIgnoreCase))
+            return ("NJF", "النجف الأشرف", "فرع النجف", "#8b5cf6");
+
+        if (norm.Contains("كربلاء", StringComparison.OrdinalIgnoreCase))
+            return ("KRB", "كربلاء المقدسة", "فرع كربلاء", "#14b8a6");
+
+        if (norm.Contains("السليمانية", StringComparison.OrdinalIgnoreCase) || norm.Contains("سليمانية", StringComparison.OrdinalIgnoreCase))
+            return ("SUL", "السليمانية", "فرع السليمانية", "#06b6d4");
+
+        if (norm.Contains("دهوك", StringComparison.OrdinalIgnoreCase))
+            return ("DHK", "دهوك", "فرع دهوك", "#3b82f6");
+
+        if (norm.Contains("كركوك", StringComparison.OrdinalIgnoreCase))
+            return ("KIR", "كركوك", "فرع كركوك", "#ec4899");
+
+        if (norm.Contains("الأنبار", StringComparison.OrdinalIgnoreCase) || norm.Contains("الانبار", StringComparison.OrdinalIgnoreCase))
+            return ("ANB", "الأنبار", "فرع الأنبار", "#6366f1");
+
+        if (norm.Contains("بابل", StringComparison.OrdinalIgnoreCase) || norm.Contains("الحلة", StringComparison.OrdinalIgnoreCase))
+            return ("BBL", "بابل", "فرع بابل", "#84cc16");
+
+        if (norm.Contains("ديالى", StringComparison.OrdinalIgnoreCase))
+            return ("DIY", "ديالى", "فرع ديالى", "#f97316");
+
+        if (norm.Contains("صلاح الدين", StringComparison.OrdinalIgnoreCase) || norm.Contains("تكريت", StringComparison.OrdinalIgnoreCase))
+            return ("SAL", "صلاح الدين", "فرع صلاح الدين", "#a855f7");
+
+        if (norm.Contains("واسط", StringComparison.OrdinalIgnoreCase) || norm.Contains("الكوت", StringComparison.OrdinalIgnoreCase))
+            return ("WAS", "واسط", "فرع واسط", "#22c55e");
+
+        if (norm.Contains("ميسان", StringComparison.OrdinalIgnoreCase) || norm.Contains("العمارة", StringComparison.OrdinalIgnoreCase))
+            return ("MYS", "ميسان", "فرع ميسان", "#0284c7");
+
+        if (norm.Contains("ذي قار", StringComparison.OrdinalIgnoreCase) || norm.Contains("الناصرية", StringComparison.OrdinalIgnoreCase))
+            return ("DHI", "ذي قار", "فرع ذي قار", "#e11d48");
+
+        if (norm.Contains("المثنى", StringComparison.OrdinalIgnoreCase) || norm.Contains("السماوة", StringComparison.OrdinalIgnoreCase))
+            return ("MUT", "المثنى", "فرع المثنى", "#64748b");
+
+        if (norm.Contains("القادسية", StringComparison.OrdinalIgnoreCase) || norm.Contains("الديوانية", StringComparison.OrdinalIgnoreCase))
+            return ("QAD", "الديوانية (القادسية)", "فرع الديوانية", "#d97706");
+
+        return ("BGD", "بغداد", "الفرع الرئيسي — المقر العام", "#1a669d");
+    }
+
+    private static List<GovernorateMapStat> GetIraqGovernoratesCatalog() => new()
+    {
+        new GovernorateMapStat
+        {
+            Order = 1,
+            Code = "BGD",
+            Name = "بغداد",
+            ShortName = "بغداد",
+            BranchLabel = "الفرع الرئيسي — المقر العام",
+            IsMainBranchHub = true,
+            Color = "#1a669d",
+            Lat = 33.3152,
+            Lng = 44.3661,
+            SvgX = 480,
+            SvgY = 272,
+            SvgPath = IraqMapGeometry.BaghdadPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 2,
+            Code = "NIN",
+            Name = "نينوى",
+            ShortName = "الموصل",
+            BranchLabel = "فرع الموصل",
+            IsMainBranchHub = true,
+            Color = "#0d7a7b",
+            Lat = 36.3489,
+            Lng = 43.1577,
+            SvgX = 385,
+            SvgY = 116,
+            SvgPath = IraqMapGeometry.NinevehPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 3,
+            Code = "EBL",
+            Name = "أربيل",
+            ShortName = "أربيل",
+            BranchLabel = "فرع أربيل",
+            IsMainBranchHub = true,
+            Color = "#6b4ea2",
+            Lat = 36.1901,
+            Lng = 44.0091,
+            SvgX = 471,
+            SvgY = 96,
+            SvgPath = IraqMapGeometry.ErbilPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 4,
+            Code = "BSR",
+            Name = "البصرة",
+            ShortName = "البصرة",
+            BranchLabel = "فرع البصرة",
+            IsMainBranchHub = true,
+            Color = "#b45a2a",
+            Lat = 30.5081,
+            Lng = 47.7835,
+            SvgX = 629,
+            SvgY = 447,
+            SvgPath = IraqMapGeometry.BasraPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 5,
+            Code = "DHK",
+            Name = "دهوك",
+            ShortName = "دهوك",
+            BranchLabel = "محافظة دهوك",
+            Color = "#3b82f6",
+            Lat = 36.8671,
+            Lng = 42.9884,
+            SvgX = 419,
+            SvgY = 56,
+            SvgPath = IraqMapGeometry.DohukPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 6,
+            Code = "SUL",
+            Name = "السليمانية",
+            ShortName = "السليمانية",
+            BranchLabel = "محافظة السليمانية",
+            Color = "#06b6d4",
+            Lat = 35.5613,
+            Lng = 45.4306,
+            SvgX = 525,
+            SvgY = 141,
+            SvgPath = IraqMapGeometry.SulaymaniyahPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 7,
+            Code = "KIR",
+            Name = "كركوك",
+            ShortName = "كركوك",
+            BranchLabel = "محافظة كركوك",
+            Color = "#ec4899",
+            Lat = 35.4681,
+            Lng = 44.3922,
+            SvgX = 467,
+            SvgY = 152,
+            SvgPath = IraqMapGeometry.KirkukPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 8,
+            Code = "SAL",
+            Name = "صلاح الدين",
+            ShortName = "صلاح الدين",
+            BranchLabel = "محافظة صلاح الدين",
+            Color = "#a855f7",
+            Lat = 34.6111,
+            Lng = 43.6782,
+            SvgX = 441,
+            SvgY = 200,
+            SvgPath = IraqMapGeometry.SalahAlDinPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 9,
+            Code = "DIY",
+            Name = "ديالى",
+            ShortName = "ديالى",
+            BranchLabel = "محافظة ديالى",
+            Color = "#f97316",
+            Lat = 33.7489,
+            Lng = 44.6436,
+            SvgX = 515,
+            SvgY = 235,
+            SvgPath = IraqMapGeometry.DiyalaPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 10,
+            Code = "ANB",
+            Name = "الأنبار",
+            ShortName = "الأنبار",
+            BranchLabel = "محافظة الأنبار",
+            Color = "#6366f1",
+            Lat = 33.4259,
+            Lng = 43.2995,
+            SvgX = 345,
+            SvgY = 295,
+            SvgPath = IraqMapGeometry.AnbarPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 11,
+            Code = "BBL",
+            Name = "بابل",
+            ShortName = "بابل",
+            BranchLabel = "محافظة بابل",
+            Color = "#84cc16",
+            Lat = 32.4722,
+            Lng = 44.4328,
+            SvgX = 487,
+            SvgY = 312,
+            SvgPath = IraqMapGeometry.BabilPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 12,
+            Code = "KRB",
+            Name = "كربلاء المقدسة",
+            ShortName = "كربلاء",
+            BranchLabel = "محافظة كربلاء",
+            Color = "#14b8a6",
+            Lat = 32.6160,
+            Lng = 44.0249,
+            SvgX = 453,
+            SvgY = 323,
+            SvgPath = IraqMapGeometry.KarbalaPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 13,
+            Code = "WAS",
+            Name = "واسط",
+            ShortName = "واسط",
+            BranchLabel = "محافظة واسط",
+            Color = "#22c55e",
+            Lat = 32.5128,
+            Lng = 45.8182,
+            SvgX = 546,
+            SvgY = 309,
+            SvgPath = IraqMapGeometry.WasitPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 14,
+            Code = "NJF",
+            Name = "النجف الأشرف",
+            ShortName = "النجف",
+            BranchLabel = "محافظة النجف",
+            Color = "#8b5cf6",
+            Lat = 31.9959,
+            Lng = 44.3146,
+            SvgX = 453,
+            SvgY = 403,
+            SvgPath = IraqMapGeometry.NajafPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 15,
+            Code = "QAD",
+            Name = "الديوانية (القادسية)",
+            ShortName = "الديوانية",
+            BranchLabel = "محافظة الديوانية",
+            Color = "#d97706",
+            Lat = 31.9879,
+            Lng = 44.9247,
+            SvgX = 514,
+            SvgY = 358,
+            SvgPath = IraqMapGeometry.QadisiyahPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 16,
+            Code = "MYS",
+            Name = "ميسان",
+            ShortName = "ميسان",
+            BranchLabel = "محافظة ميسان",
+            Color = "#0284c7",
+            Lat = 31.8359,
+            Lng = 47.1448,
+            SvgX = 612,
+            SvgY = 356,
+            SvgPath = IraqMapGeometry.MaysanPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 17,
+            Code = "DHI",
+            Name = "ذي قار",
+            ShortName = "ذي قار",
+            BranchLabel = "محافظة ذي قار",
+            Color = "#e11d48",
+            Lat = 31.0439,
+            Lng = 46.2573,
+            SvgX = 576,
+            SvgY = 397,
+            SvgPath = IraqMapGeometry.DhiQarPath
+        },
+        new GovernorateMapStat
+        {
+            Order = 18,
+            Code = "MUT",
+            Name = "المثنى",
+            ShortName = "المثنى",
+            BranchLabel = "محافظة المثنى",
+            Color = "#64748b",
+            Lat = 31.3189,
+            Lng = 45.2803,
+            SvgX = 529,
+            SvgY = 460,
+            SvgPath = IraqMapGeometry.MuthannaPath
+        }
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (mapViewMode == "leaflet")
+            {
+                await JSRuntime.InvokeVoidAsync("hrGeneralMap.dispose");
+            }
+        }
+        catch
+        {
+            // Ignore JS disconnected errors
+        }
+        dotNetRef?.Dispose();
+    }
+
+    private sealed class GovernorateMapStat
+    {
+        public int Order { get; set; }
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string ShortName { get; set; } = string.Empty;
+        public string BranchLabel { get; set; } = string.Empty;
+        public bool IsMainBranchHub { get; set; }
+        public string Color { get; set; } = "#1a669d";
+        public double Lat { get; set; }
+        public double Lng { get; set; }
+        public int SvgX { get; set; }
+        public int SvgY { get; set; }
+        public string SvgPath { get; set; } = string.Empty;
+
+        public int EmployeeCount { get; set; }
+        public int MaleCount { get; set; }
+        public int FemaleCount { get; set; }
+        public int FormationCount { get; set; }
+        public double Percentage { get; set; }
+    }
+
+    private sealed class FormationMapStat
+    {
+        public string FormationName { get; set; } = string.Empty;
+        public string GovernorateCode { get; set; } = string.Empty;
+        public string GovernorateName { get; set; } = string.Empty;
+        public string BranchLabel { get; set; } = string.Empty;
+        public string GovColor { get; set; } = "#1a669d";
+        public int TotalCount { get; set; }
+        public int MaleCount { get; set; }
+        public int FemaleCount { get; set; }
+        public double MalePercentage { get; set; }
+        public double FemalePercentage { get; set; }
+        public double ShareOfTotal { get; set; }
+    }
+
+    private sealed class EmployeeMapRow
+    {
+        public string EmployeeID { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string FormationName { get; set; } = string.Empty;
+        public string GovernorateCode { get; set; } = string.Empty;
+        public string GovernorateName { get; set; } = string.Empty;
+        public string BranchLabel { get; set; } = string.Empty;
+        public string GovColor { get; set; } = "#1a669d";
+        public bool IsFemale { get; set; }
+        public string GenderName { get; set; } = string.Empty;
+        public string? JobTitleName { get; set; }
+        public string? GradeName { get; set; }
+        public string? StageName { get; set; }
+    }
+}

@@ -247,8 +247,11 @@
         if (string.IsNullOrWhiteSpace(targetUrl) || targetUrl == "/" || targetUrl == "")
         {
             var roles = await UserManager.GetRolesAsync(user);
-            var isStaff = roles.Any(r => r is "Admin" or "HRManager" or "FormationManager" or "Supervisor");
-            targetUrl = isStaff ? "" : "portal";
+            var claims = await UserManager.GetClaimsAsync(user);
+            var hasDashboardOrStaff = roles.Any(r => API.HR.Node.Security.StaffRoles.All.Contains(r, StringComparer.OrdinalIgnoreCase))
+                || claims.Any(c => (c.Type == "permission" || c.Type == "Permission")
+                    && string.Equals(c.Value, API.HR.Node.Security.Permissions.DashboardView, StringComparison.OrdinalIgnoreCase));
+            targetUrl = hasDashboardOrStaff ? "" : "portal";
         }
         RedirectManager.RedirectTo(targetUrl);
     }

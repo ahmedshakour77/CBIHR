@@ -205,6 +205,7 @@ builder.Services.Configure<API.HR.Node.Services.Canva.CanvaOptions>(
     builder.Configuration.GetSection(API.HR.Node.Services.Canva.CanvaOptions.SectionName));
 builder.Services.AddHttpClient<API.HR.Node.Services.Canva.ICanvaService, API.HR.Node.Services.Canva.CanvaService>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+builder.Services.AddScoped<IClaimsTransformation, DatabaseClaimsTransformation>();
 builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, ApplicationUserClaimsPrincipalFactory>();
 builder.Services.AddAntiforgery(options =>
 {
@@ -485,6 +486,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager()
+    .AddClaimsPrincipalFactory<ApplicationUserClaimsPrincipalFactory>()
     .AddDefaultTokenProviders();
 
 // Permission claims are baked into the login cookie. The validator rebuilds them

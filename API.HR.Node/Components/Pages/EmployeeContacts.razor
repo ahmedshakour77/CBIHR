@@ -419,9 +419,10 @@
         var userClaims = authState.User;
         if (userClaims.Identity?.IsAuthenticated == true)
         {
+            await API.HR.Node.Security.DatabaseClaimsSynchronizer.EnrichPrincipalFromDatabaseAsync(userClaims, ScopeFactory);
             currentUser = await UserManager.GetUserAsync(userClaims);
-            isAdmin = userClaims.IsInRole("Admin") ||
-                      userClaims.IsInRole("HRAdmin") ||
+            isAdmin = API.HR.Node.Security.PermissionResolver.IsAdmin(userClaims) ||
+                      API.HR.Node.Security.PermissionResolver.HasPermission(userClaims, API.HR.Node.Security.Permissions.ContactsEdit) ||
                       (currentUser?.UserName != null && currentUser.UserName.Equals("systemadmin", StringComparison.OrdinalIgnoreCase));
         }
     }

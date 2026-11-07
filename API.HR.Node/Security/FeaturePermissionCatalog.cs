@@ -324,25 +324,29 @@ public static class FeaturePermissionCatalog
 
     public static IReadOnlyList<EffectivePermissionItem> CalculateEffectivePermissions(
         IEnumerable<string> assignedRoles,
-        IEnumerable<string> directPermissionClaims)
+        IEnumerable<string> directPermissionClaims,
+        bool ignoreRoleDefaults = false)
     {
         var roleList = assignedRoles.ToList();
         var directClaimsSet = new HashSet<string>(directPermissionClaims, StringComparer.OrdinalIgnoreCase);
         var isAdmin = roleList.Any(r => r.Equals("Admin", StringComparison.OrdinalIgnoreCase));
 
         var rolePermissions = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var role in roleList)
+        if (!ignoreRoleDefaults)
         {
-            if (RolePermissionPackages.TryGetValue(role, out var perms))
+            foreach (var role in roleList)
             {
-                foreach (var p in perms)
+                if (RolePermissionPackages.TryGetValue(role, out var perms))
                 {
-                    if (!rolePermissions.TryGetValue(p, out var rolesGranting))
+                    foreach (var p in perms)
                     {
-                        rolesGranting = [];
-                        rolePermissions[p] = rolesGranting;
+                        if (!rolePermissions.TryGetValue(p, out var rolesGranting))
+                        {
+                            rolesGranting = [];
+                            rolePermissions[p] = rolesGranting;
+                        }
+                        rolesGranting.Add(role);
                     }
-                    rolesGranting.Add(role);
                 }
             }
         }

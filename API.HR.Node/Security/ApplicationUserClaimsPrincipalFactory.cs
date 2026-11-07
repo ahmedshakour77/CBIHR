@@ -34,6 +34,45 @@ public sealed class ApplicationUserClaimsPrincipalFactory : UserClaimsPrincipalF
             identity.AddClaim(new Claim(roleClaimType, "Employee"));
         }
 
+        // Synchronize exact effective permissions (if user has direct permissions or customized flag, direct claims override role defaults)
+        var userClaims = await _dbContext.UserClaims.AsNoTracking()
+            .Where(c => c.UserId == user.Id && c.ClaimType != null && c.ClaimValue != null)
+            .ToListAsync();
+
+        var directPerms = userClaims
+            .Where(c => c.ClaimType!.Equals("permission", StringComparison.OrdinalIgnoreCase))
+            .Select(c => c.ClaimValue!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var isCustomized = userClaims.Any(c =>
+            c.ClaimType!.Equals(DatabaseClaimsSynchronizer.CustomizedPermissionsClaimType, StringComparison.OrdinalIgnoreCase) &&
+            c.ClaimValue == "true") || directPerms.Count > 0;
+
+        var assignedRoles = identity.FindAll(roleClaimType).Select(c => c.Value).ToList();
+        var effectivePerms = FeaturePermissionCatalog.CalculateEffectivePermissions(
+                assignedRoles,
+                directPerms,
+                ignoreRoleDefaults: isCustomized)
+            .Where(p => p.IsEffective)
+            .Select(p => p.PermissionCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dp in directPerms)
+        {
+            effectivePerms.Add(dp);
+        }
+
+        var existingPermClaims = identity.FindAll(c => c.Type.Equals("permission", StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var pc in existingPermClaims)
+        {
+            identity.TryRemoveClaim(pc);
+        }
+        foreach (var perm in effectivePerms)
+        {
+            identity.AddClaim(new Claim("permission", perm));
+        }
+
         if (!string.IsNullOrWhiteSpace(user.EmployeeID))
         {
             identity.AddClaim(new Claim("employee_id", user.EmployeeID));

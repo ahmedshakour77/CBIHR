@@ -571,7 +571,7 @@
 
         @if (rolesModalTab == "effective")
         {
-            var effPerms = FeaturePermissionCatalog.CalculateEffectivePermissions(editingRoles, editingClaims)
+            var effPerms = FeaturePermissionCatalog.CalculateEffectivePermissions(editingRoles, editingClaims, ignoreRoleDefaults: true)
                 .ToDictionary(p => p.PermissionCode, StringComparer.OrdinalIgnoreCase);
             var isFullAdmin = editingRoles.Contains("Admin");
 
@@ -1633,8 +1633,9 @@
                     .Select(c => c.Value)
                     .ToList();
                 var directCount = directClaims.Count;
+                var isCustomized = claims.Any(c => c.Type.Equals(DatabaseClaimsSynchronizer.CustomizedPermissionsClaimType, StringComparison.OrdinalIgnoreCase) && c.Value == "true") || directCount > 0;
 
-                var effectiveList = FeaturePermissionCatalog.CalculateEffectivePermissions(assignedRoles, directClaims);
+                var effectiveList = FeaturePermissionCatalog.CalculateEffectivePermissions(assignedRoles, directClaims, ignoreRoleDefaults: isCustomized);
                 var effectiveCount = effectiveList.Count(p => p.IsEffective);
                 var roleGrantedCount = effectiveList.Count(p => p.GrantedByRole);
 
@@ -1737,9 +1738,25 @@
             {
                 selectedUserFormationId = user.FormationId ?? userVM.FormationId;
                 var claims = await userMgr.GetClaimsAsync(user);
+                var isCustomized = claims.Any(c => c.Type.Equals(DatabaseClaimsSynchronizer.CustomizedPermissionsClaimType, StringComparison.OrdinalIgnoreCase) && c.Value == "true");
                 foreach (var c in claims.Where(c => c.Type == "permission" || c.Type == "Permission"))
                 {
                     editingClaims.Add(c.Value);
+                }
+
+                // If user has no direct claims yet (and wasn't explicitly cleared), pre-fill with role package permissions so Admin has full checkbox control
+                if (editingClaims.Count == 0 && !isCustomized)
+                {
+                    foreach (var roleName in editingRoles)
+                    {
+                        if (FeaturePermissionCatalog.RolePermissionPackages.TryGetValue(roleName, out var pkgPerms))
+                        {
+                            foreach (var p in pkgPerms)
+                            {
+                                editingClaims.Add(p);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1889,15 +1906,40 @@
     private void ToggleRoleSelection(string roleName, bool isChecked)
     {
         if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
-        if (isChecked) editingRoles.Add(roleName);
-        else editingRoles.Remove(roleName);
+        if (isChecked)
+        {
+            editingRoles.Add(roleName);
+            if (FeaturePermissionCatalog.RolePermissionPackages.TryGetValue(roleName, out var pkgPerms))
+            {
+                foreach (var p in pkgPerms)
+                {
+                    editingClaims.Add(p);
+                }
+            }
+        }
+        else
+        {
+            editingRoles.Remove(roleName);
+        }
     }
 
     private void ToggleClaimSelection(string claimValue, bool isChecked)
     {
         if (!canEditUserPermissions || IsTargetUserSameEmployeeAsCaller(selectedUserForRoles)) return;
-        if (isChecked) editingClaims.Add(claimValue);
-        else editingClaims.Remove(claimValue);
+        if (isChecked)
+        {
+            editingClaims.Add(claimValue);
+        }
+        else
+        {
+            editingClaims.Remove(claimValue);
+            // Unchecking View also unchecks Edit for the same feature so View is not re-implied by Edit
+            if (claimValue.EndsWith(".View", StringComparison.OrdinalIgnoreCase))
+            {
+                var editCode = claimValue[..^5] + ".Edit";
+                editingClaims.Remove(editCode);
+            }
+        }
     }
 
     private void ToggleEditClaimSelection(FeatureDefinition feat, bool isChecked)
@@ -2027,10 +2069,14 @@
 
                 // 2. Sync Permission Claims
                 var currentClaims = await userMgr.GetClaimsAsync(user);
-                var permClaims = currentClaims.Where(c => c.Type == "permission" || c.Type == "Permission").ToList();
+                var permClaims = currentClaims.Where(c =>
+                    c.Type == "permission" ||
+                    c.Type == "Permission" ||
+                    c.Type.Equals(DatabaseClaimsSynchronizer.CustomizedPermissionsClaimType, StringComparison.OrdinalIgnoreCase)).ToList();
                 await userMgr.RemoveClaimsAsync(user, permClaims);
 
                 var claimsToAdd = editingClaims.Select(c => new Claim("permission", c)).ToList();
+                claimsToAdd.Add(new Claim(DatabaseClaimsSynchronizer.CustomizedPermissionsClaimType, "true"));
                 await userMgr.AddClaimsAsync(user, claimsToAdd);
 
                 // 3. Sync Formation Linkage & Claims
@@ -2474,8 +2520,15 @@
 
         editingRoles.Clear();
         editingRoles.Add(presetName);
-        editingClaims.Clear(); // Role Claims provide the base permissions; direct claims remain for individual exceptions only!
-        ShowStatus($"تم تطبيق دور ({FormatRole(presetName)}). تُستمد الصلاحيات تلقائياً عبر الدور (Role Claims) دون نسخها كأذونات مباشرة.");
+        editingClaims.Clear();
+        if (FeaturePermissionCatalog.RolePermissionPackages.TryGetValue(presetName, out var pkgPerms))
+        {
+            foreach (var p in pkgPerms)
+            {
+                editingClaims.Add(p);
+            }
+        }
+        ShowStatus($"تم تطبيق حزمة دور ({FormatRole(presetName)}) وتحديد كافة صلاحياتها؛ يمكنك الآن تفعيل أو إلغاء أي صلاحية فرعية بحرية تامة.");
     }
 
     private async Task CloneFromUserAsync()

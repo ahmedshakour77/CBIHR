@@ -270,7 +270,7 @@
                             <li @key="l.Employee.Id">
                                 <span class="home-away-name">@l.Employee.Name</span>
                                 <span class="home-away-meta">@l.Type · @l.Employee.Formation</span>
-                                <span class="home-away-back">@L("يعود", "دەگەڕێتەوە") <bdi dir="ltr" class="hr-num">@l.End.AddDays(1).ToString("MM/dd")</bdi></span>
+                                <span class="home-away-back">@L("يعود", "دەگەڕێتەوە") <bdi dir="ltr" class="hr-num">@l.End.AddDays(1).ToString("yyyy/MM/dd")</bdi></span>
                             </li>
                         }
                     </ol>

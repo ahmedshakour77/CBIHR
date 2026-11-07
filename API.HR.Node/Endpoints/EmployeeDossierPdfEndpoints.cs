@@ -47,7 +47,9 @@ public static class EmployeeDossierPdfEndpoints
         if (user.Identity is not { IsAuthenticated: true })
             return Results.Unauthorized();
 
-        var isStaff = StaffRoles.IsStaff(user);
+        var isStaff = StaffRoles.IsStaff(user)
+            || PermissionResolver.HasPermission(user, Permissions.EmployeesView)
+            || PermissionResolver.HasPermission(user, Permissions.EmployeesEdit);
 
         if (!isStaff)
         {
@@ -80,7 +82,9 @@ public static class EmployeeDossierPdfEndpoints
         if (user.Identity is not { IsAuthenticated: true })
             return Results.Unauthorized();
 
-        var isStaff = StaffRoles.IsStaff(user);
+        var isStaff = StaffRoles.IsStaff(user)
+            || PermissionResolver.HasPermission(user, Permissions.EmployeesView)
+            || PermissionResolver.HasPermission(user, Permissions.EmployeesEdit);
 
         if (!isStaff)
         {

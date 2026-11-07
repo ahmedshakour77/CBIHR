@@ -40,7 +40,11 @@
            route change, so every page needs exactly one. *@
         <h1 class="hr-deck-title">إحصائيات الكادر الوظيفي</h1>
 
-        <div class="hr-deck-tools">
+        <div class="hr-deck-tools" style="display:flex;align-items:center;gap:var(--s-2);">
+            <a class="hr-btn hr-btn-secondary hr-btn-sm" href="general-map" title="استعراض الخريطة العامة لتوزيع الموظفين على المحافظات حسب التشكيلات">
+                <Icon Name="map" Size="xs" />
+                <span>الخريطة العامة</span>
+            </a>
             <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-sm"
                     @onclick="ToggleFullscreen"
                     aria-label="ملء الشاشة" title="ملء الشاشة">

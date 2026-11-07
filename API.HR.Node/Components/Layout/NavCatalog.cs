@@ -40,6 +40,13 @@ public sealed record NavEntry(
         // إذا كان العنصر محدداً بصلاحية دقيقة، يتم الاعتماد حصراً على محرك الصلاحيات الموحد
         if (!string.IsNullOrWhiteSpace(ViewPermission))
         {
+            if (Href == "general-map")
+            {
+                return user.HasPermission(Permissions.ReportsView)
+                    || user.HasPermission(Permissions.DashboardView)
+                    || user.HasPermission(Permissions.FormationDashboardView);
+            }
+
             return user.HasPermission(ViewPermission);
         }
 
@@ -134,6 +141,12 @@ public static class NavCatalog
         new NavEntry("reports-slider", "التقارير", "presentation-chart-bar", "عرض تقديمي للإحصائيات",
             LabelKu: "ڕاپۆرتەکان", HintKu: "پێشکەشکردنی ئامارەکان",
             Roles: new[] { "Admin", "HRManager" },
+            ViewPermission: Permissions.ReportsView,
+            EditPermission: Permissions.ReportsEdit),
+
+        new NavEntry("general-map", "الخريطة العامة", "map", "خريطة العراق وتوزيع الموظفين على المحافظات بالاعتماد على التشكيلات",
+            LabelKu: "نەخشەی گشتی", HintKu: "نەخشەی عێراق و دابەشبوونی کارمەندان بەسەر پارێزگاکان بەپێی پێکهاتەکان",
+            Roles: new[] { "Admin", "HRManager", "FormationManager" },
             ViewPermission: Permissions.ReportsView,
             EditPermission: Permissions.ReportsEdit),
 

@@ -99,5 +99,51 @@ window.passkeyHelper = {
             }
             throw new Error(msg);
         }
+    },
+
+    /**
+     * Trigger native Windows Security / Windows Hello prompt (like Chrome/Edge Credit Card reveal)
+     */
+    verifyWindowsHello: async function (displayName) {
+        try {
+            if (!window.PublicKeyCredential || !navigator.credentials) {
+                return { success: false, error: 'المتصفح الحالي أو الاتصال غير المشفر لا يدعم نافذة Windows Hello المباشرة. يرجى إدخال كلمة المرور بالأسفل.' };
+            }
+
+            var challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+
+            var userId = new Uint8Array(16);
+            window.crypto.getRandomValues(userId);
+
+            var publicKey = {
+                challenge: challenge,
+                rp: {
+                    name: 'الموظف ٣٦٠° - أمان البيانات المالية'
+                },
+                user: {
+                    id: userId,
+                    name: displayName || 'Windows User',
+                    displayName: displayName || 'Windows User'
+                },
+                pubKeyCredParams: [
+                    { type: 'public-key', alg: -7 },
+                    { type: 'public-key', alg: -257 }
+                ],
+                authenticatorSelection: {
+                    authenticatorAttachment: 'platform',
+                    userVerification: 'required',
+                    residentKey: 'discouraged'
+                },
+                timeout: 60000,
+                attestation: 'none'
+            };
+
+            var cred = await navigator.credentials.create({ publicKey: publicKey });
+            return { success: !!cred };
+        } catch (err) {
+            console.warn('Windows Hello verification cancelled or unavailable:', err);
+            return { success: false, error: 'تم إلغاء نافذة Windows Hello أو أنها غير مفعلة. يمكنك إدخال كلمة المرور مباشرة.' };
+        }
     }
 };

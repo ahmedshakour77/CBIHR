@@ -5385,19 +5385,17 @@ a.hr-crumb:hover { color: var(--accent-ink); }
 .hr-tabs-nav {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     border: 1px solid var(--line);
     background: var(--surface-raised);
     border-radius: var(--r-xl);
     padding: 0.35rem 0.5rem;
     margin-block-start: var(--s-4);
     margin-block-end: var(--s-4);
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scroll-behavior: smooth;
-    scroll-snap-type: x proximity;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
+    overflow: visible;
     box-shadow: var(--shadow-sm);
     position: sticky;
     top: 0.5rem;
@@ -5411,17 +5409,21 @@ a.hr-crumb:hover { color: var(--accent-ink); }
 
 .hr-tabs {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
-    width: max-content;
-    min-width: 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: visible;
 }
 
 .hr-tab {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.6rem 1rem;
+    padding: 0.55rem 0.9rem;
     border: 1px solid transparent;
     border-radius: var(--r-lg);
     background: transparent;
@@ -5430,13 +5432,69 @@ a.hr-crumb:hover { color: var(--accent-ink); }
     font-weight: 600;
     color: var(--text-3);
     cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-    scroll-snap-align: center;
+    white-space: normal;
+    text-align: start;
+    line-height: 1.35;
+    flex: 0 1 auto;
+    max-width: 100%;
     transition: all var(--t-state) var(--ease);
     text-decoration: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
+}
+
+.hr-tabs.hr-tabs--wrap,
+.hr-tabs--wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: var(--s-2);
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    border-block-end: none;
+    overflow: visible;
+    padding: var(--s-2);
+    background: var(--surface-sunken);
+    border-radius: var(--r-lg);
+    border: 1px solid var(--line);
+}
+
+.hr-tabs.hr-tabs--wrap .hr-tab,
+.hr-tabs--wrap .hr-tab {
+    min-height: 2.4rem;
+    padding: 0.45rem 0.8rem;
+    border-radius: var(--r-md);
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: var(--fs-label);
+    white-space: normal;
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+
+.hr-tabs.hr-tabs--wrap .hr-tab:hover,
+.hr-tabs--wrap .hr-tab:hover {
+    background: var(--surface);
+    border-color: var(--line-control);
+    color: var(--text);
+}
+
+.hr-tabs.hr-tabs--wrap .hr-tab[aria-selected="true"],
+.hr-tabs--wrap .hr-tab[aria-selected="true"],
+.hr-tabs.hr-tabs--wrap .hr-tab.is-active,
+.hr-tabs--wrap .hr-tab.is-active {
+    background: var(--surface);
+    color: var(--accent-ink);
+    font-weight: 700;
+    border-color: var(--accent);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.hr-tabs.hr-tabs--wrap .hr-tab[aria-selected="true"]::after,
+.hr-tabs--wrap .hr-tab[aria-selected="true"]::after {
+    display: none;
 }
 
 /* Slider touch & drag enhancements */

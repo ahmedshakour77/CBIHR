@@ -16,9 +16,12 @@
 @using API.HR.Node.Services.Common
 @using API.HR.Node.Services.Financial
 @using API.HR.Node.Services.IdentityDocuments
+@using API.HR.Node.Services.Security
+@using Microsoft.AspNetCore.Identity
 @attribute [Authorize]
 
 @inject IServiceScopeFactory ScopeFactory
+@inject IActiveDirectoryAuthService AdAuthService
 @inject INationalCardService NationalCardService
 @inject IPassportReaderService PassportReader
 @inject IEmployeeProfilePhotoService PhotoService
@@ -85,15 +88,21 @@
             <div class="hr-pagehead-actions">
                 @if (employee is not null)
                 {
-                    <a href="employee-contacts/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
-                        <Icon Name="phone" Size="xs" />
-                        <span>وسائل التواصل</span>
-                    </a>
+                    @if (canViewContacts)
+                    {
+                        <a href="employee-contacts/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
+                            <Icon Name="phone" Size="xs" />
+                            <span>وسائل التواصل</span>
+                        </a>
+                    }
 
-                    <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
-                        <Icon Name="truck" Size="xs" />
-                        <span>المركبات والمتعلقات</span>
-                    </a>
+                    @if (canViewVehicles)
+                    {
+                        <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
+                            <Icon Name="truck" Size="xs" />
+                            <span>المركبات والمتعلقات</span>
+                        </a>
+                    }
 
                     @if (canManageLifecycle)
                     {
@@ -280,7 +289,7 @@
                 </div>
 
                 <div class="hr-dossier-actions hr-no-print">
-                    @if (isStaff)
+                    @if (isStaff || isOwnProfile)
                     {
                         <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="ExportPdfAsync" disabled="@isExportingPdf" title="تحميل وتصدير الملف كملف PDF رسمي موثق">
                             @if (isExportingPdf)
@@ -296,7 +305,7 @@
                         </button>
                     }
 
-                    @if (isStaff)
+                    @if (canEditPhoto)
                     {
                         <label class="hr-btn hr-btn-secondary hr-btn-sm hr-uploadlabel">
                             @if (isUploading)
@@ -512,14 +521,17 @@
                     <span> الأساسيات</span>
                 </button>
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Documents ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Documents ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Documents)">
-                    <Icon Name="identification" Size="sm" />
-                    <span>المستمسكات</span>
-                </button>
+                @if (canViewDocumentsTab)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Documents ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Documents ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Documents)">
+                        <Icon Name="identification" Size="sm" />
+                        <span>المستمسكات</span>
+                    </button>
+                }
 
                 <button type="button"
                         role="tab"
@@ -531,43 +543,52 @@
                  
                 </button>
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Movements ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Movements ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Movements)">
-                    <Icon Name="arrows-right-left" Size="sm" />
-                    <span> التنقلات</span>
-                    
-                </button>
+                @if (canViewMovements)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Movements ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Movements ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Movements)">
+                        <Icon Name="arrows-right-left" Size="sm" />
+                        <span> التنقلات</span>
+                        
+                    </button>
+                }
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Allowances ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Allowances ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Allowances)">
-                    <Icon Name="banknotes" Size="sm" />
-                    <span> الراتب</span>
-                </button>
+                @if (canViewSalaries)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Allowances ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Allowances ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Allowances)">
+                        <Icon Name="banknotes" Size="sm" />
+                        <span> الراتب</span>
+                    </button>
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Financial ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Financial ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Financial)">
-                    <Icon Name="banknotes" Size="sm" />
-                    <span>المالية </span>
-                </button>
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Financial ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Financial ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Financial)">
+                        <Icon Name="banknotes" Size="sm" />
+                        <span>المالية </span>
+                    </button>
+                }
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Letters ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Letters ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Letters)">
-                    <Icon Name="sparkles" Size="sm" />
-                    <span>التشكرات</span>
-                   
-                </button>
+                @if (canViewLetters)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Letters ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Letters ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Letters)">
+                        <Icon Name="sparkles" Size="sm" />
+                        <span>التشكرات</span>
+                       
+                    </button>
+                }
 
                 <button type="button"
                         role="tab"
@@ -579,27 +600,33 @@
                    
                 </button>
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Leaves ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Leaves ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Leaves)">
-                    <Icon Name="calendar-days" Size="sm" />
-                    <span>الإجازات </span>
-                    
-                </button>
+                @if (canViewLeaves)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Leaves ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Leaves ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Leaves)">
+                        <Icon Name="calendar-days" Size="sm" />
+                        <span>الإجازات </span>
+                        
+                    </button>
+                }
 
-                <button type="button"
-                        role="tab"
-                        aria-selected="@(activeTab == ProfileTab.Courses ? "true" : "false")"
-                        class="hr-tab @(activeTab == ProfileTab.Courses ? "is-active" : "")"
-                        @onclick="() => SetTab(ProfileTab.Courses)">
-                    <Icon Name="academic-cap" Size="sm" />
-                    <span>الدورات </span>
-                 
-                </button>
+                @if (canViewCourses)
+                {
+                    <button type="button"
+                            role="tab"
+                            aria-selected="@(activeTab == ProfileTab.Courses ? "true" : "false")"
+                            class="hr-tab @(activeTab == ProfileTab.Courses ? "is-active" : "")"
+                            @onclick="() => SetTab(ProfileTab.Courses)">
+                        <Icon Name="academic-cap" Size="sm" />
+                        <span>الدورات </span>
+                     
+                    </button>
+                }
 
-                @if (systemFeatures.EnableMyFeedback)
+                @if (canViewFeedback)
                 {
                     <button type="button"
                             role="tab"
@@ -611,7 +638,7 @@
                     </button>
                 }
 
-                @if (isStaff || employeeVehicles.Count > 0)
+                @if (canViewVehicles)
                 {
                     <button type="button"
                             role="tab"
@@ -967,6 +994,8 @@
                     </section>
 
                 @* ==================== 3. NATIONAL ID & CIVIL STATUS (بيانات البطاقة الوطنية الموحدة والأحوال المدنية) ==================== *@
+                @if (canViewNationalCards)
+                {
                 <section class="hr-card" style="border:1px solid color-mix(in srgb, var(--cbi-copper) 40%, var(--line));">
                     <div class="hr-card-head">
                         <div class="hr-modal-lead">
@@ -1021,6 +1050,7 @@
                         </dl>
                     </div>
                 </section>
+                }
 
                 @* --- education --- *@
                 <section class="hr-card">
@@ -1048,6 +1078,8 @@
                 </section>
 
                 @* --- contacts --- *@
+                @if (canViewContacts || canViewUsers)
+                {
                 <section class="hr-card">
                     <div class="hr-card-head">
                         <div class="hr-modal-lead">
@@ -1058,7 +1090,7 @@
                             </div>
                         </div>
 
-                        @if (isStaff)
+                        @if (canEditContacts)
                         {
                             <a href="employee-contacts/@employee.EmployeeID" class="hr-btn hr-btn-quiet hr-btn-sm hr-no-print">
                                 <Icon Name="pencil-square" Size="xs" />
@@ -1068,6 +1100,8 @@
                     </div>
 
                     <div class="hr-card-body hr-stack-sm">
+                        @if (canViewContacts)
+                        {
                         <div>
                             <h3 class="hr-eyebrow" style="margin-block-end:.5rem">أرقام الهواتف المسجلة</h3>
                             @if (phones.Count == 0)
@@ -1131,11 +1165,14 @@
                                 </ul>
                             }
                         </div>
+                        }
 
+                        @if (canViewUsers || isOwnProfile)
+                        {
                         <div>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-block-end:.5rem;">
                                 <h3 class="hr-eyebrow" style="margin:0;">الحسابات الرقمية وحسابات الدخول (@employeeUsers.Count)</h3>
-                                @if (canManageLifecycle || isAdmin)
+                                @if (canViewUsers)
                                 {
                                     <a href="/users?search=@(employee?.EmployeeID ?? "")" class="hr-meta" style="color:var(--brand, #0056b3); text-decoration:none; display:inline-flex; align-items:center; gap:.25rem;">
                                         <Icon Name="users" Size="xs" />
@@ -1162,7 +1199,7 @@
                                                         <span class="hr-badge hr-badge-ok" style="font-size:0.75rem;">نشط</span>
                                                     }
                                                 </div>
-                                                @if (isAdmin || canManageLifecycle)
+                                                @if (canViewUsers)
                                                 {
                                                     <a href="/users?search=@acc.User.UserName" class="hr-btn hr-btn-outline" style="padding:.2rem .5rem; font-size:0.8rem;" title="تعديل حساب المستخدم">
                                                         <Icon Name="pencil-square" Size="xs" />
@@ -1210,8 +1247,10 @@
                                 </div>
                             }
                         </div>
+                        }
                     </div>
                 </section>
+                }
 
 
 
@@ -1280,6 +1319,8 @@
             <div class="hr-stack">
 
                 @* 1. البطاقة الوطنية الموحدة *@
+                @if (canViewNationalCards)
+                {
                 <section class="hr-card">
                     <div class="hr-card-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);">
                         <div class="hr-modal-lead">
@@ -1310,7 +1351,7 @@
                                 <p class="hr-meta" style="margin-block-start:.25rem">
                                     @if (nationalCard != null)
                                     {
-                                        <span>الرقم الوطني: <strong class="hr-num" style="color:var(--text);letter-spacing:1px;">@FormatNationalId(nationalCard.NationalIdNumber)</strong></span>
+                                        <span>الرقم الوطني: <strong class="hr-num" style="color:var(--text);letter-spacing:1px;">@nationalCard.NationalIdNumber</strong></span>
                                         <span> · رقم الوثيقة: <span class="hr-num">@nationalCard.DocumentNumber</span></span>
                                     }
                                     else
@@ -1353,7 +1394,7 @@
                                             <dt>الرقم الوطني الموحد</dt>
                                             <dd>
                                                 <span class="hr-num hr-cell-strong" style="color:var(--accent);letter-spacing:1px;font-size:1.05rem;">
-                                                    @FormatNationalId(nationalCard.NationalIdNumber)
+                                                  @nationalCard.NationalIdNumber
                                                 </span>
                                             </dd>
                                         </div>
@@ -1492,13 +1533,14 @@
                         }
                     </div>
                 </section>
+                }
 
                 @* 2. وثيقة بطاقة السكن (Residence Card) *@
-                @{
-                    var docRes = employeeResidences.FirstOrDefault(r => r.IsCurrent) ?? employeeResidences.FirstOrDefault();
-                }
-                @if (docRes != null)
+                @if (canViewResidences)
                 {
+                    var docRes = employeeResidences.FirstOrDefault(r => r.IsCurrent) ?? employeeResidences.FirstOrDefault();
+                    if (docRes != null)
+                    {
                     <section class="hr-card">
                         <div class="hr-card-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--s-3);">
                             <div class="hr-modal-lead">
@@ -1539,7 +1581,7 @@
                                 </div>
                             </div>
 
-                            @if (isStaff)
+                            @if (canEditResidences)
                             {
                                 <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="() => OpenEditResidenceModal(docRes)">
                                     <Icon Name="pencil-square" Size="xs" />
@@ -1681,7 +1723,7 @@
                             <p class="hr-sub hr-measure-sm" style="margin-inline:auto;">
                                 يمكنك توثيق بيانات بطاقة السكن ومكتب المعلومات ورفع صور الوثيقة لاعتمادها رسمياً في ملف الموظف.
                             </p>
-                            @if (isStaff)
+                            @if (canEditResidences)
                             {
                                 <div style="margin-block-start:var(--s-3);">
                                     <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenAddResidenceModal">
@@ -1693,8 +1735,11 @@
                         </div>
                     </section>
                 }
+                }
 
                 @* ==================== 2.3 EMPLOYEE PASSPORT (جواز السفر الإلكتروني العراقي) ==================== *@
+                @if (canViewPassports)
+                {
                 @if (employeePassport != null)
                 {
                     <section class="hr-card" style="border:1px solid color-mix(in srgb, var(--series-2) 25%, var(--line));">
@@ -1752,7 +1797,7 @@
                                     <Icon Name="clipboard-document" Size="xs" />
                                     <span>نسخ رقم الجواز</span>
                                 </button>
-                                @if (isStaff)
+                                @if (canEditPassports)
                                 {
                                     <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="() => OpenEditPassportModal(employeePassport)">
                                         <Icon Name="pencil-square" Size="xs" />
@@ -1918,7 +1963,7 @@
                             <p class="hr-sub hr-measure-sm" style="margin-inline:auto;">
                                 يمكنك توثيق بيانات جواز السفر العراقي أو الدبلوماسي أو الخدمة وتواريخ الإصدار والنفاذ ورفع صورة الصفحة الرئيسية لاعتمادها رسمياً.
                             </p>
-                            @if (isStaff)
+                            @if (canEditPassports)
                             {
                                 <div style="margin-block-start:var(--s-3);">
                                     <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenAddPassportModal">
@@ -1929,6 +1974,7 @@
                             }
                         </div>
                     </section>
+                }
                 }
 
             </div>
@@ -1961,7 +2007,7 @@
                             </div>
                         </div>
 
-                        @if (isStaff)
+                        @if (canEditEmployees)
                         {
                             <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="OpenAddMartyrModal">
                                 <Icon Name="plus" Size="xs" />
@@ -1983,7 +2029,7 @@
                                             <th scope="col">صلة القرابة</th>
                                             <th scope="col">رقم القرار المعتمد</th>
                                             <th scope="col">ملاحظات</th>
-                                            @if (isStaff)
+                                            @if (canEditEmployees)
                                             {
                                                 <th scope="col" class="hr-no-print" style="width:100px;text-align:center;">إجراءات</th>
                                             }
@@ -2021,7 +2067,7 @@
                                                 <td>
                                                     <span class="hr-meta">@Or(m.Notes, "—")</span>
                                                 </td>
-                                                @if (isStaff)
+                                                @if (canEditEmployees)
                                                 {
                                                     <td class="hr-no-print" style="text-align:center;">
                                                         <div style="display:flex;gap:0.35rem;justify-content:center;">
@@ -2050,7 +2096,7 @@
                                 <p class="hr-meta" style="max-width:480px;margin:0 auto var(--s-3) auto;">
                                     يمكنك توثيق قرارات مؤسسة الشهداء ونوع الشهادة وصلة القرابة للاستفادة من الامتيازات القانونية المقررة.
                                 </p>
-                                @if (isStaff)
+                                @if (canEditEmployees)
                                 {
                                     <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddMartyrModal">
                                         <Icon Name="plus" Size="xs" />
@@ -2091,6 +2137,24 @@
                         </div>
 
                         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                            @if (activeAllowancePeriod != null)
+                            {
+                                @if (AreAllUnlockedInTab(ProfileTab.Allowances))
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => LockAllInTab(ProfileTab.Allowances)" title="إخفاء وتغويش جميع تفاصيل الراتب والمخصصات">
+                                        <Icon Name="eye-slash" Size="xs" />
+                                        <span>إخفاء كافة التفاصيل المالية</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick='() => PromptUnlockSensitiveValue("__ALL_ALLOWANCES__", "كافة تفاصيل الراتب والمخصصات")' title="إظهار جميع تفاصيل الراتب والمخصصات دفعة واحدة بكلمة المرور">
+                                        <Icon Name="eye" Size="xs" />
+                                        <span>إظهار كافة التفاصيل المالية</span>
+                                    </button>
+                                }
+                            }
+
                             @if (allowancePeriodsHistory.Count > 1)
                             {
                                 <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ToggleHistoryDrawer" title="عرض الفترات والتعديلات السابقة">
@@ -2099,7 +2163,7 @@
                                 </button>
                             }
 
-                            @if (isStaff)
+                            @if (canEditSalaries)
                             {
                                 <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="() => OpenAllowanceModal(isEditCurrent: activeAllowancePeriod != null)">
                                     <Icon Name="plus" Size="xs" />
@@ -2121,7 +2185,7 @@
                                         <span class="hr-badge" style="font-size:var(--fs-caption);">السلم الوظيفي</span>
                                     </div>
                                     <div class="hr-num" style="font-size:1.25rem;font-weight:800;color:var(--text);">
-                                        @activeAllowancePeriod.BasicSalary.ToString("N0") <span style="font-size:var(--fs-caption);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                        @SensitiveMoney("sal-basic", "الراتب الإسمي الأساسي", activeAllowancePeriod.BasicSalary)
                                     </div>
                                 </div>
 
@@ -2134,7 +2198,7 @@
                                         </span>
                                     </div>
                                     <div class="hr-num" style="font-size:1.25rem;font-weight:800;color:var(--series-2);">
-                                        @activeAllowancePeriod.TotalPercentageAmount.ToString("N0") <span style="font-size:var(--fs-caption);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                        @SensitiveMoney("sal-pct", "مجموع المخصصات النسبية", activeAllowancePeriod.TotalPercentageAmount)
                                     </div>
                                 </div>
 
@@ -2147,7 +2211,7 @@
                                         </span>
                                     </div>
                                     <div class="hr-num" style="font-size:1.25rem;font-weight:800;color:var(--series-4);">
-                                        @activeAllowancePeriod.TotalFixedAmount.ToString("N0") <span style="font-size:var(--fs-caption);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                        @SensitiveMoney("sal-fixed", "مجموع المخصصات الثابتة", activeAllowancePeriod.TotalFixedAmount)
                                     </div>
                                 </div>
 
@@ -2158,7 +2222,7 @@
                                         <span class="hr-badge hr-badge-ok" style="font-size:var(--fs-caption);">الراتب الكلي</span>
                                     </div>
                                     <div class="hr-num" style="font-size:1.35rem;font-weight:900;color:var(--series-3);">
-                                        @activeAllowancePeriod.GrossSalary.ToString("N0") <span style="font-size:var(--fs-caption);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                        @SensitiveMoney("sal-gross", "إجمالي الراتب والمخصصات", activeAllowancePeriod.GrossSalary)
                                     </div>
                                 </div>
                             </div>
@@ -2218,13 +2282,13 @@
                                                         else
                                                         {
                                                             <span class="hr-num hr-cell-strong" style="color:var(--series-4);">
-                                                                @((item.FixedAmount ?? item.CalculatedAmount).ToString("N0")) د.ع
+                                                                @SensitiveMoney($"sal-item-fixed-{item.Id}", $"مبلغ مخصص ({item.Name})", item.FixedAmount ?? item.CalculatedAmount, compact: true)
                                                             </span>
                                                         }
                                                     </td>
                                                     <td style="text-align:left;">
                                                         <span class="hr-num hr-cell-strong" style="color:var(--series-3);font-size:0.95rem;">
-                                                            @item.CalculatedAmount.ToString("N0") د.ع
+                                                            @SensitiveMoney($"sal-item-calc-{item.Id}", $"المبلغ الشهري لمخصص ({item.Name})", item.CalculatedAmount, compact: true)
                                                         </span>
                                                     </td>
                                                      
@@ -2273,8 +2337,8 @@
                                                         }
                                                     </div>
                                                     <div style="display:flex;align-items:center;gap:var(--s-3);">
-                                                        <span class="hr-num">الراتب: <strong>@hp.GrossSalary.ToString("N0") د.ع</strong></span>
-                                                        @if (isStaff)
+                                                        <span class="hr-num">الراتب: <strong>@SensitiveMoney($"sal-hist-gross-{hp.Id}", $"الراتب الإجمالي للفترة ({D(hp.StartDate)})", hp.GrossSalary, compact: true)</strong></span>
+                                                        @if (canEditSalaries)
                                                         {
                                                             <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" style="color:var(--danger);" @onclick="() => DeletePeriodHistoryAsync(hp.Id)" title="حذف هذه الفترة من الأرشيف">
                                                                 <Icon Name="trash" Size="xs" />
@@ -2288,8 +2352,11 @@
                                                     {
                                                         <span class="hr-badge" style="background:var(--surface-sunken);border:1px solid var(--line);font-size:var(--fs-caption);">
                                                             @hItem.Name:
-                                                            @(hItem.CalculationType == API.HR.Node.Data.Allowances.AllowanceCalculationType.Percentage ? $"{hItem.Percentage:G29}%" : $"{hItem.CalculatedAmount:N0} د.ع")
-                                                            (@hItem.CalculatedAmount.ToString("N0") د.ع)
+                                                            @if (hItem.CalculationType == API.HR.Node.Data.Allowances.AllowanceCalculationType.Percentage)
+                                                            {
+                                                                <span>@($"{hItem.Percentage:G29}%")</span>
+                                                            }
+                                                            (@SensitiveMoney($"sal-hist-item-{hp.Id}-{hItem.Id}", $"مبلغ مخصص {hItem.Name}", hItem.CalculatedAmount, compact: true))
                                                         </span>
                                                     }
                                                 </div>
@@ -2307,9 +2374,9 @@
                                 </div>
                                 <h3 class="hr-h3" style="margin-block-end:var(--s-1);">لم يتم تهيئة حزمة مخصصات لهذا الموظف بعد</h3>
                                 <p class="hr-meta" style="max-width:480px;margin:0 auto var(--s-3) auto;">
-                                    يمكنك بنقرة واحدة تهيئة حزمة المخصصات، وسيقوم النظام باقتراح الراتب الإسمي تلقائياً بناءً على الدرجة والمرحلة (@(suggestedBasicSalary > 0 ? $"{suggestedBasicSalary:N0} د.ع" : "السلم الوظيفي")).
+                                    يمكنك بنقرة واحدة تهيئة حزمة المخصصات، وسيقوم النظام باقتراح الراتب الإسمي تلقائياً بناءً على الدرجة والمرحلة (السلم الوظيفي).
                                 </p>
-                                @if (isStaff)
+                                @if (canEditSalaries)
                                 {
                                     <button type="button" class="hr-btn hr-btn-primary" @onclick="() => OpenAllowanceModal(isEditCurrent: false)">
                                         <Icon Name="plus" Size="xs" />
@@ -2350,9 +2417,27 @@
                             </div>
                         </div>
 
-                        @if (isStaff)
-                        {
-                            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                            @if (financialAccount != null)
+                            {
+                                @if (AreAllUnlockedInTab(ProfileTab.Financial))
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => LockAllInTab(ProfileTab.Financial)" title="إخفاء وتغويش جميع الأرصدة والقروض والسلف والحركات">
+                                        <Icon Name="eye-slash" Size="xs" />
+                                        <span>إخفاء كافة التفاصيل المالية</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick='() => PromptUnlockSensitiveValue("__ALL_FINANCIAL__", "كافة تفاصيل الذمة المالية والحركات")' title="إظهار جميع الأرصدة والقروض والسلف والحركات دفعة واحدة بكلمة المرور">
+                                        <Icon Name="eye" Size="xs" />
+                                        <span>إظهار كافة التفاصيل المالية</span>
+                                    </button>
+                                }
+                            }
+
+                            @if (canEditSalaries)
+                            {
                                 <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="OpenUpdateBalancesModal" title="تعديل مباشر للأرصدة والقروض والسلف">
                                     <Icon Name="pencil-square" Size="xs" />
                                     <span>تعديل الأرصدة والقروض</span>
@@ -2361,8 +2446,8 @@
                                     <Icon Name="plus" Size="xs" />
                                     <span>تسجيل حركة مالية (إيداع / سحب)</span>
                                 </button>
-                            </div>
-                        }
+                            }
+                        </div>
                     </div>
 
                     <div class="hr-card-body hr-stack">
@@ -2390,7 +2475,7 @@
                                     <div class="hr-num" style="font-size:1.85rem;font-weight:900;color:var(--series-2);margin-block:0.5rem 0.25rem;">
                                         @if (financialAccount != null)
                                         {
-                                            @financialAccount.Balance.ToString("N0") <span style="font-size:var(--fs-body);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                            @SensitiveMoney("fin-balance", "الرصيد المالي الحالي", financialAccount.Balance)
                                         }
                                         else
                                         {
@@ -2403,7 +2488,7 @@
                                         <Icon Name="clock" Size="xs" />
                                         <span>آخر تحديث: <strong>@(financialAccount != null ? financialAccount.BalanceLastUpdatedAt.ToRelativeArabic() : "غير متوفر")</strong></span>
                                     </span>
-                                    @if (isStaff)
+                                    @if (canEditSalaries)
                                     {
                                         <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" @onclick="() => OpenQuickTransaction(FinancialTransactionType.Deposit)">
                                             <Icon Name="plus" Size="xs" />
@@ -2427,6 +2512,10 @@
                                         {
                                             <span class="hr-badge" style="font-size:var(--fs-caption);">غير متوفر</span>
                                         }
+                                        else if (!IsSensitiveUnlocked("fin-loan"))
+                                        {
+                                            <span class="hr-badge" style="font-size:var(--fs-caption);">محمي بكلمة مرور</span>
+                                        }
                                         else if (financialAccount.LoanRemaining > 0)
                                         {
                                             <span class="hr-badge hr-badge-accent" style="font-size:var(--fs-caption);">قيد الاستقطاع</span>
@@ -2439,7 +2528,7 @@
                                     <div class="hr-num" style="font-size:1.85rem;font-weight:900;color: var(--accent-text);margin-block:0.5rem 0.25rem;">
                                         @if (financialAccount != null)
                                         {
-                                            @financialAccount.LoanRemaining.ToString("N0") <span style="font-size:var(--fs-body);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                            @SensitiveMoney("fin-loan", "متبقي القرض", financialAccount.LoanRemaining)
                                         }
                                         else
                                         {
@@ -2470,6 +2559,10 @@
                                         {
                                             <span class="hr-badge" style="font-size:var(--fs-caption);">غير متوفر</span>
                                         }
+                                        else if (!IsSensitiveUnlocked("fin-advance"))
+                                        {
+                                            <span class="hr-badge" style="font-size:var(--fs-caption);">محمي بكلمة مرور</span>
+                                        }
                                         else if (financialAccount.AdvanceRemaining > 0)
                                         {
                                             <span class="hr-badge hr-badge-warn" style="font-size:var(--fs-caption);">سلفة جارية</span>
@@ -2482,7 +2575,7 @@
                                     <div class="hr-num" style="font-size:1.85rem;font-weight:900;color:var(--series-4);margin-block:0.5rem 0.25rem;">
                                         @if (financialAccount != null)
                                         {
-                                            @financialAccount.AdvanceRemaining.ToString("N0") <span style="font-size:var(--fs-body);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                                            @SensitiveMoney("fin-advance", "متبقي السلفة", financialAccount.AdvanceRemaining)
                                         }
                                         else
                                         {
@@ -2544,7 +2637,7 @@
                                         </span>
                                         <p class="hr-h3">لا توجد حركات مالية مسجلة</p>
                                         <p class="hr-sub">لم يتم تسجيل أي عمليات إيداع أو سحب في سجل حركات هذا الموظف حتى الآن.</p>
-                                        @if (isStaff)
+                                        @if (canEditSalaries)
                                         {
                                             <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenAddTransactionModal">
                                                 <Icon Name="plus" Size="xs" />
@@ -2599,25 +2692,25 @@
                                                             @if (tx.TransactionType == FinancialTransactionType.Deposit)
                                                             {
                                                                 <span class="hr-num hr-cell-strong" style="color:var(--ok);">
-                                                                    + @tx.Amount.ToString("N0") د.ع
+                                                                    @SensitiveMoney($"tx-amt-{tx.Id}", $"مبلغ حركة إيداع #{txIdx}", tx.Amount, prefix: "+ ", compact: true)
                                                                 </span>
                                                             }
                                                             else if (tx.TransactionType == FinancialTransactionType.Withdrawal)
                                                             {
                                                                 <span class="hr-num hr-cell-strong" style="color:var(--danger);">
-                                                                    - @tx.Amount.ToString("N0") د.ع
+                                                                    @SensitiveMoney($"tx-amt-{tx.Id}", $"مبلغ حركة سحب #{txIdx}", tx.Amount, prefix: "- ", compact: true)
                                                                 </span>
                                                             }
                                                             else
                                                             {
                                                                 <span class="hr-num hr-cell-strong" style="color:var(--series-3);">
-                                                                    @tx.Amount.ToString("N0") د.ع
+                                                                    @SensitiveMoney($"tx-amt-{tx.Id}", $"مبلغ حركة تسوية #{txIdx}", tx.Amount, compact: true)
                                                                 </span>
                                                             }
                                                         </td>
                                                         <td>
                                                             <span class="hr-num" style="font-weight:700;">
-                                                                @tx.BalanceAfter.ToString("N0") د.ع
+                                                                @SensitiveMoney($"tx-bal-{tx.Id}", $"الرصيد بعد الحركة #{txIdx}", tx.BalanceAfter, compact: true)
                                                             </span>
                                                         </td>
                                                         <td>
@@ -3509,7 +3602,7 @@
         }
 
         @* ==================== TAB: VEHICLES & ASSETS (المركبات والمتعلقات) ==================== *@
-        @if (isStaff || employeeVehicles.Count > 0)
+        @if (canViewVehicles)
         {
         <div class="hr-tabpanel @(activeTab == ProfileTab.Vehicles ? "is-active" : "")">
             <div class="hr-stack">
@@ -3527,7 +3620,7 @@
                             </div>
                         </div>
 
-                        @if (isStaff)
+                        @if (canEditVehicles)
                         {
                             <div class="hr-pagehead-actions">
                                 <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-primary hr-btn-sm">
@@ -3549,7 +3642,7 @@
                                 <p class="hr-sub hr-measure-sm">
                                     لم يتم تسجيل أي سيارة حتى الآن باسم هذا الموظف لإصدار تصاريح دخول البوابات.
                                 </p>
-                                @if (isStaff)
+                                @if (canEditVehicles)
                                 {
                                     <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
                                         <Icon Name="plus" Size="xs" />
@@ -3656,7 +3749,7 @@
                                             }
                                         </div>
 
-                                        @if (isStaff)
+                                        @if (canEditVehicles)
                                         {
                                             <div class="hr-card-foot" style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 1rem;background:var(--surface-sunken);border-top:1px solid var(--line-soft);">
                                                 <button type="button" class="hr-btn @(v.IsAuthorized ? "hr-btn-warn" : "hr-btn-ok") hr-btn-sm"
@@ -4718,7 +4811,7 @@
                 <div class="hr-card" style="padding:var(--s-3);background:var(--surface-sunken);border:1px solid var(--line);">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:4px;flex-wrap:wrap;gap:var(--s-2);">
                         <span class="hr-meta">الرصيد الحالي:</span>
-                        <span class="hr-num">@curBal.ToString("N0") د.ع</span>
+                        <span class="hr-num">@SensitiveMoney("fin-balance", "الرصيد المالي الحالي", curBal, compact: true)</span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-block-end:4px;flex-wrap:wrap;gap:var(--s-2);">
                         <span class="hr-meta">الحركة المطلوبة:</span>
@@ -4729,10 +4822,10 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;padding-block-start:4px;border-block-start:1px dashed var(--line);flex-wrap:wrap;gap:var(--s-2);">
                         <strong style="color:var(--text);">الرصيد المتوقع بعد الحركة:</strong>
                         <strong class="hr-num" style="font-size:1.1rem;color:@(projectedBal < 0 ? "var(--danger)" : "var(--series-2)");">
-                            @projectedBal.ToString("N0") د.ع
+                            @SensitiveMoney("fin-balance", "الرصيد المالي الحالي", projectedBal, compact: true)
                         </strong>
                     </div>
-                    @if (projectedBal < 0 && newTxType == FinancialTransactionType.Withdrawal)
+                    @if (IsSensitiveUnlocked("fin-balance") && projectedBal < 0 && newTxType == FinancialTransactionType.Withdrawal)
                     {
                         <p class="hr-meta" style="color:var(--danger);margin-block-start:4px;">
                             <Icon Name="exclamation-triangle" Size="xs" /> تنبيه: مبلغ السحب يتجاوز الرصيد المتوفر حالياً.
@@ -4840,6 +4933,120 @@
     </div>
 }
 
+@* ==================== MODAL: UNLOCK SENSITIVE AMOUNT (أمان Windows / Google Style - كلمة المرور فقط) ==================== *@
+@if (showSensitiveUnlockModal)
+{
+    <div class="hr-modal-scrim" @onclick="CloseSensitiveUnlockModal" style="z-index:var(--z-modal-stacked);backdrop-filter:blur(4px);">
+        <div class="hr-modal" style="max-width:380px;border-radius:var(--r-xl);box-shadow:0 20px 50px rgba(0,0,0,0.28);border:1px solid var(--line);" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="sensitive-unlock-title">
+            @* شريط علوي شبيه بنافذة أمان Windows / Google Chrome *@
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.1rem;border-block-end:1px solid var(--line-soft);background:var(--surface-sunken);">
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <svg viewBox="0 0 23 23" width="15" height="15" aria-hidden="true">
+                        <path fill="#f35325" d="M1 1h10v10H1z" />
+                        <path fill="#81bc06" d="M12 1h10v10H12z" />
+                        <path fill="#05a6f0" d="M1 12h10v10H1z" />
+                        <path fill="#ffba08" d="M12 12h10v10H12z" />
+                    </svg>
+                    <span style="font-size:var(--fs-caption);font-weight:700;color:var(--text-2);">أمان النظام · التحقق من الهوية</span>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-xs" @onclick="CloseSensitiveUnlockModal" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="xs" />
+                </button>
+            </div>
+
+            <form @onsubmit="VerifyAndUnlockSensitiveValueAsync" @onsubmit:preventDefault="true">
+                <div class="hr-modal-body" style="padding:1.25rem 1.25rem 1rem;display:flex;flex-direction:column;gap:0.9rem;">
+                    <div>
+                        <h2 id="sensitive-unlock-title" class="hr-h3" style="margin:0;font-size:1.05rem;">إظهار البيانات المالية المشفرة</h2>
+                        <p class="hr-meta" style="margin:0.2rem 0 0;font-size:var(--fs-caption);">
+                            يريد النظام التحقق من هويتك لعرض: <strong style="color:var(--text);">@pendingSensitiveLabel</strong>
+                        </p>
+                    </div>
+
+                    @* بطاقة المستخدم التلقائية (تأخذ الحساب المسجل به المستخدم حالياً مثل Google بدون حقل إدخال) *@
+                    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.85rem;background:var(--surface-sunken);border:1px solid var(--line);border-radius:var(--r-lg);">
+                        <span class="hr-iconplate" style="width:2.1rem;height:2.1rem;border-radius:var(--r-full);background:var(--accent-tint);color:var(--accent-ink);flex-shrink:0;" aria-hidden="true">
+                            <Icon Name="user" Size="xs" />
+                        </span>
+                        <div style="min-width:0;flex:1;">
+                            <div style="font-size:0.72rem;color:var(--text-3);line-height:1.2;">الحساب المسجل حالياً</div>
+                            <div class="hr-num" dir="ltr" style="font-weight:700;font-size:0.9rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:end;">
+                                @currentUserName
+                            </div>
+                        </div>
+                        <Icon Name="lock-closed" Size="xs" Class="hr-text-copper" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(sensitiveUnlockError))
+                    {
+                        <div class="hr-alert hr-alert-danger" role="alert" style="margin:0;padding:0.45rem 0.7rem;font-size:var(--fs-caption);">
+                            <Icon Name="exclamation-triangle" Size="xs" />
+                            <span>@sensitiveUnlockError</span>
+                        </div>
+                    }
+
+                    @* حقل كلمة المرور فقط *@
+                    <div class="hr-field" style="margin:0;">
+                        <div style="position:relative;display:flex;align-items:center;">
+                            <input id="sensitive-pwd-input"
+                                   type="@(showSensitivePasswordPlain ? "text" : "password")"
+                                   dir="ltr"
+                                   class="hr-input"
+                                   style="padding-inline-end:2.5rem;height:2.65rem;font-size:0.95rem;"
+                                   @bind="sensitivePasswordInput"
+                                   @bind:event="oninput"
+                                   placeholder="أدخل كلمة مرور حسابك..."
+                                   autocomplete="current-password"
+                                   autofocus />
+                            <button type="button"
+                                    class="hr-btn hr-btn-quiet hr-btn-icon hr-btn-xs"
+                                    style="position:absolute;inset-inline-end:0.35rem;color:var(--text-3);"
+                                    title="@(showSensitivePasswordPlain ? "إخفاء كلمة المرور" : "إظهار كلمة المرور")"
+                                    @onclick="() => showSensitivePasswordPlain = !showSensitivePasswordPlain">
+                                <Icon Name="@(showSensitivePasswordPlain ? "eye-slash" : "eye")" Size="xs" />
+                            </button>
+                        </div>
+                    </div>
+
+                    @* خيار Windows Hello (PIN / البصمة) المباشر مثل الكردت كارت في المتصفح *@
+                    <button type="button"
+                            class="hr-btn hr-btn-quiet hr-btn-sm"
+                            style="justify-content:flex-start;padding-inline:0.4rem;color:var(--accent-ink);font-size:var(--fs-caption);gap:0.4rem;"
+                            disabled="@isVerifyingSensitivePassword"
+                            @onclick="TriggerWindowsHelloUnlockAsync">
+                        <Icon Name="finger-print" Size="xs" />
+                        <span>أو التحقق عبر Windows Hello (رمز PIN / البصمة)</span>
+                    </button>
+                </div>
+
+                <div class="hr-modal-foot" style="padding:0.75rem 1.25rem;background:var(--surface-sunken);display:flex;gap:0.5rem;justify-content:flex-end;">
+                    <button type="submit"
+                            class="hr-btn hr-btn-primary"
+                            style="min-width:6.5rem;"
+                            disabled="@(isVerifyingSensitivePassword || string.IsNullOrWhiteSpace(sensitivePasswordInput))">
+                        @if (isVerifyingSensitivePassword)
+                        {
+                            <span class="hr-spinner hr-spinner-xs" aria-hidden="true"></span>
+                            <span>تحقق…</span>
+                        }
+                        else
+                        {
+                            <span>موافق</span>
+                        }
+                    </button>
+                    <button type="button"
+                            class="hr-btn hr-btn-secondary"
+                            style="min-width:5.5rem;"
+                            @onclick="CloseSensitiveUnlockModal"
+                            disabled="@isVerifyingSensitivePassword">
+                        إلغاء
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
 @* ---------- Archive Employee Modal ---------- *@
 <Modal IsOpen="@showArchiveModal"
        Title="استبعاد الموظف مؤقتاً (أرشفة)"
@@ -4937,10 +5144,15 @@
 
     private async Task SetTab(ProfileTab tab)
     {
-        if (tab == ProfileTab.Vehicles && !isStaff && employeeVehicles.Count == 0)
-        {
-            tab = ProfileTab.Basic;
-        }
+        if (tab == ProfileTab.Documents && !canViewDocumentsTab) tab = ProfileTab.Basic;
+        else if (tab == ProfileTab.Movements && !canViewMovements) tab = ProfileTab.Basic;
+        else if ((tab == ProfileTab.Allowances || tab == ProfileTab.Financial) && !canViewSalaries) tab = ProfileTab.Basic;
+        else if (tab == ProfileTab.Letters && !canViewLetters) tab = ProfileTab.Basic;
+        else if (tab == ProfileTab.Leaves && !canViewLeaves) tab = ProfileTab.Basic;
+        else if (tab == ProfileTab.Courses && !canViewCourses) tab = ProfileTab.Basic;
+        else if (tab == ProfileTab.Feedback && !canViewFeedback) tab = ProfileTab.Basic;
+        else if (tab == ProfileTab.Vehicles && !canViewVehicles) tab = ProfileTab.Basic;
+
         activeTab = tab;
         try
         {
@@ -5196,7 +5408,29 @@
     private bool isDeletingPhoto;
     private bool isAdmin;
     private bool isStaff;
+    private bool isOwnProfile;
     private bool canManageLifecycle;
+    private bool canViewEmployees;
+    private bool canEditEmployees;
+    private bool canEditPhoto;
+    private bool canViewContacts;
+    private bool canEditContacts;
+    private bool canViewNationalCards;
+    private bool canViewResidences;
+    private bool canEditResidences;
+    private bool canViewPassports;
+    private bool canEditPassports;
+    private bool canViewDocumentsTab;
+    private bool canViewSalaries;
+    private bool canEditSalaries;
+    private bool canViewMovements;
+    private bool canViewLetters;
+    private bool canViewLeaves;
+    private bool canViewCourses;
+    private bool canViewFeedback;
+    private bool canViewVehicles;
+    private bool canEditVehicles;
+    private bool canViewUsers;
     private string currentUserName = "User";
     private bool showArchiveModal;
     private string archiveReasonInput = "استبعاد إداري مؤقت";
@@ -5296,19 +5530,30 @@
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var currentUser = authState.User;
-        isAdmin = currentUser.IsInRole("Admin");
-        isStaff = isAdmin || currentUser.IsInRole("HRManager") || currentUser.IsInRole("FormationManager") || currentUser.IsInRole("Supervisor");
-        canManageLifecycle = isAdmin || currentUser.IsInRole("HRManager");
+
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        await API.HR.Node.Security.DatabaseClaimsSynchronizer.EnrichPrincipalFromDatabaseAsync(currentUser, ScopeFactory);
+
+        isAdmin = API.HR.Node.Security.PermissionResolver.IsAdmin(currentUser);
+        canViewEmployees = isAdmin
+            || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.EmployeesView)
+            || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.EmployeesEdit);
+        canEditEmployees = isAdmin
+            || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.EmployeesEdit);
+        isStaff = canViewEmployees || API.HR.Node.Security.StaffRoles.IsStaff(currentUser);
+        canManageLifecycle = canEditEmployees;
         currentUserName = currentUser.Identity?.Name ?? "User";
 
         isLoading = true;
         loadFailed = false;
+        unlockedSensitiveKeys.Clear();
         StateHasChanged();
 
         try
         {
-            using var scope = ScopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            sensitiveComputerUsername = currentUserName;
 
             // 1. Resolve current logged-in user's employee_id
             var myEmpId = currentUser.FindFirst("employee_id")?.Value;
@@ -5373,6 +5618,79 @@
                     targetEmpId = await db.Employees.AsNoTracking().Select(e => e.EmployeeID).FirstOrDefaultAsync();
                 }
             }
+
+            isOwnProfile = !string.IsNullOrWhiteSpace(myEmpId)
+                && !string.IsNullOrWhiteSpace(targetEmpId)
+                && string.Equals(targetEmpId, myEmpId, StringComparison.OrdinalIgnoreCase);
+
+            // 3. Calculate granular section & action permissions
+            canEditPhoto = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.GalleryEdit)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.EmployeesEdit)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ProfilePhotoUpload);
+
+            canViewContacts = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ContactsView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ContactsEdit);
+            canEditContacts = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ContactsEdit);
+
+            canViewNationalCards = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.NationalCardsView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.NationalCardsEdit);
+
+            canViewResidences = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ResidencesView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ResidencesEdit);
+            canEditResidences = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ResidencesEdit)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.EmployeesEdit);
+
+            canViewPassports = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PassportsView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PassportsEdit);
+            canEditPassports = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PassportsEdit);
+
+            canViewDocumentsTab = canViewNationalCards || canViewResidences || canViewPassports;
+
+            canViewSalaries = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.SalariesView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.SalariesEdit)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.SalaryScaleView);
+            canEditSalaries = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.SalariesEdit);
+
+            canViewMovements = isOwnProfile || isAdmin || canViewEmployees
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PromotionsView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PromotionsEdit);
+
+            canViewLetters = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.AppreciationLettersView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.AppreciationLettersEdit);
+
+            canViewLeaves = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.LeavesView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.LeavesEdit);
+
+            canViewCourses = isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.CoursesView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.CoursesEdit);
+
+            canViewFeedback = systemFeatures.EnableMyFeedback && (isOwnProfile || isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.FeedbackView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.FeedbackEdit)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.MyFeedbackView));
+
+            canEditVehicles = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.VehiclesEdit);
+            canViewVehicles = isAdmin || canEditVehicles
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.VehiclesView);
+
+            canViewUsers = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.UsersView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.UsersEdit)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.UsersPermissionsEdit);
 
             if (string.IsNullOrWhiteSpace(targetEmpId))
             {
@@ -5584,6 +5902,11 @@
                 .OrderByDescending(v => v.CreatedAtUtc)
                 .ToListAsync();
 
+            if (isOwnProfile && employeeVehicles.Count > 0)
+            {
+                canViewVehicles = true;
+            }
+
             // Load administrative units where this employee is designated as Manager in the hierarchy
             managedUnits = await db.AdministrativeUnits.AsNoTracking()
                 .Include(u => u.UnitType)
@@ -5702,7 +6025,7 @@
     private async Task UploadPhoto(InputFileChangeEventArgs e)
     {
         var file = e.File;
-        if (file is null || employee is null || !isStaff) return;
+        if (file is null || employee is null || !canEditPhoto) return;
 
         isUploading = true;
         StateHasChanged();
@@ -5753,7 +6076,7 @@
 
     private async Task ConfirmDeletePhoto()
     {
-        if (employee is null || !isStaff) return;
+        if (employee is null || !canEditPhoto) return;
 
         isDeletingPhoto = true;
 
@@ -6043,7 +6366,7 @@
 
     private async Task ExportPdfAsync()
     {
-        if (employee is null || isExportingPdf || !isStaff) return;
+        if (employee is null || isExportingPdf || (!isStaff && !isOwnProfile)) return;
 
         try
         {
@@ -6459,7 +6782,7 @@
 
     private void OpenAllowanceModal(bool isEditCurrent = false)
     {
-        if (!isStaff) return;
+        if (!canEditSalaries) return;
         allowanceModalError = null;
         modalItems.Clear();
         ResetDraftItem();
@@ -6625,7 +6948,7 @@
 
     private async Task SaveAllowancePackageAsync()
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditSalaries) return;
         if (modalBasicSalary <= 0)
         {
             allowanceModalError = "يرجى إدخال راتب إسمي أساسي صحيح أكبر من صفر.";
@@ -6670,7 +6993,7 @@
 
     private async Task DeletePeriodHistoryAsync(int periodId)
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditSalaries) return;
         try
         {
             await AllowanceService.DeletePeriodAsync(periodId);
@@ -6686,7 +7009,7 @@
 
     private void OpenAddMartyrModal()
     {
-        if (!isStaff) return;
+        if (!canEditEmployees) return;
         editingMartyr = null;
         modalMartyrName = "";
         modalMartyrdomTypeId = allMartyrdomTypes.FirstOrDefault()?.Id;
@@ -6699,7 +7022,7 @@
 
     private void OpenEditMartyrModal(EmployeeMartyr m)
     {
-        if (!isStaff) return;
+        if (!canEditEmployees) return;
         editingMartyr = m;
         modalMartyrName = m.MartyrName;
         modalMartyrdomTypeId = m.MartyrdomTypeId;
@@ -6712,7 +7035,7 @@
 
     private async Task SaveMartyrAsync()
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditEmployees) return;
         if (string.IsNullOrWhiteSpace(modalMartyrName))
         {
             martyrModalError = "يرجى إدخال اسم الشهيد.";
@@ -6780,7 +7103,7 @@
 
     private async Task DeleteMartyrAsync(int martyrId)
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditEmployees) return;
         try
         {
             using var scope = ScopeFactory.CreateScope();
@@ -6812,7 +7135,7 @@
 
     private void OpenAddResidenceModal()
     {
-        if (!isStaff) return;
+        if (!canEditResidences) return;
         editingResidence = null;
         residenceModalError = null;
         modalHousingType = "دار";
@@ -6853,7 +7176,7 @@
 
     private void OpenEditResidenceModal(EmployeeResidence res)
     {
-        if (!isStaff) return;
+        if (!canEditResidences) return;
         editingResidence = res;
         residenceModalError = null;
         modalHousingType = string.IsNullOrWhiteSpace(res.HousingType) ? "دار" : res.HousingType;
@@ -7041,7 +7364,7 @@
 
     private async Task SaveResidenceAsync()
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditResidences) return;
         residenceModalError = null;
 
         if (!modalGovernorateId.HasValue)
@@ -7197,7 +7520,7 @@
 
     private async Task DeleteResidenceAsync(int residenceId)
     {
-        if (employee == null) return;
+        if (employee == null || !canEditResidences) return;
         try
         {
             using var scope = ScopeFactory.CreateScope();
@@ -7239,7 +7562,7 @@
 
     private void OpenAddPassportModal()
     {
-        if (!isStaff) return;
+        if (!canEditPassports) return;
         editingPassport = null;
         passportModalError = null;
         mrzScanSuccessNotice = null;
@@ -7284,7 +7607,7 @@
 
     private void OpenEditPassportModal(EmployeePassport p)
     {
-        if (!isStaff) return;
+        if (!canEditPassports) return;
         editingPassport = p;
         passportModalError = null;
         mrzScanSuccessNotice = null;
@@ -7530,7 +7853,7 @@
 
     private async Task SavePassportAsync()
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditPassports) return;
         passportModalError = null;
 
         if (string.IsNullOrWhiteSpace(modalPassportNumber))
@@ -7642,7 +7965,7 @@
 
     private async Task DeletePassportAsync(int passportId)
     {
-        if (employee == null) return;
+        if (employee == null || !canEditPassports) return;
         try
         {
             using var scope = ScopeFactory.CreateScope();
@@ -7710,7 +8033,7 @@
 
     private void OpenAddTransactionModal()
     {
-        if (!isStaff) return;
+        if (!canEditSalaries) return;
         newTxType = FinancialTransactionType.Deposit;
         newTxAmount = 0m;
         newTxDescription = null;
@@ -7720,7 +8043,7 @@
 
     private void OpenQuickTransaction(FinancialTransactionType type)
     {
-        if (!isStaff) return;
+        if (!canEditSalaries) return;
         newTxType = type;
         newTxAmount = 0m;
         newTxDescription = type == FinancialTransactionType.Deposit ? "إيداع سريع" : "سحب سريع";
@@ -7730,7 +8053,7 @@
 
     private async Task SaveNewTransactionAsync()
     {
-        if (employee == null || newTxAmount <= 0 || !isStaff) return;
+        if (employee == null || newTxAmount <= 0 || !canEditSalaries) return;
 
         isSavingFinancial = true;
         try
@@ -7764,9 +8087,361 @@
         }
     }
 
+    // Sensitive Financial Amount Per-Item & Per-Tab Unlock State
+    private readonly HashSet<string> unlockedSensitiveKeys = new(StringComparer.OrdinalIgnoreCase);
+    private bool showSensitiveUnlockModal = false;
+    private bool showSensitivePasswordPlain = false;
+    private string? pendingSensitiveKey;
+    private string? pendingSensitiveLabel;
+    private string sensitivePasswordInput = string.Empty;
+    private string sensitiveComputerUsername = string.Empty;
+    private string? sensitiveUnlockError;
+    private bool isVerifyingSensitivePassword = false;
+    private bool pendingOpenUpdateBalancesAfterUnlock = false;
+
+    private sealed class WindowsHelloVerifyResult
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private bool IsSensitiveUnlocked(string key) => unlockedSensitiveKeys.Contains(key);
+
+    private static bool IsBulkUnlockKey(string? key) =>
+        string.Equals(key, "__ALL_ALLOWANCES__", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(key, "__ALL_FINANCIAL__", StringComparison.OrdinalIgnoreCase);
+
+    private List<string> GetTabSensitiveKeys(ProfileTab tab)
+    {
+        var keys = new List<string>();
+        if (tab == ProfileTab.Allowances)
+        {
+            if (activeAllowancePeriod != null)
+            {
+                keys.Add("sal-basic");
+                keys.Add("sal-pct");
+                keys.Add("sal-fixed");
+                keys.Add("sal-gross");
+                foreach (var item in activeAllowancePeriod.Items)
+                {
+                    if (item.CalculationType != API.HR.Node.Data.Allowances.AllowanceCalculationType.Percentage)
+                    {
+                        keys.Add($"sal-item-fixed-{item.Id}");
+                    }
+                    keys.Add($"sal-item-calc-{item.Id}");
+                }
+            }
+            foreach (var hp in allowancePeriodsHistory.Where(p => !p.IsCurrent))
+            {
+                keys.Add($"sal-hist-gross-{hp.Id}");
+                foreach (var hItem in hp.Items)
+                {
+                    keys.Add($"sal-hist-item-{hp.Id}-{hItem.Id}");
+                }
+            }
+        }
+        else if (tab == ProfileTab.Financial)
+        {
+            if (financialAccount != null)
+            {
+                keys.Add("fin-balance");
+                keys.Add("fin-loan");
+                keys.Add("fin-advance");
+            }
+            foreach (var tx in financialTransactions)
+            {
+                keys.Add($"tx-amt-{tx.Id}");
+                keys.Add($"tx-bal-{tx.Id}");
+            }
+        }
+        return keys;
+    }
+
+    private bool AreAllUnlockedInTab(ProfileTab tab)
+    {
+        var keys = GetTabSensitiveKeys(tab);
+        return keys.Count > 0 && keys.All(k => unlockedSensitiveKeys.Contains(k));
+    }
+
+    private void LockAllInTab(ProfileTab tab)
+    {
+        foreach (var k in GetTabSensitiveKeys(tab))
+        {
+            unlockedSensitiveKeys.Remove(k);
+        }
+        Toast.Info(tab == ProfileTab.Allowances
+            ? "تم إخفاء وتغويش كافة تفاصيل الراتب والمخصصات."
+            : "تم إخفاء وتغويش كافة تفاصيل الذمة المالية والحركات.");
+    }
+
+    private void PromptUnlockSensitiveValue(string key, string label, bool openUpdateBalancesAfter = false)
+    {
+        pendingSensitiveKey = key;
+        pendingSensitiveLabel = label;
+        sensitivePasswordInput = string.Empty;
+        showSensitivePasswordPlain = false;
+        sensitiveUnlockError = null;
+        pendingOpenUpdateBalancesAfterUnlock = openUpdateBalancesAfter;
+        sensitiveComputerUsername = currentUserName;
+        showSensitiveUnlockModal = true;
+    }
+
+    private void LockSensitiveValue(string key)
+    {
+        unlockedSensitiveKeys.Remove(key);
+    }
+
+    private void CloseSensitiveUnlockModal()
+    {
+        if (isVerifyingSensitivePassword) return;
+        showSensitiveUnlockModal = false;
+        sensitivePasswordInput = string.Empty;
+        showSensitivePasswordPlain = false;
+        sensitiveUnlockError = null;
+        pendingOpenUpdateBalancesAfterUnlock = false;
+    }
+
+    private async Task TriggerWindowsHelloUnlockAsync()
+    {
+        if (string.IsNullOrWhiteSpace(pendingSensitiveKey)) return;
+
+        isVerifyingSensitivePassword = true;
+        sensitiveUnlockError = null;
+        try
+        {
+            var res = await JSRuntime.InvokeAsync<WindowsHelloVerifyResult>(
+                "passkeyHelper.verifyWindowsHello",
+                currentUserName);
+
+            if (res != null && res.Success)
+            {
+                CompleteSensitiveUnlock();
+            }
+            else if (!string.IsNullOrWhiteSpace(res?.Error))
+            {
+                sensitiveUnlockError = res.Error;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Windows Hello prompt failed.");
+            sensitiveUnlockError = "تعذر فتح نافذة Windows Hello، يرجى إدخال كلمة المرور.";
+        }
+        finally
+        {
+            isVerifyingSensitivePassword = false;
+        }
+    }
+
+    private async Task VerifyAndUnlockSensitiveValueAsync()
+    {
+        if (string.IsNullOrWhiteSpace(sensitivePasswordInput) || string.IsNullOrWhiteSpace(pendingSensitiveKey))
+        {
+            sensitiveUnlockError = "يرجى إدخال كلمة المرور.";
+            return;
+        }
+
+        isVerifyingSensitivePassword = true;
+        sensitiveUnlockError = null;
+
+        try
+        {
+            await Task.Yield();
+            var password = sensitivePasswordInput;
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var claimsUser = authState.User;
+            var username = claimsUser.Identity?.Name ?? currentUserName;
+
+            bool isVerified = false;
+
+            // 1. Validate against the logged-in user's Active Directory (Domain) account
+            if (!string.IsNullOrWhiteSpace(username))
+            {
+                try
+                {
+                    if (AdAuthService.ValidateCredentials(username, password, out _))
+                    {
+                        isVerified = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "AD credential check failed for {Username}.", username);
+                }
+            }
+
+            // 2. Validate against the logged-in user's ASP.NET Core Identity password (if local/system account)
+            if (!isVerified)
+            {
+                using var scope = ScopeFactory.CreateScope();
+                var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+                ApplicationUser? dbUser = null;
+                var userId = claimsUser.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!string.IsNullOrWhiteSpace(userId))
+                {
+                    dbUser = await userManager.FindByIdAsync(userId);
+                }
+                if (dbUser == null && !string.IsNullOrWhiteSpace(username))
+                {
+                    dbUser = await userManager.FindByNameAsync(username)
+                          ?? await userManager.FindByEmailAsync(username);
+                }
+
+                if (dbUser != null)
+                {
+                    if (await userManager.CheckPasswordAsync(dbUser, password))
+                    {
+                        isVerified = true;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dbUser.UserName) &&
+                             !string.Equals(dbUser.UserName, username, StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            if (AdAuthService.ValidateCredentials(dbUser.UserName, password, out _))
+                            {
+                                isVerified = true;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            // 3. Fallback: validate the logged-in username against local Windows Machine context if applicable
+            if (!isVerified && OperatingSystem.IsWindows() && !string.IsNullOrWhiteSpace(username))
+            {
+                try
+                {
+                    var cleanUser = ActiveDirectoryAuthService.ExtractUsername(username);
+                    using var machineCtx = new System.DirectoryServices.AccountManagement.PrincipalContext(
+                        System.DirectoryServices.AccountManagement.ContextType.Machine);
+
+                    if (!string.IsNullOrWhiteSpace(cleanUser) && machineCtx.ValidateCredentials(cleanUser, password))
+                    {
+                        isVerified = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug(ex, "Machine credential fallback failed.");
+                }
+            }
+
+            if (!isVerified)
+            {
+                sensitiveUnlockError = "كلمة المرور غير صحيحة لحسابك المسجل.";
+                return;
+            }
+
+            CompleteSensitiveUnlock();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error verifying password for sensitive value unlock");
+            sensitiveUnlockError = "حدث خطأ أثناء التحقق من كلمة المرور.";
+        }
+        finally
+        {
+            isVerifyingSensitivePassword = false;
+        }
+    }
+
+    private void CompleteSensitiveUnlock()
+    {
+        if (string.IsNullOrWhiteSpace(pendingSensitiveKey)) return;
+
+        if (string.Equals(pendingSensitiveKey, "__ALL_ALLOWANCES__", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var k in GetTabSensitiveKeys(ProfileTab.Allowances))
+            {
+                unlockedSensitiveKeys.Add(k);
+            }
+        }
+        else if (string.Equals(pendingSensitiveKey, "__ALL_FINANCIAL__", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var k in GetTabSensitiveKeys(ProfileTab.Financial))
+            {
+                unlockedSensitiveKeys.Add(k);
+            }
+        }
+        else
+        {
+            unlockedSensitiveKeys.Add(pendingSensitiveKey);
+        }
+
+        var unlockedLabel = pendingSensitiveLabel;
+        var shouldOpenEdit = pendingOpenUpdateBalancesAfterUnlock;
+
+        showSensitiveUnlockModal = false;
+        sensitivePasswordInput = string.Empty;
+        showSensitivePasswordPlain = false;
+        sensitiveUnlockError = null;
+        pendingOpenUpdateBalancesAfterUnlock = false;
+
+        if (shouldOpenEdit)
+        {
+            OpenUpdateBalancesModalCore();
+        }
+        else
+        {
+            Toast.Success($"تم إظهار: {unlockedLabel}");
+        }
+    }
+
+    private RenderFragment SensitiveMoney(string key, string label, decimal amount, string? prefix = null, bool compact = false) => @<text>
+        @if (IsSensitiveUnlocked(key))
+        {
+            <span style="display:inline-flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                <span>@(prefix)@amount.ToString("N0")</span>
+                <span style="font-size:var(--fs-caption);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                <button type="button"
+                        class="hr-btn hr-btn-quiet hr-btn-xs"
+                        style="padding:2px 6px;min-height:auto;font-size:0.72rem;border-radius:var(--r-full);opacity:0.85;"
+                        title="إخفاء وتغويش هذا المبلغ مجدداً"
+                        @onclick="() => LockSensitiveValue(key)"
+                        @onclick:stopPropagation="true">
+                    <Icon Name="eye-slash" Size="xs" />
+                </button>
+            </span>
+        }
+        else
+        {
+            <button type="button"
+                    @onclick="() => PromptUnlockSensitiveValue(key, label)"
+                    @onclick:stopPropagation="true"
+                    title="مبلغ سري محمي — اضغط وأدخل كلمة مرور الحساب لإظهار هذا المبلغ فقط"
+                    style="all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:0.45rem;padding:2px 8px;margin-inline:-4px;border-radius:var(--r-md);background:color-mix(in srgb, var(--surface-sunken) 75%, transparent);border:1px dashed color-mix(in srgb, var(--text-muted) 35%, transparent);transition:all 0.15s ease;">
+                <span aria-hidden="true" style="filter:blur(6.5px);user-select:none;pointer-events:none;opacity:0.75;letter-spacing:1px;">
+                    @(prefix)1,850,000
+                </span>
+                <span style="font-size:var(--fs-caption);font-weight:normal;color:var(--text-muted);">د.ع</span>
+                <span class="hr-badge" style="font-size:0.7rem;padding:1px 6px;gap:3px;background:color-mix(in srgb, var(--accent) 14%, var(--surface));color:var(--accent-text);border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);">
+                    <Icon Name="lock-closed" Size="xs" />
+                    @if (!compact)
+                    {
+                        <span>إظهار</span>
+                    }
+                </span>
+            </button>
+        }
+    </text>;
+
     private void OpenUpdateBalancesModal()
     {
-        if (!isStaff) return;
+        if (!canEditSalaries) return;
+        if (!IsSensitiveUnlocked("modal-edit-balances"))
+        {
+            PromptUnlockSensitiveValue("modal-edit-balances", "تعديل الأرصدة والقروض والسلف", openUpdateBalancesAfter: true);
+            return;
+        }
+        OpenUpdateBalancesModalCore();
+    }
+
+    private void OpenUpdateBalancesModalCore()
+    {
+        if (!canEditSalaries) return;
         if (financialAccount != null)
         {
             editBalance = financialAccount.Balance;
@@ -7786,7 +8461,7 @@
 
     private async Task SaveUpdatedBalancesAsync()
     {
-        if (employee == null || !isStaff) return;
+        if (employee == null || !canEditSalaries) return;
 
         isSavingFinancial = true;
         try
@@ -7918,7 +8593,7 @@
 
     private async Task ToggleVehicleAuthInProfile(EmployeeVehicle vehicle)
     {
-        if (!isStaff) return;
+        if (!canEditVehicles) return;
         var newStatus = !vehicle.IsAuthorized;
         var ok = await VehicleService.ToggleAuthorizationAsync(vehicle.Id, newStatus);
         if (ok)
