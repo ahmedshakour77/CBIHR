@@ -122,6 +122,11 @@
                                         dotNetRef.invokeMethodAsync("SelectGovernorateFromJs", node.code);
                                     }
                                 });
+                                if (node.isMainBranchHub || node.employeeCount > 0) {
+                                    setTimeout(function () {
+                                        try { fLayer.bringToFront(); } catch (e) { }
+                                    }, 0);
+                                }
                             }
                         }
                     });

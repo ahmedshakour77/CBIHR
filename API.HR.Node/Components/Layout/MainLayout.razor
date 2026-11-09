@@ -5,6 +5,7 @@
 @inject API.HR.Node.Services.Network.IAmlConnectivityService AmlNet
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IHttpContextAccessor HttpContextAccessor
+@inject API.HR.Node.Services.Audit.IUserActivityService ActivityService
 @implements IDisposable
 
 @*
@@ -191,23 +192,78 @@
         }
     }
     private string CurrentNavbarMode => PrefService.Current.NavbarMode;
+    private string? _lastTrackedPath;
+    private DateTimeOffset _lastPageEnteredAtUtc = DateTimeOffset.UtcNow;
+    private System.Security.Claims.ClaimsPrincipal? _cachedUser;
+    private readonly string _circuitSessionId = "cir_" + Guid.NewGuid().ToString("N")[..10];
 
     protected override async Task OnInitializedAsync()
     {
         PrefService.OnPreferenceChanged += OnPrefsChanged;
         Lang.OnLanguageChanged += OnPrefsChanged;
         AmlNet.OnConnectivityChanged += OnConnectivityChanged;
+        Nav.LocationChanged += OnLocationChanged;
 
         try
         {
             var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            _cachedUser = auth.User;
             var name = auth.User.Identity?.Name;
             if (auth.User.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(name))
             {
                 await PrefService.LoadForUserAsync(name);
+                RecordPageVisit(Nav.Uri, durationOnPreviousPage: null);
             }
         }
         catch { }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var durationSecs = (int)Math.Max(0, (now - _lastPageEnteredAtUtc).TotalSeconds);
+            RecordPageVisit(e.Location, durationSecs > 0 ? durationSecs : null);
+        }
+        catch { }
+    }
+
+    private void RecordPageVisit(string fullUri, int? durationOnPreviousPage)
+    {
+        if (_cachedUser?.Identity?.IsAuthenticated != true) return;
+        var relPath = "/" + Nav.ToBaseRelativePath(fullUri).TrimStart('/');
+        var pageTitle = API.HR.Node.Services.Audit.UserActivityService.GetArabicPageTitle(relPath);
+
+        if (!string.IsNullOrWhiteSpace(_lastTrackedPath) && durationOnPreviousPage.HasValue && durationOnPreviousPage.Value >= 1)
+        {
+            var prevTitle = API.HR.Node.Services.Audit.UserActivityService.GetArabicPageTitle(_lastTrackedPath);
+            ActivityService.RecordFromPrincipal(
+                principal: _cachedUser,
+                category: API.HR.Node.Services.Audit.ActivityCategories.Navigation,
+                actionCode: "PAGE_VIEW",
+                actionTitle: $"الانتقال إلى صفحة: {pageTitle}",
+                pagePath: relPath,
+                pageTitle: pageTitle,
+                elementLabel: $"من: {prevTitle}",
+                valueText: $"مدة البقاء في الصفحة السابقة: {durationOnPreviousPage.Value} ثانية",
+                durationSeconds: durationOnPreviousPage.Value,
+                sessionId: _circuitSessionId);
+        }
+        else
+        {
+            ActivityService.RecordFromPrincipal(
+                principal: _cachedUser,
+                category: API.HR.Node.Services.Audit.ActivityCategories.Navigation,
+                actionCode: "PAGE_VIEW",
+                actionTitle: $"دخول إلى صفحة: {pageTitle}",
+                pagePath: relPath,
+                pageTitle: pageTitle,
+                sessionId: _circuitSessionId);
+        }
+
+        _lastTrackedPath = relPath;
+        _lastPageEnteredAtUtc = DateTimeOffset.UtcNow;
     }
 
     private void OnPrefsChanged()
@@ -225,5 +281,6 @@
         PrefService.OnPreferenceChanged -= OnPrefsChanged;
         Lang.OnLanguageChanged -= OnPrefsChanged;
         AmlNet.OnConnectivityChanged -= OnConnectivityChanged;
+        Nav.LocationChanged -= OnLocationChanged;
     }
 }

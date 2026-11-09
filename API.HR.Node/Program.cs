@@ -170,6 +170,9 @@ else
 }
 builder.Services.AddSingleton<IImageProcessor, ImageSharpProcessor>();
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+builder.Services.AddSingleton<API.HR.Node.Services.Audit.UserActivityService>();
+builder.Services.AddSingleton<API.HR.Node.Services.Audit.IUserActivityService>(sp => sp.GetRequiredService<API.HR.Node.Services.Audit.UserActivityService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<API.HR.Node.Services.Audit.UserActivityService>());
 builder.Services.AddScoped<API.HR.Node.Services.Identity.IUserEmployeeService, API.HR.Node.Services.Identity.UserEmployeeService>();
 builder.Services.AddScoped<IEmployeeProfilePhotoService, EmployeeProfilePhotoService>();
 builder.Services.AddSingleton<API.HR.Node.Services.ProfilePhotos.IUserAvatarService, API.HR.Node.Services.ProfilePhotos.UserAvatarService>();
@@ -649,6 +652,7 @@ app.MapEmployeeResidenceEndpoints();
 app.MapNationalCardEndpoints();
 app.MapEmployeePassportEndpoints();
 app.MapEmployeeDocumentsEndpoints();
+app.MapUserActivityEndpoints();
 
 app.MapGet("/api/network/aml-connectivity", (API.HR.Node.Services.Network.IAmlConnectivityService net) =>
     Results.Ok(new { isConnected = net.IsAmlConnected }));

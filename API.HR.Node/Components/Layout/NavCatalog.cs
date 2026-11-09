@@ -315,6 +315,10 @@ public static class NavCatalog
             ViewPermission: Permissions.AuditLogsView,
             EditPermission: Permissions.AuditLogsEdit),
 
+        new NavEntry("admin/user-analytics", "تحليلات ومراقبة المستخدمين", "presentation-chart-bar", "مراقبة شاملة وإحصائيات تفصيلية لحركات وجلسات المستخدمين من الدخول إلى الخروج",
+            LabelKu: "شیکاری و چاودێری بەکارهێنەران", HintKu: "چاودێری و ئاماری وردی جووڵە و دانیشتنەکانی بەکارهێنەران",
+            Roles: new[] { "Admin" }),
+
         new NavEntry("admin/features", "إدارة الميزات والنظام", "cog-6-tooth", "التحكم في تفعيل وتعطيل ميزات ووحدات النظام والسمات",
             LabelKu: "بەڕێوەبردنی تایبەتمەندییەکان و سیستەم", HintKu: "کۆنتڕۆڵکردنی چالاککردن و ناچالاککردنی تایبەتمەندییەکانی سیستەم",
             Roles: new[] { "Admin" },

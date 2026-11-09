@@ -728,6 +728,30 @@
 
     private async Task CompleteLoginRedirect(ApplicationUser? loggedUser)
     {
+        if (loggedUser != null)
+        {
+            try
+            {
+                using var scope = ScopeFactory.CreateScope();
+                var auditLogger = scope.ServiceProvider.GetService<API.HR.Node.Services.Audit.IAuditLogger>();
+                if (auditLogger != null)
+                {
+                    var ip = HttpContext?.Connection?.RemoteIpAddress?.ToString();
+                    var ua = HttpContext?.Request?.Headers.UserAgent.ToString();
+                    await auditLogger.LogAsync(
+                        "USER_LOGIN_SUCCESS",
+                        loggedUser.EmployeeID ?? loggedUser.UserName ?? loggedUser.Id,
+                        null,
+                        true,
+                        null,
+                        ip,
+                        ua,
+                        $"تسجيل دخول المستخدم ({loggedUser.UserName})");
+                }
+            }
+            catch { }
+        }
+
         var targetUrl = ReturnUrl;
         if (string.IsNullOrWhiteSpace(targetUrl) || targetUrl == "/" || targetUrl == "")
         {

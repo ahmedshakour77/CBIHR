@@ -1,0 +1,1173 @@
+@page "/admin/user-analytics"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using System.Text
+@using API.HR.Node.Data
+@using API.HR.Node.Services.Audit
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@implements IDisposable
+
+@inject IUserActivityService ActivityService
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IJSRuntime JS
+
+<PageTitle>تحليلات ومراقبة نشاط المستخدمين</PageTitle>
+
+<div class="max-w-[1650px] mx-auto px-4 sm:px-6 py-6 space-y-6" dir="rtl">
+
+    <!-- Header Banner -->
+    <div class="relative overflow-hidden rounded-3xl bg-gradient-to-l from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-xl border border-indigo-500/20">
+        <div class="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+            <div class="space-y-2">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-bold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>خاص بحساب مسؤول النظام فقط (Admin Only) — الحسابات والأمان</span>
+                </div>
+                <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                    تحليلات ومراقبة نشاط المستخدمين الشاملة
+                </h1>
+                <p class="text-sm text-slate-300 max-w-3xl leading-relaxed">
+                    مراقبة تفصيلية لكل مستخدم من لحظة تسجيل الدخول إلى الخروج: تتبع الصفحات ومدة البقاء فيها، تغييرات القوائم المنسدلة (Dropdowns)، عمليات البحث والكتابة، النقرات، والعمليات الأمنية.
+                </p>
+            </div>
+
+            <!-- Controls -->
+            <div class="flex flex-wrap items-center gap-2.5">
+                <!-- Time Range -->
+                <div class="inline-flex rounded-xl bg-slate-800/90 p-1 border border-slate-700">
+                    @foreach (var range in _timeRanges)
+                    {
+                        var active = _selectedRange == range.Key;
+                        <button type="button"
+                                @onclick="() => ChangeRangeAsync(range.Key)"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition @(active ? "bg-indigo-600 text-white shadow" : "text-slate-300 hover:text-white")">
+                            @range.Label
+                        </button>
+                    }
+                </div>
+
+                <!-- Auto Refresh Toggle -->
+                <button type="button"
+                        @onclick="ToggleAutoRefresh"
+                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition @(_autoRefresh ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200" : "bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white")">
+                    <span class="w-2 h-2 rounded-full @(_autoRefresh ? "bg-emerald-400 animate-ping" : "bg-slate-500")"></span>
+                    <span>@(_autoRefresh ? "بث حي مفعل (٤ث)" : "تفعيل البث الحي")</span>
+                </button>
+
+                <!-- Manual Refresh -->
+                <button type="button"
+                        @onclick="RefreshDataAsync"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition">
+                    <Icon Name="arrow-path" Class="w-4 h-4" />
+                    <span>تحديث الآن</span>
+                </button>
+
+                <!-- Export CSV -->
+                <button type="button"
+                        @onclick="ExportCsvAsync"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition">
+                    <Icon Name="arrow-down-tray" Class="w-4 h-4" />
+                    <span>تصدير CSV</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Executive KPI Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">المتصلون الآن</span>
+                <span class="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
+                    <Icon Name="signal" Class="w-5 h-5" />
+                </span>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-2xl font-black text-slate-900 dark:text-white">@_onlineUsersCount</span>
+                <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400">من أصل @_userSummaries.Count مستخدم نشط</span>
+            </div>
+        </div>
+
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">إجمالي الحركات المسجلة</span>
+                <span class="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+                    <Icon Name="bolt" Class="w-5 h-5" />
+                </span>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-2xl font-black text-slate-900 dark:text-white">@_allRangeEvents.Count.ToString("N0")</span>
+                <span class="text-xs text-slate-500">حركة مفصلة</span>
+            </div>
+        </div>
+
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">الدخول والخروج</span>
+                <span class="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+                    <Icon Name="arrow-right-on-rectangle" Class="w-5 h-5" />
+                </span>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-2xl font-black text-slate-900 dark:text-white">@_authEventsCount.ToString("N0")</span>
+                <span class="text-xs text-slate-500">عملية مصادقة</span>
+            </div>
+        </div>
+
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">تصفح الصفحات</span>
+                <span class="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400">
+                    <Icon Name="globe-alt" Class="w-5 h-5" />
+                </span>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-2xl font-black text-slate-900 dark:text-white">@_navEventsCount.ToString("N0")</span>
+                <span class="text-xs text-slate-500">انتقال بين الصفحات</span>
+            </div>
+        </div>
+
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">القوائم المنسدلة والبحث</span>
+                <span class="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400">
+                    <Icon Name="adjustments-horizontal" Class="w-5 h-5" />
+                </span>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-2xl font-black text-slate-900 dark:text-white">@((_dropdownEventsCount + _searchEventsCount).ToString("N0"))</span>
+                <span class="text-xs text-slate-500">@_dropdownEventsCount قائمة / @_searchEventsCount بحث</span>
+            </div>
+        </div>
+
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">النقرات والعمليات الأمنية</span>
+                <span class="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400">
+                    <Icon Name="shield-check" Class="w-5 h-5" />
+                </span>
+            </div>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-2xl font-black text-slate-900 dark:text-white">@((_clickEventsCount + _securityEventsCount).ToString("N0"))</span>
+                <span class="text-xs text-slate-500">@_clickEventsCount نقرة / @_securityEventsCount أمني</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main View Tabs -->
+    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex flex-wrap items-center gap-2">
+            <button type="button"
+                    @onclick='() => _activeTab = "journey"'
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition @(_activeTab == "journey" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50")">
+                <Icon Name="user-circle" Class="w-5 h-5" />
+                <span>مسار وجلسة المستخدم (من الدخول إلى الخروج)</span>
+            </button>
+
+            <button type="button"
+                    @onclick='() => _activeTab = "stream"'
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition @(_activeTab == "stream" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50")">
+                <Icon Name="queue-list" Class="w-5 h-5" />
+                <span>البث الحي الشامل لكافة الحركات</span>
+            </button>
+
+            <button type="button"
+                    @onclick='() => _activeTab = "analytics"'
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition @(_activeTab == "analytics" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50")">
+                <Icon Name="chart-bar-square" Class="w-5 h-5" />
+                <span>الإحصائيات والتحليلات التفصيلية</span>
+            </button>
+        </div>
+
+        <div class="text-xs text-slate-500 dark:text-slate-400">
+            آخر تحديث: <span class="font-bold text-slate-700 dark:text-slate-200">@_lastRefreshedLocal.ToString("HH:mm:ss")</span>
+        </div>
+    </div>
+
+    @if (_activeTab == "journey")
+    {
+        <!-- TAB 1: USER JOURNEY (FROM LOGIN TO LOGOUT) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+            <!-- Left Column: Users List -->
+            <div class="lg:col-span-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                <div class="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-black text-slate-900 dark:text-white">قائمة المستخدمين المراقبين</h2>
+                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                            @_filteredUserSummaries.Count مستخدم
+                        </span>
+                    </div>
+                    <div class="relative">
+                        <input type="text"
+                               @bind="_userListSearch"
+                               @bind:event="oninput"
+                               placeholder="ابحث باسم المستخدم أو الرقم الوظيفي..."
+                               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                </div>
+
+                <div class="divide-y divide-slate-100 dark:divide-slate-800 max-h-[680px] overflow-y-auto">
+                    @if (_filteredUserSummaries.Count == 0)
+                    {
+                        <div class="p-8 text-center text-xs text-slate-400">
+                            لا توجد حركات مسجلة للمستخدمين ضمن الفترة المحددة.
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var u in _filteredUserSummaries)
+                        {
+                            var isSelected = string.Equals(_selectedUserKey, u.UserName, StringComparison.OrdinalIgnoreCase)
+                                          || (!string.IsNullOrEmpty(u.UserId) && string.Equals(_selectedUserKey, u.UserId, StringComparison.OrdinalIgnoreCase));
+
+                            <button type="button"
+                                    @onclick="() => SelectUserForJourney(u)"
+                                    class="w-full text-right p-4 transition flex flex-col gap-2 @(isSelected ? "bg-indigo-50/90 dark:bg-indigo-950/40 border-r-4 border-indigo-600" : "hover:bg-slate-50 dark:hover:bg-slate-800/50")">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <span class="relative flex h-3 w-3 shrink-0">
+                                            @if (u.IsOnlineNow)
+                                            {
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="relative inline-flex rounded-full h-3 w-3 bg-slate-300 dark:bg-slate-600"></span>
+                                            }
+                                        </span>
+                                        <div class="truncate">
+                                            <div class="text-sm font-black text-slate-900 dark:text-white truncate">
+                                                @(string.IsNullOrWhiteSpace(u.EmployeeName) ? u.UserName : $"{u.EmployeeName} ({u.UserName})")
+                                            </div>
+                                            <div class="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                                @if (!string.IsNullOrWhiteSpace(u.UserRole))
+                                                {
+                                                    <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-semibold">@u.UserRole</span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(u.EmployeeId))
+                                                {
+                                                    <span>رقم وظيفي: @u.EmployeeId</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span class="px-2 py-0.5 rounded-lg text-xs font-extrabold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shrink-0">
+                                        @u.TotalEvents حركة
+                                    </span>
+                                </div>
+
+                                <!-- Mini Counters -->
+                                <div class="grid grid-cols-5 gap-1 pt-1 text-[11px]">
+                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
+                                        <span class="block text-slate-400">دخول</span>
+                                        <span class="font-bold text-slate-800 dark:text-slate-200">@u.LoginCount</span>
+                                    </div>
+                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
+                                        <span class="block text-slate-400">صفحات</span>
+                                        <span class="font-bold text-violet-600 dark:text-violet-400">@u.PageViewCount</span>
+                                    </div>
+                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
+                                        <span class="block text-slate-400">قوائم</span>
+                                        <span class="font-bold text-amber-600 dark:text-amber-400">@u.DropdownCount</span>
+                                    </div>
+                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
+                                        <span class="block text-slate-400">بحث</span>
+                                        <span class="font-bold text-emerald-600 dark:text-emerald-400">@u.SearchCount</span>
+                                    </div>
+                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
+                                        <span class="block text-slate-400">نقرات</span>
+                                        <span class="font-bold text-rose-600 dark:text-rose-400">@u.ClickCount</span>
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                                    <span class="truncate max-w-[210px]">آخر تواجد: @(UserActivityService.GetArabicPageTitle(u.LastPagePath))</span>
+                                    <span>@FormatRelativeTime(u.LastSeenUtc)</span>
+                                </div>
+                            </button>
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- Right Column: Detailed Step-by-Step User Timeline -->
+            <div class="lg:col-span-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                @if (_selectedUserSummary is null)
+                {
+                    <div class="p-12 text-center space-y-2">
+                        <div class="mx-auto w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center text-indigo-600">
+                            <Icon Name="cursor-arrow-rays" Class="w-6 h-6" />
+                        </div>
+                        <h3 class="text-base font-bold text-slate-800 dark:text-slate-100">اختر مستخدماً من القائمة لعرض مساره الكامل</h3>
+                        <p class="text-xs text-slate-500">سيتم عرض كل خطوة قام بها المستخدم من لحظة تسجيل الدخول وحتى الخروج بالتسلسل الزمني الدقيق.</p>
+                    </div>
+                }
+                else
+                {
+                    <!-- Selected User Banner -->
+                    <div class="p-5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h2 class="text-lg font-black text-slate-900 dark:text-white">
+                                        مسار حركات المستخدم: @(_selectedUserSummary.EmployeeName ?? _selectedUserSummary.UserName)
+                                    </h2>
+                                    @if (_selectedUserSummary.IsOnlineNow)
+                                    {
+                                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                            متصل الآن
+                                        </span>
+                                    }
+                                </div>
+                                <p class="text-xs text-slate-500 mt-0.5">
+                                    اسم الحساب: <span class="font-bold">@_selectedUserSummary.UserName</span>
+                                    | أول نشاط في الفترة: <span class="font-bold">@_selectedUserSummary.FirstSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                    | آخر نشاط: <span class="font-bold">@_selectedUserSummary.LastSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
+                                </p>
+                            </div>
+
+                            <!-- Category Filter inside Journey -->
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                @foreach (var cat in _categoryFilters)
+                                {
+                                    var active = _journeyCategoryFilter == cat.Key;
+                                    <button type="button"
+                                            @onclick="() => _journeyCategoryFilter = cat.Key"
+                                            class="px-2.5 py-1 rounded-lg text-xs font-bold transition @(active ? "bg-indigo-600 text-white" : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700")">
+                                        @cat.Label
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chronological Journey Feed -->
+                    <div class="p-5 max-h-[640px] overflow-y-auto space-y-3">
+                        @{
+                            var journeyEvents = GetSelectedUserJourneyEvents();
+                        }
+                        @if (journeyEvents.Count == 0)
+                        {
+                            <div class="p-8 text-center text-xs text-slate-400">
+                                لا توجد حركات مطابقة للفلتر المحدد لهذا المستخدم.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="relative pr-6 border-r-2 border-indigo-200 dark:border-indigo-900 space-y-3">
+                                @foreach (var ev in journeyEvents)
+                                {
+                                    <div class="relative rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs hover:border-indigo-300 transition">
+                                        <!-- Timeline Dot -->
+                                        <span class="absolute -right-[31px] top-4 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 @GetCategoryDotColor(ev.Category)"></span>
+
+                                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <span class="px-2.5 py-0.5 rounded-md text-[11px] font-bold @GetCategoryBadgeClass(ev.Category)">
+                                                    @GetCategoryArabicName(ev.Category)
+                                                </span>
+                                                <span class="text-sm font-extrabold text-slate-900 dark:text-white">
+                                                    @ev.ActionTitle
+                                                </span>
+                                                @if (ev.DurationSeconds is > 0)
+                                                {
+                                                    <span class="px-2 py-0.5 rounded-md bg-violet-50 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300 text-[11px] font-bold">
+                                                        مدة البقاء: @FormatDuration(ev.DurationSeconds.Value)
+                                                    </span>
+                                                }
+                                            </div>
+                                            <div class="text-xs font-mono text-slate-500 dark:text-slate-400 shrink-0" dir="ltr">
+                                                @ev.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                                            </div>
+                                        </div>
+
+                                        <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                                            @if (!string.IsNullOrWhiteSpace(ev.PagePath))
+                                            {
+                                                <div class="inline-flex items-center gap-1">
+                                                    <span class="text-slate-400">الصفحة:</span>
+                                                    <span class="font-bold text-indigo-600 dark:text-indigo-400">@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
+                                                    <span class="text-[11px] text-slate-400 font-mono" dir="ltr">(@ev.PagePath)</span>
+                                                </div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(ev.ElementLabel))
+                                            {
+                                                <div class="inline-flex items-center gap-1">
+                                                    <span class="text-slate-400">العنصر / الحقل:</span>
+                                                    <span class="font-bold text-slate-800 dark:text-slate-100">@ev.ElementLabel</span>
+                                                </div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(ev.ValueText))
+                                            {
+                                                <div class="inline-flex items-center gap-1">
+                                                    <span class="text-slate-400">القيمة / الاختيار:</span>
+                                                    <span class="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold">@ev.ValueText</span>
+                                                </div>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(ev.IpAddress))
+                                            {
+                                                <div class="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                                                    <span>IP:</span>
+                                                    <span class="font-mono" dir="ltr">@ev.IpAddress</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (_activeTab == "stream")
+    {
+        <!-- TAB 2: LIVE ACTIVITY STREAM TABLE -->
+        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <!-- Filters Bar -->
+            <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-1.5">
+                    @foreach (var cat in _categoryFilters)
+                    {
+                        var active = _streamCategoryFilter == cat.Key;
+                        <button type="button"
+                                @onclick="() => _streamCategoryFilter = cat.Key"
+                                class="px-3 py-1.5 rounded-xl text-xs font-bold transition @(active ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200")">
+                            @cat.Label
+                        </button>
+                    }
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <select @bind="_streamUserFilter"
+                            aria-label="فلتر المستخدم"
+                            class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100">
+                        <option value="">كل المستخدمين (@_userSummaries.Count)</option>
+                        @foreach (var u in _userSummaries)
+                        {
+                            <option value="@u.UserName">@(string.IsNullOrWhiteSpace(u.EmployeeName) ? u.UserName : $"{u.EmployeeName} ({u.UserName})")</option>
+                        }
+                    </select>
+
+                    <input type="text"
+                           @bind="_streamSearchQuery"
+                           @bind:event="oninput"
+                           placeholder="ابحث في الحركات، القوائم المنسدلة، الصفحات، القيم..."
+                           class="w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+            </div>
+
+            <!-- Stream Table -->
+            <div class="overflow-x-auto max-h-[680px]">
+                @{
+                    var filteredStream = GetFilteredStreamEvents();
+                }
+                <table class="w-full text-right text-xs">
+                    <thead class="bg-slate-50 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                            <th class="py-3 px-4 font-bold">الوقت</th>
+                            <th class="py-3 px-4 font-bold">المستخدم</th>
+                            <th class="py-3 px-4 font-bold">نوع الحركة</th>
+                            <th class="py-3 px-4 font-bold">الوصف التفصيلي</th>
+                            <th class="py-3 px-4 font-bold">الصفحة</th>
+                            <th class="py-3 px-4 font-bold">الحقل / العنصر</th>
+                            <th class="py-3 px-4 font-bold">القيمة / المدة</th>
+                            <th class="py-3 px-4 font-bold">IP</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                        @if (filteredStream.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="8" class="py-10 text-center text-slate-400">
+                                    لا توجد حركات مطابقة للفلاتر الحالية.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var ev in filteredStream.Take(400))
+                            {
+                                <tr class="hover:bg-slate-50/90 dark:hover:bg-slate-800/40 transition">
+                                    <td class="py-2.5 px-4 font-mono text-slate-500 whitespace-nowrap" dir="ltr">
+                                        @ev.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                                    </td>
+                                    <td class="py-2.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                                        <div>@(string.IsNullOrWhiteSpace(ev.EmployeeName) ? ev.UserName : ev.EmployeeName)</div>
+                                        <div class="text-[10px] text-slate-400 font-normal">@ev.UserName @(string.IsNullOrWhiteSpace(ev.UserRole) ? "" : $"• {ev.UserRole}")</div>
+                                    </td>
+                                    <td class="py-2.5 px-4 whitespace-nowrap">
+                                        <span class="px-2.5 py-0.5 rounded-md text-[11px] font-bold @GetCategoryBadgeClass(ev.Category)">
+                                            @GetCategoryArabicName(ev.Category)
+                                        </span>
+                                    </td>
+                                    <td class="py-2.5 px-4 font-bold text-slate-800 dark:text-slate-100">
+                                        @ev.ActionTitle
+                                    </td>
+                                    <td class="py-2.5 px-4">
+                                        <div class="font-semibold text-indigo-600 dark:text-indigo-400">
+                                            @(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(ev.PagePath))
+                                        {
+                                            <div class="text-[10px] font-mono text-slate-400" dir="ltr">@ev.PagePath</div>
+                                        }
+                                    </td>
+                                    <td class="py-2.5 px-4 text-slate-700 dark:text-slate-300 font-semibold">
+                                        @(string.IsNullOrWhiteSpace(ev.ElementLabel) ? "—" : ev.ElementLabel)
+                                    </td>
+                                    <td class="py-2.5 px-4">
+                                        @if (ev.DurationSeconds is > 0)
+                                        {
+                                            <span class="px-2 py-0.5 rounded bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-300 font-bold">
+                                                @FormatDuration(ev.DurationSeconds.Value)
+                                            </span>
+                                        }
+                                        else if (!string.IsNullOrWhiteSpace(ev.ValueText))
+                                        {
+                                            <span class="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold">
+                                                @ev.ValueText
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-slate-400">—</span>
+                                        }
+                                    </td>
+                                    <td class="py-2.5 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap" dir="ltr">
+                                        @(string.IsNullOrWhiteSpace(ev.IpAddress) ? "—" : ev.IpAddress)
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (_activeTab == "analytics")
+    {
+        <!-- TAB 3: SEPARATE DETAILED ADMIN STATISTICS & ANALYTICS -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- 1. Top Visited Pages & Time Spent -->
+            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900 dark:text-white">أكثر الصفحات زيارة ومتوسط مدة البقاء</h3>
+                        <p class="text-xs text-slate-500">تحليل الصفحات الأكثر استقطاباً للمستخدمين وزمن المكوث الفعلي فيها</p>
+                    </div>
+                    <Icon Name="globe-alt" Class="w-6 h-6 text-indigo-600" />
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right text-xs">
+                        <thead class="bg-slate-50 dark:bg-slate-800 text-slate-500">
+                            <tr>
+                                <th class="py-2.5 px-3 font-bold">الصفحة</th>
+                                <th class="py-2.5 px-3 font-bold">عدد الزيارات</th>
+                                <th class="py-2.5 px-3 font-bold">المستخدمون الفريدون</th>
+                                <th class="py-2.5 px-3 font-bold">إجمالي الوقت المقضي</th>
+                                <th class="py-2.5 px-3 font-bold">متوسط البقاء</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                            @foreach (var p in GetTopPagesStats())
+                            {
+                                <tr>
+                                    <td class="py-2.5 px-3">
+                                        <div class="font-bold text-slate-900 dark:text-white">@p.PageTitle</div>
+                                        <div class="text-[10px] font-mono text-slate-400" dir="ltr">@p.PagePath</div>
+                                    </td>
+                                    <td class="py-2.5 px-3 font-black text-indigo-600 dark:text-indigo-400">@p.VisitCount</td>
+                                    <td class="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300">@p.UniqueUsers</td>
+                                    <td class="py-2.5 px-3 font-bold text-violet-600 dark:text-violet-400">@FormatDuration(p.TotalSeconds)</td>
+                                    <td class="py-2.5 px-3 text-slate-600 dark:text-slate-300">@FormatDuration(p.AverageSeconds)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 2. Most Active Users Breakdown -->
+            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900 dark:text-white">تحليل نشاط المستخدمين التفصيلي</h3>
+                        <p class="text-xs text-slate-500">مقارنة شاملة لحركات كل مستخدم حسب نوع التفاعل</p>
+                    </div>
+                    <Icon Name="users" Class="w-6 h-6 text-emerald-600" />
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right text-xs">
+                        <thead class="bg-slate-50 dark:bg-slate-800 text-slate-500">
+                            <tr>
+                                <th class="py-2.5 px-3 font-bold">المستخدم</th>
+                                <th class="py-2.5 px-3 font-bold">الإجمالي</th>
+                                <th class="py-2.5 px-3 font-bold">دخول</th>
+                                <th class="py-2.5 px-3 font-bold">صفحات</th>
+                                <th class="py-2.5 px-3 font-bold">قوائم</th>
+                                <th class="py-2.5 px-3 font-bold">بحث</th>
+                                <th class="py-2.5 px-3 font-bold">نقرات</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                            @foreach (var u in _userSummaries.Take(12))
+                            {
+                                <tr>
+                                    <td class="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                                        @(string.IsNullOrWhiteSpace(u.EmployeeName) ? u.UserName : $"{u.EmployeeName} ({u.UserName})")
+                                    </td>
+                                    <td class="py-2.5 px-3 font-black text-indigo-600">@u.TotalEvents</td>
+                                    <td class="py-2.5 px-3 font-semibold">@u.LoginCount</td>
+                                    <td class="py-2.5 px-3 font-semibold text-violet-600">@u.PageViewCount</td>
+                                    <td class="py-2.5 px-3 font-semibold text-amber-600">@u.DropdownCount</td>
+                                    <td class="py-2.5 px-3 font-semibold text-emerald-600">@u.SearchCount</td>
+                                    <td class="py-2.5 px-3 font-semibold text-rose-600">@u.ClickCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 3. Top Dropdown Changes & Top Searches -->
+            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900 dark:text-white">أكثر القوائم المنسدلة (Dropdowns) وعبارات البحث استخداماً</h3>
+                        <p class="text-xs text-slate-500">تحليل اختيارات المستخدمين في الفلاتر والقوائم وحقول البحث</p>
+                    </div>
+                    <Icon Name="adjustments-horizontal" Class="w-6 h-6 text-amber-600" />
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-extrabold text-amber-700 dark:text-amber-400">تغييرات القوائم المنسدلة (Dropdowns)</h4>
+                        @foreach (var d in GetTopDropdownStats())
+                        {
+                            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-xs">
+                                <div class="truncate pl-2">
+                                    <span class="font-bold text-slate-800 dark:text-slate-200">@d.Label:</span>
+                                    <span class="text-amber-700 dark:text-amber-300 font-semibold mr-1">@d.Value</span>
+                                </div>
+                                <span class="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold shrink-0">@d.Count مرة</span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="space-y-2">
+                        <h4 class="text-xs font-extrabold text-emerald-700 dark:text-emerald-400">عبارات البحث والإدخال</h4>
+                        @foreach (var s in GetTopSearchStats())
+                        {
+                            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-xs">
+                                <div class="truncate pl-2">
+                                    <span class="font-bold text-slate-800 dark:text-slate-200">@s.Label:</span>
+                                    <span class="text-emerald-700 dark:text-emerald-300 font-semibold mr-1">@s.Value</span>
+                                </div>
+                                <span class="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold shrink-0">@s.Count مرة</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Hourly Activity Distribution -->
+            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-base font-black text-slate-900 dark:text-white">توزيع كثافة النشاط حسب ساعات اليوم</h3>
+                        <p class="text-xs text-slate-500">معرفة أوقات الذروة الفعلية لاستخدام النظام على مدار ٢٤ ساعة</p>
+                    </div>
+                    <Icon Name="clock" Class="w-6 h-6 text-violet-600" />
+                </div>
+
+                @{
+                    var hourly = GetHourlyDistribution();
+                    var maxHourCount = Math.Max(1, hourly.Max(x => x.Count));
+                }
+                <div class="grid grid-cols-12 gap-1.5 items-end h-44 pt-4 px-2">
+                    @for (var h = 0; h < 24; h += 2)
+                    {
+                        var bucketCount = hourly[h].Count + hourly[h + 1].Count;
+                        var heightPct = Math.Max(6, (int)Math.Round(bucketCount * 100.0 / (maxHourCount * 2)));
+                        <div class="flex flex-col items-center gap-1 h-full justify-end">
+                            <span class="text-[10px] font-bold text-slate-600 dark:text-slate-300">@bucketCount</span>
+                            <div class="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-violet-500 transition-all"
+                                 style="height: @(Math.Min(100, heightPct))%"></div>
+                            <span class="text-[10px] font-mono text-slate-400" dir="ltr">@($"{h:00}:00")</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+        </div>
+    }
+
+</div>
+
+@code {
+    private sealed record RangeOption(string Key, string Label);
+    private sealed record CategoryOption(string Key, string Label);
+    private sealed record PageStatRow(string PagePath, string PageTitle, int VisitCount, int UniqueUsers, int TotalSeconds, int AverageSeconds);
+    private sealed record LabelValueStatRow(string Label, string Value, int Count);
+    private sealed record HourBucket(int Hour, int Count);
+
+    private static readonly RangeOption[] _timeRanges =
+    [
+        new("today", "اليوم"),
+        new("7d", "آخر ٧ أيام"),
+        new("30d", "آخر ٣٠ يوماً"),
+        new("all", "كل السجلات")
+    ];
+
+    private static readonly CategoryOption[] _categoryFilters =
+    [
+        new("", "الكل"),
+        new(ActivityCategories.Auth, "الدخول والخروج"),
+        new(ActivityCategories.Navigation, "الصفحات والمدة"),
+        new(ActivityCategories.Dropdown, "القوائم المنسدلة"),
+        new(ActivityCategories.Search, "البحث والكتابة"),
+        new(ActivityCategories.Click, "النقرات والأزرار"),
+        new(ActivityCategories.Security, "العمليات الأمنية")
+    ];
+
+    private string _selectedRange = "7d";
+    private string _activeTab = "journey";
+    private bool _autoRefresh = true;
+    private DateTime _lastRefreshedLocal = DateTime.Now;
+    private Timer? _refreshTimer;
+
+    private List<UserActivityEvent> _allRangeEvents = [];
+    private List<UserActivitySummaryDto> _userSummaries = [];
+
+    private string _userListSearch = string.Empty;
+    private string? _selectedUserKey;
+    private UserActivitySummaryDto? _selectedUserSummary;
+    private string _journeyCategoryFilter = string.Empty;
+
+    private string _streamCategoryFilter = string.Empty;
+    private string _streamUserFilter = string.Empty;
+    private string _streamSearchQuery = string.Empty;
+
+    private int _onlineUsersCount;
+    private int _authEventsCount;
+    private int _navEventsCount;
+    private int _dropdownEventsCount;
+    private int _searchEventsCount;
+    private int _clickEventsCount;
+    private int _securityEventsCount;
+
+    private List<UserActivitySummaryDto> _filteredUserSummaries =>
+        string.IsNullOrWhiteSpace(_userListSearch)
+            ? _userSummaries
+            : _userSummaries.Where(u =>
+                u.UserName.Contains(_userListSearch, StringComparison.OrdinalIgnoreCase) ||
+                (u.EmployeeName?.Contains(_userListSearch, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (u.EmployeeId?.Contains(_userListSearch, StringComparison.OrdinalIgnoreCase) ?? false))
+              .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshDataAsync();
+        StartOrStopTimer();
+    }
+
+    private void StartOrStopTimer()
+    {
+        _refreshTimer?.Dispose();
+        _refreshTimer = null;
+
+        if (_autoRefresh)
+        {
+            _refreshTimer = new Timer(async _ =>
+            {
+                try
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        await RefreshDataAsync();
+                        StateHasChanged();
+                    });
+                }
+                catch
+                {
+                    // Ignore timer disposal race
+                }
+            }, null, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(4));
+        }
+    }
+
+    private void ToggleAutoRefresh()
+    {
+        _autoRefresh = !_autoRefresh;
+        StartOrStopTimer();
+    }
+
+    private async Task ChangeRangeAsync(string rangeKey)
+    {
+        _selectedRange = rangeKey;
+        await RefreshDataAsync();
+    }
+
+    private DateTimeOffset? GetFromUtc()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        return _selectedRange switch
+        {
+            "today" => new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero),
+            "7d" => nowUtc.AddDays(-7),
+            "30d" => nowUtc.AddDays(-30),
+            _ => null
+        };
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        var fromUtc = GetFromUtc();
+
+        // 1. Live & JSONL events from UserActivityService
+        var memoryEvents = ActivityService.GetRecentEvents(fromUtc: fromUtc, maxCount: 8000).ToList();
+
+        // 2. Also merge historical AuditLogs from SQLite so historical logins/actions are always included
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var query = db.AuditLogs.AsNoTracking().AsQueryable();
+            if (fromUtc.HasValue)
+            {
+                var fromOffset = fromUtc.Value;
+                query = query.Where(a => a.Timestamp >= fromOffset);
+            }
+
+            var dbLogs = await query
+                .OrderByDescending(a => a.Timestamp)
+                .Take(1000)
+                .ToListAsync();
+
+            var existingKeys = new HashSet<string>(
+                memoryEvents.Select(e => $"{e.ActionCode}|{e.UserId}|{e.TimestampUtc.ToUnixTimeSeconds()}"),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var log in dbLogs)
+            {
+                var ts = log.Timestamp;
+                var dedupKey = $"{log.Action}|{log.UserId}|{ts.ToUnixTimeSeconds()}";
+                if (existingKeys.Contains(dedupKey))
+                {
+                    continue;
+                }
+
+                var isAuth = log.Action.Contains("LOGIN", StringComparison.OrdinalIgnoreCase)
+                          || log.Action.Contains("LOGOUT", StringComparison.OrdinalIgnoreCase)
+                          || log.Action.Contains("MAGIC", StringComparison.OrdinalIgnoreCase);
+
+                memoryEvents.Add(new UserActivityEvent
+                {
+                    Id = $"db-{log.Id}",
+                    TimestampUtc = ts,
+                    UserId = log.UserId ?? string.Empty,
+                    UserName = string.IsNullOrWhiteSpace(log.UserId) ? "النظام" : log.UserId,
+                    EmployeeId = log.EmployeeID,
+                    Category = isAuth ? ActivityCategories.Auth : ActivityCategories.Security,
+                    ActionCode = log.Action,
+                    ActionTitle = log.Action,
+                    ValueText = log.FailureReason,
+                    IpAddress = log.IpAddress,
+                    UserAgent = log.UserAgent,
+                    Success = log.Success
+                });
+            }
+        }
+        catch
+        {
+            // Keep fast in-memory stream if DB is busy
+        }
+
+        _allRangeEvents = memoryEvents
+            .OrderByDescending(e => e.TimestampUtc)
+            .ToList();
+
+        // Rebuild user summaries across merged events
+        var onlineCutoff = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _userSummaries = _allRangeEvents
+            .Where(e => !string.IsNullOrWhiteSpace(e.UserName) || !string.IsNullOrWhiteSpace(e.UserId))
+            .GroupBy(e => !string.IsNullOrWhiteSpace(e.UserName) ? e.UserName.ToLowerInvariant() : e.UserId.ToLowerInvariant())
+            .Select(g =>
+            {
+                var ordered = g.OrderBy(x => x.TimestampUtc).ToList();
+                var first = ordered[0];
+                var last = ordered[^1];
+                return new UserActivitySummaryDto(
+                    UserId: last.UserId,
+                    UserName: string.IsNullOrWhiteSpace(last.UserName) ? last.UserId : last.UserName,
+                    EmployeeId: ordered.Select(x => x.EmployeeId).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+                    EmployeeName: ordered.Select(x => x.EmployeeName).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+                    UserRole: ordered.Select(x => x.UserRole).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+                    TotalEvents: ordered.Count,
+                    LoginCount: ordered.Count(x => x.Category == ActivityCategories.Auth && x.ActionCode.Contains("LOGIN", StringComparison.OrdinalIgnoreCase)),
+                    PageViewCount: ordered.Count(x => x.Category == ActivityCategories.Navigation && x.ActionCode == "PAGE_VIEW"),
+                    SearchCount: ordered.Count(x => x.Category == ActivityCategories.Search),
+                    DropdownCount: ordered.Count(x => x.Category == ActivityCategories.Dropdown),
+                    ClickCount: ordered.Count(x => x.Category == ActivityCategories.Click),
+                    SecurityCount: ordered.Count(x => x.Category == ActivityCategories.Security),
+                    FirstSeenUtc: first.TimestampUtc,
+                    LastSeenUtc: last.TimestampUtc,
+                    LastPagePath: ordered.Select(x => x.PagePath).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+                    LastActionTitle: last.ActionTitle,
+                    IsOnlineNow: last.TimestampUtc >= onlineCutoff && !string.Equals(last.ActionCode, "USER_LOGOUT", StringComparison.OrdinalIgnoreCase)
+                );
+            })
+            .OrderByDescending(u => u.IsOnlineNow)
+            .ThenByDescending(u => u.LastSeenUtc)
+            .ToList();
+
+        _onlineUsersCount = _userSummaries.Count(u => u.IsOnlineNow);
+        _authEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Auth);
+        _navEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Navigation && e.ActionCode == "PAGE_VIEW");
+        _dropdownEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Dropdown);
+        _searchEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Search);
+        _clickEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Click);
+        _securityEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Security);
+
+        if (string.IsNullOrWhiteSpace(_selectedUserKey) && _userSummaries.Count > 0)
+        {
+            _selectedUserSummary = _userSummaries[0];
+            _selectedUserKey = _selectedUserSummary.UserName;
+        }
+        else if (!string.IsNullOrWhiteSpace(_selectedUserKey))
+        {
+            _selectedUserSummary = _userSummaries.FirstOrDefault(u =>
+                string.Equals(u.UserName, _selectedUserKey, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(u.UserId, _selectedUserKey, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _lastRefreshedLocal = DateTime.Now;
+    }
+
+    private void SelectUserForJourney(UserActivitySummaryDto user)
+    {
+        _selectedUserSummary = user;
+        _selectedUserKey = user.UserName;
+    }
+
+    private List<UserActivityEvent> GetSelectedUserJourneyEvents()
+    {
+        if (_selectedUserSummary is null)
+        {
+            return [];
+        }
+
+        var query = _allRangeEvents.Where(e =>
+            string.Equals(e.UserName, _selectedUserSummary.UserName, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrWhiteSpace(_selectedUserSummary.UserId) && string.Equals(e.UserId, _selectedUserSummary.UserId, StringComparison.OrdinalIgnoreCase)));
+
+        if (!string.IsNullOrWhiteSpace(_journeyCategoryFilter))
+        {
+            query = query.Where(e => string.Equals(e.Category, _journeyCategoryFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return query.OrderByDescending(e => e.TimestampUtc).Take(300).ToList();
+    }
+
+    private List<UserActivityEvent> GetFilteredStreamEvents()
+    {
+        var query = _allRangeEvents.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(_streamCategoryFilter))
+        {
+            query = query.Where(e => string.Equals(e.Category, _streamCategoryFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_streamUserFilter))
+        {
+            query = query.Where(e =>
+                string.Equals(e.UserName, _streamUserFilter, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(e.UserId, _streamUserFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_streamSearchQuery))
+        {
+            var q = _streamSearchQuery.Trim();
+            query = query.Where(e =>
+                e.ActionTitle.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                e.UserName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (e.EmployeeName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.ElementLabel?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.ValueText?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.PageTitle?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.PagePath?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        return query.ToList();
+    }
+
+    private List<PageStatRow> GetTopPagesStats()
+    {
+        return _allRangeEvents
+            .Where(e => e.Category == ActivityCategories.Navigation && !string.IsNullOrWhiteSpace(e.PagePath))
+            .GroupBy(e => e.PagePath!.ToLowerInvariant())
+            .Select(g =>
+            {
+                var visits = g.Count(x => x.ActionCode == "PAGE_VIEW");
+                var totalSecs = g.Where(x => x.DurationSeconds is > 0).Sum(x => x.DurationSeconds ?? 0);
+                var effectiveVisits = Math.Max(1, visits);
+                var first = g.First();
+                return new PageStatRow(
+                    PagePath: first.PagePath!,
+                    PageTitle: first.PageTitle ?? UserActivityService.GetArabicPageTitle(first.PagePath),
+                    VisitCount: effectiveVisits,
+                    UniqueUsers: g.Select(x => x.UserName).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    TotalSeconds: totalSecs,
+                    AverageSeconds: totalSecs / effectiveVisits);
+            })
+            .OrderByDescending(p => p.VisitCount)
+            .ThenByDescending(p => p.TotalSeconds)
+            .Take(10)
+            .ToList();
+    }
+
+    private List<LabelValueStatRow> GetTopDropdownStats()
+    {
+        return _allRangeEvents
+            .Where(e => e.Category == ActivityCategories.Dropdown && !string.IsNullOrWhiteSpace(e.ValueText))
+            .GroupBy(e => $"{e.ElementLabel ?? "قائمة"}|{e.ValueText}")
+            .Select(g =>
+            {
+                var f = g.First();
+                return new LabelValueStatRow(f.ElementLabel ?? "قائمة منسدلة", f.ValueText ?? "", g.Count());
+            })
+            .OrderByDescending(x => x.Count)
+            .Take(8)
+            .ToList();
+    }
+
+    private List<LabelValueStatRow> GetTopSearchStats()
+    {
+        return _allRangeEvents
+            .Where(e => e.Category == ActivityCategories.Search && !string.IsNullOrWhiteSpace(e.ValueText))
+            .GroupBy(e => $"{e.ElementLabel ?? "حقل بحث"}|{e.ValueText}")
+            .Select(g =>
+            {
+                var f = g.First();
+                return new LabelValueStatRow(f.ElementLabel ?? "حقل بحث", f.ValueText ?? "", g.Count());
+            })
+            .OrderByDescending(x => x.Count)
+            .Take(8)
+            .ToList();
+    }
+
+    private List<HourBucket> GetHourlyDistribution()
+    {
+        var counts = new int[24];
+        foreach (var ev in _allRangeEvents)
+        {
+            var localHour = ev.TimestampUtc.ToLocalTime().Hour;
+            if (localHour is >= 0 and < 24)
+            {
+                counts[localHour]++;
+            }
+        }
+        return Enumerable.Range(0, 24).Select(h => new HourBucket(h, counts[h])).ToList();
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        var rows = GetFilteredStreamEvents();
+        var sb = new StringBuilder();
+        sb.AppendLine("Timestamp,UserName,EmployeeName,Role,Category,ActionTitle,PageTitle,PagePath,ElementLabel,ValueText,DurationSeconds,IpAddress");
+
+        foreach (var r in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                EscapeCsv(r.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")),
+                EscapeCsv(r.UserName),
+                EscapeCsv(r.EmployeeName),
+                EscapeCsv(r.UserRole),
+                EscapeCsv(GetCategoryArabicName(r.Category)),
+                EscapeCsv(r.ActionTitle),
+                EscapeCsv(r.PageTitle ?? UserActivityService.GetArabicPageTitle(r.PagePath)),
+                EscapeCsv(r.PagePath),
+                EscapeCsv(r.ElementLabel),
+                EscapeCsv(r.ValueText),
+                r.DurationSeconds?.ToString() ?? "",
+                EscapeCsv(r.IpAddress)));
+        }
+
+        var csvBytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        var base64 = Convert.ToBase64String(csvBytes);
+        await JS.InvokeVoidAsync("eval", $"{{ const a = document.createElement('a'); a.href = 'data:text/csv;base64,{base64}'; a.download = 'user-activity-{DateTime.Now:yyyyMMdd-HHmm}.csv'; a.click(); }}");
+    }
+
+    private static string EscapeCsv(string? val)
+    {
+        if (string.IsNullOrEmpty(val)) return "\"\"";
+        return $"\"{val.Replace("\"", "\"\"")}\"";
+    }
+
+    private static string GetCategoryArabicName(string category) => category switch
+    {
+        ActivityCategories.Auth => "دخول / خروج",
+        ActivityCategories.Navigation => "تصفح صفحة",
+        ActivityCategories.Dropdown => "قائمة منسدلة",
+        ActivityCategories.Search => "بحث / إدخال",
+        ActivityCategories.Click => "نقر عنصر",
+        ActivityCategories.Security => "عملية أمنية",
+        _ => category
+    };
+
+    private static string GetCategoryBadgeClass(string category) => category switch
+    {
+        ActivityCategories.Auth => "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+        ActivityCategories.Navigation => "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
+        ActivityCategories.Dropdown => "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+        ActivityCategories.Search => "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+        ActivityCategories.Click => "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300",
+        ActivityCategories.Security => "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+        _ => "bg-slate-100 text-slate-700"
+    };
+
+    private static string GetCategoryDotColor(string category) => category switch
+    {
+        ActivityCategories.Auth => "bg-blue-600",
+        ActivityCategories.Navigation => "bg-violet-600",
+        ActivityCategories.Dropdown => "bg-amber-500",
+        ActivityCategories.Search => "bg-emerald-500",
+        ActivityCategories.Click => "bg-slate-500",
+        ActivityCategories.Security => "bg-rose-600",
+        _ => "bg-indigo-500"
+    };
+
+    private static string FormatDuration(int seconds)
+    {
+        if (seconds <= 0) return "أقل من ثانية";
+        if (seconds < 60) return $"{seconds} ثانية";
+        var mins = seconds / 60;
+        var remSecs = seconds % 60;
+        if (mins < 60) return remSecs > 0 ? $"{mins} د و {remSecs} ث" : $"{mins} دقيقة";
+        var hours = mins / 60;
+        var remMins = mins % 60;
+        return $"{hours} ساعة و {remMins} د";
+    }
+
+    private static string FormatRelativeTime(DateTimeOffset utc)
+    {
+        var diff = DateTimeOffset.UtcNow - utc;
+        if (diff.TotalSeconds < 60) return "الآن";
+        if (diff.TotalMinutes < 60) return $"منذ {(int)diff.TotalMinutes} د";
+        if (diff.TotalHours < 24) return $"منذ {(int)diff.TotalHours} س";
+        return utc.ToLocalTime().ToString("MM/dd HH:mm");
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+

@@ -42,10 +42,20 @@ namespace Microsoft.AspNetCore.Routing
             }).DisableAntiforgery();
 
             accountGroup.MapPost("/Logout", async (
+                HttpContext context,
                 ClaimsPrincipal user,
                 [FromServices] SignInManager<ApplicationUser> signInManager,
+                [FromServices] API.HR.Node.Services.Audit.IAuditLogger auditLogger,
                 [FromForm] string returnUrl) =>
             {
+                var empOrName = user.FindFirst("employee_id")?.Value ?? user.Identity?.Name ?? "User";
+                var ip = context.Connection.RemoteIpAddress?.ToString();
+                var ua = context.Request.Headers.UserAgent.ToString();
+                try
+                {
+                    await auditLogger.LogAsync("USER_LOGOUT", empOrName, null, true, user, ip, ua, "تسجيل خروج اعتيادي من النظام");
+                }
+                catch { }
                 await signInManager.SignOutAsync();
                 return TypedResults.LocalRedirect($"~/{returnUrl}");
             }).DisableAntiforgery();
