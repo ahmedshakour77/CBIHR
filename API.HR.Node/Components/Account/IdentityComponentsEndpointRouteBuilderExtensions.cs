@@ -50,6 +50,98 @@ namespace Microsoft.AspNetCore.Routing
                 return TypedResults.LocalRedirect($"~/{returnUrl}");
             }).DisableAntiforgery();
 
+            accountGroup.MapPost("/PerformMagicLogin", async (
+                HttpContext context,
+                [FromServices] API.HR.Node.Services.Security.IMagicLoginService magicLoginService,
+                [FromServices] UserManager<ApplicationUser> userManager,
+                [FromServices] SignInManager<ApplicationUser> signInManager,
+                [FromServices] API.HR.Node.Services.Audit.IAuditLogger auditLogger,
+                [FromForm] string token) =>
+            {
+                var clientIp = context.Connection.RemoteIpAddress?.ToString();
+                var userAgent = context.Request.Headers.UserAgent.ToString();
+
+                if (!magicLoginService.TryConsumeToken(token, clientIp, out var validation) || string.IsNullOrWhiteSpace(validation.TargetUserId))
+                {
+                    var err = Uri.EscapeDataString(validation.ErrorMessage ?? "رابط الدخول غير صالح أو منتهي الصلاحية.");
+                    return TypedResults.LocalRedirect($"~/Account/MagicLogin?t={Uri.EscapeDataString(token ?? string.Empty)}&err={err}");
+                }
+
+                var user = await userManager.FindByIdAsync(validation.TargetUserId);
+                if (user is null)
+                {
+                    var err = Uri.EscapeDataString("تعذّر العثور على حساب المستخدم.");
+                    return TypedResults.LocalRedirect($"~/Account/MagicLogin?err={err}");
+                }
+
+                if (await userManager.IsLockedOutAsync(user))
+                {
+                    await auditLogger.LogAsync(
+                        "MAGIC_LINK_LOGIN_LOCKED",
+                        user.EmployeeID ?? user.UserName ?? user.Id,
+                        null,
+                        false,
+                        null,
+                        clientIp,
+                        userAgent,
+                        "Account is locked out.");
+                    return TypedResults.LocalRedirect("~/Account/Lockout");
+                }
+
+                if (!string.Equals(user.SecurityStamp ?? string.Empty, validation.ExpectedSecurityStamp ?? string.Empty, StringComparison.Ordinal))
+                {
+                    var err = Uri.EscapeDataString("تم تحديث البصمة الأمنية للحساب بعد إنشاء الرابط، مما أبطل صلاحيته.");
+                    return TypedResults.LocalRedirect($"~/Account/MagicLogin?err={err}");
+                }
+
+                // Sign out any existing session on this browser before signing in as the target user
+                await signInManager.SignOutAsync();
+                await signInManager.SignInAsync(user, isPersistent: false);
+
+                await auditLogger.LogAsync(
+                    "MAGIC_LINK_LOGIN_SUCCESS",
+                    user.EmployeeID ?? user.UserName ?? user.Id,
+                    null,
+                    true,
+                    null,
+                    clientIp,
+                    userAgent,
+                    $"Signed in via 2-minute admin magic link created by {validation.CreatedByAdminName} ({validation.CreatedByAdminId}).");
+
+                // Redirect according to the user's effective role and permissions
+                var roles = await userManager.GetRolesAsync(user);
+                var claims = await userManager.GetClaimsAsync(user);
+                var directPerms = claims
+                    .Where(c => c.Type == "permission" || c.Type == "Permission")
+                    .Select(c => c.Value)
+                    .ToList();
+                var isCustomized = claims.Any(c => c.Type.Equals(API.HR.Node.Security.DatabaseClaimsSynchronizer.CustomizedPermissionsClaimType, StringComparison.OrdinalIgnoreCase) && c.Value == "true");
+
+                var effectivePerms = API.HR.Node.Security.FeaturePermissionCatalog
+                    .CalculateEffectivePermissions(roles, directPerms, ignoreRoleDefaults: isCustomized)
+                    .Where(p => p.IsEffective)
+                    .Select(p => p.PermissionCode)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var isAdmin = roles.Contains("Admin", StringComparer.OrdinalIgnoreCase) ||
+                              string.Equals(user.UserName, "systemadmin", StringComparison.OrdinalIgnoreCase);
+
+                string destination = "~/";
+                if (!isAdmin && !effectivePerms.Contains(API.HR.Node.Security.Permissions.DashboardView))
+                {
+                    if (!string.IsNullOrWhiteSpace(user.EmployeeID) && effectivePerms.Contains(API.HR.Node.Security.Permissions.EmployeesView))
+                    {
+                        destination = $"~/employees/{Uri.EscapeDataString(user.EmployeeID)}";
+                    }
+                    else
+                    {
+                        destination = "~/portal";
+                    }
+                }
+
+                return TypedResults.LocalRedirect(destination);
+            }).DisableAntiforgery();
+
             accountGroup.MapPost("/PasskeyCreationOptions", async (
                 HttpContext context,
                 [FromServices] UserManager<ApplicationUser> userManager,

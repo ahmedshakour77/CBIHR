@@ -331,7 +331,7 @@
 <script src="js/hr-login.js"></script>
 
 @code {
-    private EditContext editContext = default!;
+    private EditContext editContext = new(new InputModel());
     private ValidationMessageStore validation = default!;
     private string? statusMessage;
     private bool statusIsError;
@@ -363,22 +363,22 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (HttpContext.User.Identity?.IsAuthenticated == true)
-        {
-            RedirectManager.RedirectTo(ReturnUrl ?? "/");
-            return;
-        }
-
         Input ??= new();
         PasskeyInput ??= new();
         editContext = new EditContext(Input);
         validation = new ValidationMessageStore(editContext);
 
+        if (HttpContext?.User?.Identity?.IsAuthenticated == true)
+        {
+            RedirectManager.RedirectTo(ReturnUrl ?? "/");
+            return;
+        }
+
         // Rendered from the real scheme list, so the page never advertises a
         // provider that is not actually configured.
         externalLogins = (await SignInManager.GetExternalAuthenticationSchemesAsync()).ToList();
 
-        if (HttpMethods.IsGet(HttpContext.Request.Method))
+        if (HttpContext is not null && HttpMethods.IsGet(HttpContext.Request.Method))
         {
             await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
         }

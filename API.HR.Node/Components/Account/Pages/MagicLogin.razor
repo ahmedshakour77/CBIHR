@@ -1,0 +1,183 @@
+@page "/Account/MagicLogin"
+@page "/m/{RouteToken}"
+@layout API.HR.Node.Components.Layout.FocusLayout
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+
+@using API.HR.Node.Services.Security
+@inject IMagicLoginService MagicLoginService
+
+<PageTitle>الدخول السريع المؤقت | الموظف ٣٦٠°</PageTitle>
+
+<div class="hr-focus-center">
+    <div class="hr-card hr-focus-card" style="max-width: 440px; width: 100%;">
+        <div class="hr-card-head">
+            <div class="hr-idcell">
+                <span class="hr-iconplate" aria-hidden="true">
+                    <Icon Name="qr-code" Size="sm" />
+                </span>
+                <div class="hr-idcell-text">
+                    <h1 class="hr-h2">الدخول عبر الرابط المؤقت</h1>
+                    <p class="hr-meta" style="margin-block-start:.25rem">بوابة المصادقة السريعة الموقّتة (صالحة لمدة دقيقتين)</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="hr-card-body">
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="hr-alert hr-alert-danger" role="alert">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تعذّر إتمام الدخول</p>
+                        <p style="margin-block-start:.25rem">@ErrorMessage</p>
+                    </div>
+                </div>
+            }
+            else if (tokenState.Status == MagicLoginTokenStatus.Active)
+            {
+                <div class="hr-alert hr-alert-ok" style="margin-block-end: 1rem;">
+                    <Icon Name="shield-check" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">رابط دخول صالح ومُوثَّق</p>
+                        <p style="margin-block-start:.25rem">
+                            جارٍ تسجيل دخولك تلقائياً حسب الدور والصلاحيات الممنوحة لحسابك...
+                        </p>
+                    </div>
+                </div>
+
+                <div style="background: var(--surface-sunken, #f8fafc); border: 1px solid var(--line-subtle, #e2e8f0); border-radius: var(--r-md, 10px); padding: 1rem; margin-block-end: 1rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-block-end:.5rem;">
+                        <span class="hr-meta">المستخدم:</span>
+                        <strong dir="ltr">@tokenState.TargetUserName</strong>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(tokenState.TargetEmployeeName))
+                    {
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-block-end:.5rem;">
+                            <span class="hr-meta">الموظف:</span>
+                            <strong>@tokenState.TargetEmployeeName</strong>
+                        </div>
+                    }
+                    @if (tokenState.TargetRoles.Count > 0)
+                    {
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-block-end:.5rem; gap:.5rem; flex-wrap:wrap;">
+                            <span class="hr-meta">الدور التابع له:</span>
+                            <div class="hr-chips">
+                                @foreach (var role in tokenState.TargetRoles)
+                                {
+                                    <span class="hr-badge hr-badge-accent">@FormatRole(role)</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span class="hr-meta">الوقت المتبقي للصلاحية:</span>
+                        <span class="hr-badge hr-badge-ok hr-num">@tokenState.RemainingSeconds ثانية</span>
+                    </div>
+                </div>
+
+                <form id="magic-login-auto-form" method="post" action="/Account/PerformMagicLogin">
+                    <input type="hidden" name="token" value="@ActiveToken" />
+                    <button type="submit" class="hr-btn hr-btn-primary" style="width: 100%; justify-content: center;">
+                        <Icon Name="arrow-right-on-rectangle" Size="xs" />
+                        <span>الدخول الآن إلى النظام</span>
+                    </button>
+                </form>
+
+                <script>
+                    (function () {
+                        setTimeout(function () {
+                            var form = document.getElementById('magic-login-auto-form');
+                            if (form) { form.submit(); }
+                        }, 300);
+                    })();
+                </script>
+            }
+            else if (tokenState.Status == MagicLoginTokenStatus.Expired)
+            {
+                <div class="hr-alert hr-alert-warn" role="alert">
+                    <Icon Name="clock" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">انتهت صلاحية الرابط (مرّت دقيقتان)</p>
+                        <p style="margin-block-start:.25rem">
+                            هذا الرابط مخصّص للدخول خلال دقيقتين فقط من لحظة إنشائه وقد انتهت المدة المحددة. يرجى طلب رابط جديد من مدير النظام.
+                        </p>
+                    </div>
+                </div>
+            }
+            else if (tokenState.Status == MagicLoginTokenStatus.Consumed)
+            {
+                <div class="hr-alert hr-alert-warn" role="alert">
+                    <Icon Name="exclamation-circle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تم استخدام هذا الرابط مسبقاً</p>
+                        <p style="margin-block-start:.25rem">
+                            رابط الدخول المؤقت صالح للاستخدام <strong>لمرة واحدة فقط</strong> وقد تم استهلاكه.
+                        </p>
+                    </div>
+                </div>
+            }
+            else if (tokenState.Status == MagicLoginTokenStatus.Revoked)
+            {
+                <div class="hr-alert hr-alert-danger" role="alert">
+                    <Icon Name="no-symbol" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تم إلغاء الرابط</p>
+                        <p style="margin-block-start:.25rem">
+                            قام مدير النظام بإلغاء صلاحية هذا الرابط قبل استخدامه.
+                        </p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="hr-alert hr-alert-danger" role="alert">
+                    <Icon Name="x-circle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">رابط غير صالح</p>
+                        <p style="margin-block-start:.25rem">
+                            رابط الدخول غير صحيح أو لم يعد متوفراً في النظام.
+                        </p>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="hr-card-foot" style="display:flex; justify-content:space-between; align-items:center;">
+            <a class="hr-btn hr-btn-quiet hr-btn-sm" href="/Account/Login">
+                <Icon Name="arrow-right" Size="xs" />
+                <span>صفحة تسجيل الدخول الاعتيادية</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string? RouteToken { get; set; }
+
+    [SupplyParameterFromQuery(Name = "t")]
+    private string? QueryToken { get; set; }
+
+    [SupplyParameterFromQuery(Name = "err")]
+    private string? ErrorMessage { get; set; }
+
+    private string ActiveToken => !string.IsNullOrWhiteSpace(RouteToken) ? RouteToken! : (QueryToken ?? string.Empty);
+
+    private MagicLoginTokenState tokenState = new(MagicLoginTokenStatus.Invalid, null, null, null, null, [], null, null, 0);
+
+    protected override void OnInitialized()
+    {
+        tokenState = MagicLoginService.PeekToken(ActiveToken);
+    }
+
+    private static string FormatRole(string role) => role switch
+    {
+        "Admin" => "مدير النظام",
+        "HRManager" => "مدير الموارد البشرية",
+        "FormationManager" => "مدير التشكيل",
+        "Supervisor" => "مشرف",
+        "Employee" => "موظف",
+        _ => role
+    };
+}
+

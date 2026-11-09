@@ -155,11 +155,11 @@ builder.Services.Configure<ProfilePhotoOptions>(
 
 builder.Services.AddSingleton<IFileStorageService, LocalFileStorageService>();
 // Microsoft Defender when present (every Windows Server); the placeholder only where it is not.
-var defenderPath = DefenderFileMalwareScanner.FindEngine();
+var defenderPath = DefenderFileMalwareScanner.FindEngine(builder.Configuration);
 if (defenderPath is not null)
 {
     var quarantine = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        Path.GetTempPath(),
         "API.HR.Node", "ScanQuarantine");
     builder.Services.AddSingleton<IFileMalwareScanner>(sp => new DefenderFileMalwareScanner(
         defenderPath, quarantine, sp.GetRequiredService<ILogger<DefenderFileMalwareScanner>>(), sp.GetRequiredService<IHostEnvironment>()));
@@ -222,8 +222,9 @@ builder.Services.AddScoped<IWorkflowActionHandler, WorkContinuationWorkflowHandl
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IWorkflowEngine, WorkflowEngine>();
 
-// Passkey Server-Side Challenge Store
+// Passkey Server-Side Challenge Store & 2-Minute Admin Magic Login Store
 builder.Services.AddSingleton<IPasskeyChallengeStore, PasskeyChallengeStore>();
+builder.Services.AddSingleton<IMagicLoginService, MagicLoginService>();
 
 // FIDO2 / WebAuthn Passkeys Configuration
 var isDevEnvironment = builder.Environment.IsDevelopment();

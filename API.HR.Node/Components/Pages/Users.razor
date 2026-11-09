@@ -7,6 +7,8 @@
 @using Microsoft.EntityFrameworkCore
 @using API.HR.Node.Security
 @using API.HR.Node.Services.Identity
+@using API.HR.Node.Services.Security
+@implements IDisposable
 @attribute [Authorize(Policy = Permissions.UsersView)]
 
 @inject IServiceScopeFactory ScopeFactory
@@ -16,6 +18,8 @@
 @inject API.HR.Node.Services.Audit.IAuditLogger AuditLogger
 @inject NavigationManager NavManager
 @inject IUserEmployeeService UserEmployeeService
+@inject IMagicLoginService MagicLoginService
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 <PageTitle>المستخدمون والأدوار | الموظف ٣٦٠°   </PageTitle>
 
@@ -285,6 +289,17 @@
 
                                                 @if (canEditUsers)
                                                 {
+                                                    @if (!u.IsLockedOut)
+                                                    {
+                                                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                                @onclick="() => OpenMagicLoginModalAsync(u)"
+                                                                aria-label="@($"إنشاء رابط دخول مؤقت ورمز QR للمستخدم {u.UserName}")"
+                                                                title="إنشاء رابط دخول سريع ورمز QR صالح لمدة دقيقتين">
+                                                            <Icon Name="qr-code" Size="xs" />
+                                                            <span>رابط / QR</span>
+                                                        </button>
+                                                    }
+
                                                     <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm hr-btn-icon"
                                                             @onclick="() => OpenRelinkModal(u)"
                                                             aria-label="@($"تغيير الموظف المرتبط بالحساب {u.UserName}")"
@@ -1231,6 +1246,147 @@
     </Footer>
 </Modal>
 
+@* ---------- 2-minute magic login link & QR modal ---------- *@
+<Modal IsOpen="@(selectedUserForMagicLink != null)"
+       Title="رابط الدخول المؤقت ورمز QR (صالح لمدة دقيقتين)"
+       Subtitle="@selectedUserForMagicLink?.UserName"
+       Icon="qr-code"
+       Size="md"
+       OnClose="CloseModals">
+    <Body>
+        @if (selectedUserForMagicLink != null && activeMagicTicket != null)
+        {
+            <div style="background: var(--surface-sunken, #f8fafc); border: 1px solid var(--line-subtle, #e2e8f0); border-radius: var(--r-md, 10px); padding: .85rem 1rem; margin-block-end: 1rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.5rem;">
+                    <div>
+                        <div style="font-weight:700; font-size:.95rem;">
+                            @(selectedUserForMagicLink.LinkedEmployeeName ?? selectedUserForMagicLink.UserName)
+                        </div>
+                        <div class="hr-meta" dir="ltr" style="font-size:.8rem;">
+                            @selectedUserForMagicLink.UserName
+                            @if (!string.IsNullOrWhiteSpace(selectedUserForMagicLink.EmployeeID))
+                            {
+                                <span> · #@selectedUserForMagicLink.EmployeeID</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="hr-chips">
+                        @if (selectedUserForMagicLink.AssignedRoles.Count > 0)
+                        {
+                            @foreach (var r in selectedUserForMagicLink.AssignedRoles)
+                            {
+                                <span class="hr-badge hr-badge-accent">@FormatRole(r)</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="hr-badge">@selectedUserForMagicLink.PermissionSourceSummary</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (magicTicketState?.Status == MagicLoginTokenStatus.Active)
+            {
+                var rem = Math.Max(0, magicTicketState.RemainingSeconds);
+                var mins = rem / 60;
+                var secs = rem % 60;
+                var pct = Math.Clamp((int)Math.Round(rem * 100.0 / Math.Max(1, activeMagicTicket.DurationSeconds)), 0, 100);
+
+                <div class="hr-alert @(rem <= 25 ? "hr-alert-warn" : "hr-alert-ok")" style="margin-block-end: 1rem;">
+                    <Icon Name="clock" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <strong>صالح للاستخدام لمرة واحدة فقط</strong>
+                            <span class="hr-num" style="font-size:1.15rem; font-weight:800; letter-spacing:.05em;" dir="ltr">
+                                @($"{mins:D2}:{secs:D2}")
+                            </span>
+                        </div>
+                        <div style="height:6px; background:rgba(0,0,0,.08); border-radius:999px; overflow:hidden; margin-block-start:.45rem;">
+                            <div style="height:100%; width:@(pct)%; background:@(rem <= 25 ? "#d97706" : "#00875a"); transition: width 0.9s linear;"></div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (magicTicketState?.Status == MagicLoginTokenStatus.Consumed)
+            {
+                <div class="hr-alert hr-alert-ok" style="margin-block-end: 1rem;">
+                    <Icon Name="check-circle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تم تسجيل دخول المستخدم بنجاح!</p>
+                        <p style="margin-block-start:.25rem">
+                            قام المستخدم بفتح الرابط أو مسح رمز QR وتم إدخاله إلى النظام حسب دوره وصلاحياته.
+                        </p>
+                    </div>
+                </div>
+            }
+            else if (magicTicketState?.Status == MagicLoginTokenStatus.Revoked)
+            {
+                <div class="hr-alert hr-alert-danger" style="margin-block-end: 1rem;">
+                    <Icon Name="no-symbol" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تم إبطال الرابط</p>
+                        <p style="margin-block-start:.25rem">تم إلغاء صلاحية هذا الرابط يدوياً ولم يعد قابلاً للاستخدام.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="hr-alert hr-alert-warn" style="margin-block-end: 1rem;">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">انتهت صلاحية الرابط (مرّت دقيقتان)</p>
+                        <p style="margin-block-start:.25rem">اضغط على «توليد رابط جديد» بالأسفل لإنشاء رمز ورابط جديدين.</p>
+                    </div>
+                </div>
+            }
+
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:.75rem; background:#fff; border:1px solid var(--line-subtle, #e2e8f0); border-radius:var(--r-md, 12px); margin-block-end:1rem; position:relative;">
+                <img src="@activeMagicTicket.QrCodeDataUrl"
+                     alt="رمز QR للدخول المؤقت"
+                     style="width:210px; height:210px; image-rendering:pixelated; opacity:@(magicTicketState?.Status == MagicLoginTokenStatus.Active ? "1" : "0.22"); transition:opacity .25s ease;" />
+                <p class="hr-meta" style="margin-block-start:.4rem; text-align:center;">
+                    امسح رمز الـ QR بكاميرا الهاتف أو جهاز المستخدم للدخول الفوري
+                </p>
+            </div>
+
+            <div class="hr-field">
+                <label class="hr-field-label" for="magic-login-url-input">رابط الدخول المباشر (لمرة واحدة خلال دقيقتين)</label>
+                <div style="display:flex; gap:.5rem;">
+                    <input id="magic-login-url-input"
+                           type="text"
+                           class="hr-input hr-num"
+                           dir="ltr"
+                           readonly
+                           value="@activeMagicTicket.LoginUrl"
+                           style="flex:1; font-size:.82rem;" />
+                    <button type="button"
+                            class="hr-btn @(magicLinkCopied ? "hr-btn-ok" : "hr-btn-primary")"
+                            @onclick="CopyMagicLinkAsync"
+                            disabled="@(magicTicketState?.Status != MagicLoginTokenStatus.Active)">
+                        <Icon Name="@(magicLinkCopied ? "check" : "link")" Size="xs" />
+                        <span>@(magicLinkCopied ? "تم النسخ!" : "نسخ الرابط")</span>
+                    </button>
+                </div>
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseModals">إغلاق</button>
+        @if (magicTicketState?.Status == MagicLoginTokenStatus.Active)
+        {
+            <button type="button" class="hr-btn hr-btn-danger-quiet" @onclick="RevokeActiveMagicLinkAsync">
+                <Icon Name="no-symbol" Size="xs" />
+                <span>إلغاء الرابط فوراً</span>
+            </button>
+        }
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="RegenerateMagicLinkAsync">
+            <Icon Name="arrow-path" Size="xs" />
+            <span>توليد رابط جديد (دقيقتين)</span>
+        </button>
+    </Footer>
+</Modal>
+
 @* ---------- destructive confirmations ---------- *@
 <ConfirmDialog IsOpen="@(pendingRole is not null)"
                Title="حذف دور النظام"
@@ -1506,6 +1662,13 @@
 
     private UserViewModel? selectedUserForPasswordReset;
     private string? newPasswordInput;
+
+    // 2-Minute Magic Login & QR Modal State
+    private UserViewModel? selectedUserForMagicLink;
+    private MagicLoginTicket? activeMagicTicket;
+    private MagicLoginTokenState? magicTicketState;
+    private bool magicLinkCopied;
+    private CancellationTokenSource? magicTimerCts;
 
     // Pending destructive & administrative actions
     private RoleViewModel? pendingRole;
@@ -1881,6 +2044,11 @@
 
     private void CloseModals()
     {
+        StopMagicCountdownTimer();
+        selectedUserForMagicLink = null;
+        activeMagicTicket = null;
+        magicTicketState = null;
+        magicLinkCopied = false;
         selectedUserForRoles = null;
         showCreateUserModal = false;
         showCreateRoleModal = false;
@@ -2692,5 +2860,156 @@
         {
             Logger.LogError(ex, "Failed to write audit log for {Action}", action);
         }
+    }
+
+    private async Task OpenMagicLoginModalAsync(UserViewModel userVM)
+    {
+        if (!await EnsureUserEditPermissionAsync("CREATE_MAGIC_LOGIN_LINK")) return;
+
+        // Only full Admins can generate a magic login link for an Admin user
+        var isTargetAdmin = userVM.AssignedRoles.Any(r => string.Equals(r, "Admin", StringComparison.OrdinalIgnoreCase)) ||
+                            string.Equals(userVM.UserName, "systemadmin", StringComparison.OrdinalIgnoreCase);
+        if (!isCallerAdmin && isTargetAdmin)
+        {
+            ShowStatus("إنشاء رابط دخول لحساب مدير النظام (Admin) محصور بمدراء النظام فقط.", isError: true);
+            await LogSecurityAuditAsync("UNAUTHORIZED_MAGIC_LINK_ATTEMPT", userVM.UserName ?? userVM.Id, false, "Non-admin attempted to generate magic link for Admin account.");
+            return;
+        }
+
+        selectedUserForMagicLink = userVM;
+        await GenerateMagicTicketInternalAsync(userVM);
+    }
+
+    private async Task RegenerateMagicLinkAsync()
+    {
+        if (selectedUserForMagicLink is null) return;
+        await GenerateMagicTicketInternalAsync(selectedUserForMagicLink);
+    }
+
+    private async Task GenerateMagicTicketInternalAsync(UserViewModel userVM)
+    {
+        StopMagicCountdownTimer();
+        magicLinkCopied = false;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userMgr = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var dbUser = await userMgr.FindByIdAsync(userVM.Id);
+            if (dbUser is null)
+            {
+                ShowStatus("تعذّر العثور على المستخدم.", isError: true);
+                return;
+            }
+
+            if (await userMgr.IsLockedOutAsync(dbUser))
+            {
+                ShowStatus("هذا الحساب محظور حالياً ولا يمكن إنشاء رابط دخول له.", isError: true);
+                return;
+            }
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var adminName = authState.User.Identity?.Name ?? "Admin";
+            var baseUri = NavManager.BaseUri.TrimEnd('/');
+
+            activeMagicTicket = MagicLoginService.CreateMagicLink(
+                dbUser,
+                userVM.LinkedEmployeeName,
+                userVM.AssignedRoles,
+                baseUri,
+                currentUserId ?? "ADMIN",
+                adminName);
+
+            magicTicketState = MagicLoginService.PeekToken(activeMagicTicket.Token);
+
+            await LogSecurityAuditAsync(
+                "MAGIC_LINK_CREATED",
+                dbUser.EmployeeID ?? dbUser.UserName ?? dbUser.Id,
+                true,
+                $"Created 2-minute magic login link & QR for user {dbUser.UserName} by {adminName}.");
+
+            StartMagicCountdownTimer();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to generate magic login link.");
+            ShowStatus("حدث خطأ أثناء توليد رابط الدخول المؤقت.", isError: true);
+        }
+    }
+
+    private async Task RevokeActiveMagicLinkAsync()
+    {
+        if (activeMagicTicket is null) return;
+        MagicLoginService.RevokeToken(activeMagicTicket.Token);
+        magicTicketState = MagicLoginService.PeekToken(activeMagicTicket.Token);
+        StopMagicCountdownTimer();
+        await LogSecurityAuditAsync(
+            "MAGIC_LINK_REVOKED",
+            selectedUserForMagicLink?.EmployeeID ?? selectedUserForMagicLink?.UserName ?? "UNKNOWN",
+            true,
+            $"Admin revoked active magic login link for {selectedUserForMagicLink?.UserName}.");
+    }
+
+    private async Task CopyMagicLinkAsync()
+    {
+        if (activeMagicTicket is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", activeMagicTicket.LoginUrl);
+            magicLinkCopied = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Clipboard write failed.");
+        }
+    }
+
+    private void StartMagicCountdownTimer()
+    {
+        StopMagicCountdownTimer();
+        magicTimerCts = new CancellationTokenSource();
+        var token = magicTimerCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    if (activeMagicTicket is null) break;
+                    var state = MagicLoginService.PeekToken(activeMagicTicket.Token);
+                    await InvokeAsync(() =>
+                    {
+                        magicTicketState = state;
+                        StateHasChanged();
+                    });
+
+                    if (state.Status != MagicLoginTokenStatus.Active)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private void StopMagicCountdownTimer()
+    {
+        if (magicTimerCts is not null)
+        {
+            try { magicTimerCts.Cancel(); } catch { }
+            magicTimerCts.Dispose();
+            magicTimerCts = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        StopMagicCountdownTimer();
     }
 }
