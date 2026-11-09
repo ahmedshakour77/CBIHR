@@ -296,6 +296,25 @@ plain `hr-fade-in`, following the shared overlay rule in `hr-ui.css`.
 | `.hr-gate-pill` (CSS, directory / profile / vehicles) | One pill per gate a vehicle may pass. Allowed on `--ok-tint`/`--ok`; blocked muted **and** struck through, so access never rides on colour alone |
 | `Components/Stats/Viz*` (home dashboard) | Chart controls are buttons with `aria-pressed`; every value is printed beside its mark; the heatmap is a `<table>` with scoped headers. See *Dashboard charts* below |
 | `FloatingDock` (Layout) | Floating nav mode. Four role-checked shortcuts from `NavCatalog` plus a "كل الأقسام" tab that opens a `role="dialog"` panel with every section the user may open; when the current page is not a shortcut, that tab shows it. Frosted surface (`backdrop-filter`, opaque fallback). Logout lives in the panel footer, not on the bar. Phones: full-width tab bar |
+| `.hr-ua-*` (CSS, `/admin/user-analytics`) | Four tabs on one scrolling row. Activity categories are neutral badges and chips, each an icon plus a word; failures add `--danger` **and** the word "فاشلة". Session ribbons are buttons that select their session (`is-on` outline in `--accent-ink`); every page segment carries a `title` with its dwell time, and a page legend names each colour. See *Session ribbon* below |
+
+### Session ribbon
+
+`/admin/user-analytics` draws a session as one bar from login to logout, split into the pages
+visited, each segment's length its dwell time (`flex-grow` in seconds). The same ribbon draws the
+Day tab's lanes, placed on an hour track by `--from`/`--to` (0..1), and the User tab's session
+list, full width (`is-static`). A session still running fades out at its open end (`is-open`, a
+1.25rem mask) instead of ending on a hard edge. Its styles are the `.hr-ua-*` block at the end of
+`hr-components.css`.
+
+- On this surface `--series-*` belongs to pages, not to activity categories: the five pages with
+  the most time take `--series-1` … `--series-5`, the rest share one grey (`is-other`), and a
+  colour means the same page on every tab. Activity categories never take a series colour; they
+  stay neutral and carry an icon and a word.
+- The block sits in a size container (`.hr-ua`), so its responsive rules are container queries.
+  Under 36rem the lanes stop scrolling: names stack above a full-width track and every other hour
+  label hides. Under 40rem the range figures fall to two columns. From 62rem the paired panels
+  (`.hr-ua-split`) sit side by side. Under a coarse pointer a lane is at least 44px tall.
 
 ### Dashboard charts
 

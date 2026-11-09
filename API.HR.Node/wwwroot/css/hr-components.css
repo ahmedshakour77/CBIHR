@@ -1,4 +1,4 @@
-/* API.HR.Node components. Load after hr-tokens.css. Every value comes from a token. */
+﻿/* API.HR.Node components. Load after hr-tokens.css. Every value comes from a token. */
 
 /* ---------- Personalization: brand palette (html[data-brand]) ---------- */
 html[data-brand="indigo"] { --b-25: var(--indigo-25); --b-50: var(--indigo-50); --b-100: var(--indigo-100); --b-150: var(--indigo-150); --b-200: var(--indigo-200); --b-300: var(--indigo-300); --b-400: var(--indigo-400); --b-500: var(--indigo-500); --b-600: var(--indigo-600); --b-700: var(--indigo-700); --b-800: var(--indigo-800); --b-900: var(--indigo-900); --b-950: var(--indigo-950); --b-1000: var(--indigo-1000); }
@@ -1068,4 +1068,180 @@ button.hr-viz-meter-gap:hover { background: var(--accent-tint); }
     .hr-viz-tile, .hr-viz-heat-cell, .hr-viz-swatch, .hr-viz-col-bar, .hr-viz-bar-fill, .hr-viz-meter-fill, .hr-viz-pyr-bar, .hr-viz-waffle-cell, .hr-viz-stack-seg {
         print-color-adjust: exact; -webkit-print-color-adjust: exact;
     }
+}
+
+/* ==========================================================================
+   User activity (/admin/user-analytics), .hr-ua-*.
+   A session is drawn as a ribbon: one bar from login to logout, split into the
+   pages visited and sized by the time spent on each. Pages take --series-*
+   (the five with the most time, the rest share the "other" grey); activity
+   categories never do, so a colour means one page on every tab.
+   ========================================================================== */
+.hr-ua { container-type: inline-size; }
+/* Four tabs stay on one row and scroll on a phone, so the active underline never strands on a second line. */
+/* hr-ui.css (loaded later) sets .hr-tabs to wrap; the extra class wins it back. */
+.hr-ua .hr-ua-tabs { flex-wrap: nowrap; overflow-x: auto; }
+.hr-ua .hr-ua-tabs .hr-tab { flex: none; }
+@container (max-width: 36rem) {
+    .hr-ua .hr-ua-tabs .hr-tab { padding-inline: var(--s-3); }
+    .hr-ua .hr-ua-tabs .hr-tab > .hr-i { display: none; }
+}
+
+/* Range figures: one card, five figures, each with its per-day (or per-hour) history. */
+.hr-ua-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--s-5); padding: var(--s-5); }
+.hr-ua-fig { min-inline-size: 0; display: flex; flex-direction: column; }
+.hr-ua-fig + .hr-ua-fig { border-inline-start: 1px solid var(--line-soft); padding-inline-start: var(--s-5); }
+@container (max-width: 40rem) {
+    .hr-ua-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); padding: var(--s-4); }
+}
+.hr-ua-fig-label { margin: 0; font-size: var(--fs-caption); font-weight: 600; color: var(--text-3); }
+.hr-ua-fig-value { margin: var(--s-1) 0 0; font-size: var(--fs-num-lg); font-weight: 700; line-height: 1.2; color: var(--text); }
+.hr-ua-fig-sub { margin: var(--s-1) 0 0; font-size: var(--fs-caption); color: var(--text-3); }
+.hr-ua-fig.is-ok .hr-ua-fig-value { color: var(--ok); }
+.hr-ua-fig.is-danger .hr-ua-fig-sub { color: var(--danger); font-weight: 600; }
+.hr-ua-hist { display: flex; align-items: flex-end; gap: 2px; block-size: 1.75rem; margin-block-start: auto; padding-block-start: var(--s-3); box-sizing: content-box; }
+.hr-ua-hist-bar { flex: 1 1 0; min-inline-size: 2px; block-size: max(2px, calc(var(--v, 0) * 100%)); border-radius: 2px 2px 0 0; background: var(--viz-fill-quiet); }
+.hr-ua-hist-bar.is-last { background: var(--viz-fill-strong); }
+@container (max-width: 40rem) {
+    .hr-ua-fig + .hr-ua-fig { border-inline-start: 0; padding-inline-start: 0; }
+    .hr-ua-fig:nth-child(n + 3) { padding-block-start: var(--s-4); border-block-start: 1px solid var(--line-soft); }
+}
+
+/* Two-panel rows: chart beside its ranking, sessions beside their steps. */
+.hr-ua-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+@container (min-width: 62rem) {
+    .hr-ua-split { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
+    .hr-ua-split.is-even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .hr-ua-split.is-reverse { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
+}
+.hr-ua-heat { min-inline-size: 36rem; }
+.hr-ua-heat .hr-viz-heat-cell { min-block-size: 2rem; }
+/* On a phone the whole day fits instead of scrolling: cells shrink, every other hour is labelled. */
+@container (max-width: 36rem) {
+    .hr-ua .hr-ua-heat { min-inline-size: 0; border-spacing: 2px; }
+    .hr-ua .hr-viz-heat > .hr-tablewrap .hr-ua-heat { border-spacing: 2px; }
+    .hr-ua-heat th, .hr-ua-heat tbody th { padding-inline: 2px; }
+    .hr-ua-heat thead th:nth-child(odd):not(:first-child) { color: transparent; }
+    .hr-ua-heat .hr-viz-heat-cell { min-block-size: 1.75rem; font-size: var(--fs-caption); letter-spacing: -.02em; }
+    .hr-ua .hr-viz-heat.hr-card-body { padding-inline: var(--s-3); }
+}
+.hr-ua-hint { text-align: center; }
+
+/* Shared bits */
+.hr-ua-usercell { display: flex; align-items: center; gap: var(--s-3); }
+.hr-ua-linkbtn { padding: 0; border: 0; background: none; font: inherit; font-weight: 700; text-align: start; cursor: pointer; }
+.hr-ua-avatar.is-online { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ok); }
+.hr-ua-valuechip {
+    display: inline-block; max-inline-size: 24rem; padding: 0 var(--s-2); border: 1px solid var(--line); border-radius: var(--r-xs);
+    background: var(--surface-sunken); color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+.hr-ua-toolbar-chips { flex: 1 1 100%; min-inline-size: 0; }
+.hr-ua-toolbar-chips > .hr-field-label { display: block; }
+.hr-ua-streamwrap { max-block-size: 70vh; overflow: auto; }
+.hr-ua-streamwrap thead th { position: sticky; inset-block-start: 0; z-index: var(--z-sticky); background: var(--surface); }
+
+/* Who is here now */
+.hr-ua-presence { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: var(--s-1); margin: 0; padding: var(--s-3); list-style: none; }
+.hr-ua-presence-item {
+    display: flex; align-items: flex-start; gap: var(--s-3); inline-size: 100%; padding: var(--s-3); border: 0; border-radius: var(--r-md);
+    background: none; font: inherit; color: inherit; text-align: start; cursor: pointer; transition: background-color var(--t-state) var(--ease);
+}
+.hr-ua-presence-item:hover { background: var(--surface-tint); }
+.hr-ua-presence-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.hr-ua-presence-text { display: grid; gap: 2px; min-inline-size: 0; }
+.hr-ua-presence-page { display: flex; align-items: baseline; gap: var(--s-2); min-inline-size: 0; font-size: var(--fs-label); font-weight: 600; color: var(--accent-ink); }
+.hr-ua-presence-since { flex: none; color: var(--ok); font-size: var(--fs-caption); }
+
+/* Day lanes: one lane per user across the working hours, time running with the reading direction. */
+.hr-ua-dayhead { align-items: center; flex-wrap: wrap; }
+.hr-ua-daynav { display: flex; align-items: center; gap: var(--s-2); }
+.hr-ua-lanes-wrap { overflow-x: auto; }
+.hr-ua-lanes { min-inline-size: 46rem; padding: var(--s-2) var(--s-5) var(--s-3); }
+.hr-ua-axis, .hr-ua-lane { display: grid; grid-template-columns: 12rem minmax(0, 1fr); align-items: center; }
+.hr-ua-axis-ticks { display: grid; grid-template-columns: repeat(var(--hours), minmax(0, 1fr)); font-size: var(--fs-caption); color: var(--text-muted); }
+.hr-ua-axis-ticks > span { padding-inline-start: var(--s-1); border-inline-start: 1px solid var(--line); line-height: 2; }
+.hr-ua-lane { min-block-size: 2.75rem; border-block-start: 1px solid var(--line-soft); }
+.hr-ua-lane-name {
+    display: flex; align-items: center; gap: var(--s-2); min-inline-size: 0; block-size: 100%; padding: 0; padding-inline-end: var(--s-3); border: 0; background: none;
+    font: inherit; font-size: var(--fs-label); font-weight: 600; color: var(--text); text-align: start; cursor: pointer;
+}
+.hr-ua-lane-name:hover { color: var(--accent-ink); }
+.hr-ua-lane-name:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r-xs); }
+.hr-ua-track {
+    position: relative; block-size: 2.75rem;
+    background: repeating-linear-gradient(to left, var(--line-soft) 0 1px, transparent 1px calc(100% / var(--hours)));
+}
+.hr-ua-track:dir(ltr) { background: repeating-linear-gradient(to right, var(--line-soft) 0 1px, transparent 1px calc(100% / var(--hours))); }
+.hr-ua-ribbon {
+    position: absolute; inset-block: .75rem; inset-inline-start: calc(var(--from) * 100%);
+    inline-size: max(6px, calc((var(--to) - var(--from)) * 100%));
+    padding: 0; border: 0; border-radius: var(--r-xs); background: var(--surface-sunken); overflow: hidden; cursor: pointer;
+    box-shadow: 0 0 0 1px var(--surface); transition: box-shadow var(--t-state) var(--ease), filter var(--t-state) var(--ease);
+}
+.hr-ua-ribbon:hover { filter: saturate(1.25); box-shadow: 0 0 0 1px var(--surface), var(--shadow-xs); }
+.hr-ua-ribbon:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.hr-ua-ribbon.is-on { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+/* A session still running fades out at its open end. */
+.hr-ua-ribbon.is-open .hr-ua-ribbon-segs { mask-image: linear-gradient(to left, #000 calc(100% - 1.25rem), rgba(0, 0, 0, .35)); }
+.hr-ua-ribbon.is-open:dir(ltr) .hr-ua-ribbon-segs { mask-image: linear-gradient(to right, #000 calc(100% - 1.25rem), rgba(0, 0, 0, .35)); }
+.hr-ua-ribbon.is-static { position: static; display: block; inline-size: 100%; block-size: .75rem; cursor: inherit; }
+.hr-ua-ribbon-segs { display: flex; gap: 1px; block-size: 100%; }
+.hr-ua-seg { flex-basis: 0; min-inline-size: 2px; background: var(--viz); }
+.hr-ua-seg.is-s1 { --viz: var(--series-1); }
+.hr-ua-seg.is-s2 { --viz: var(--series-2); }
+.hr-ua-seg.is-s3 { --viz: var(--series-3); }
+.hr-ua-seg.is-s4 { --viz: var(--series-4); }
+.hr-ua-seg.is-s5 { --viz: var(--series-5); }
+.hr-ua-seg.is-other { --viz: color-mix(in srgb, var(--text-3) 45%, var(--surface)); }
+.hr-ua-now { position: absolute; inset-block: 0; inset-inline-start: calc(var(--at) * 100%); inline-size: 2px; background: var(--accent-ink); pointer-events: none; }
+.hr-ua-legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); margin: 0; padding: 0; list-style: none; font-size: var(--fs-caption); color: var(--text-2); }
+.hr-ua-legend li { display: inline-flex; align-items: center; gap: var(--s-2); }
+
+/* User tab */
+.hr-ua-userpick { flex: 1 1 20rem; max-inline-size: 30rem; }
+.hr-ua-who { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-5); }
+.hr-ua-who-text { flex: 1 1 18rem; min-inline-size: 0; }
+.hr-ua-who-text .hr-h1 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin: 0; }
+.hr-ua-who-figs {
+    flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: var(--s-4);
+    margin: 0; padding-block-start: var(--s-4); border-block-start: 1px solid var(--line-soft);
+}
+.hr-ua-who-figs dt { font-size: var(--fs-caption); font-weight: 600; color: var(--text-3); }
+.hr-ua-who-figs dd { margin: 0; font-size: var(--fs-h2); font-weight: 700; color: var(--text); }
+.hr-ua-who-figs .is-danger dt, .hr-ua-who-figs .is-danger dd { color: var(--danger); }
+.hr-ua-sessions { display: grid; gap: 2px; max-block-size: 32rem; margin: 0; padding: var(--s-2); overflow-y: auto; list-style: none; }
+.hr-ua-session {
+    display: grid; gap: var(--s-2); inline-size: 100%; padding: var(--s-3); border: 0; border-radius: var(--r-md); background: none;
+    font: inherit; color: inherit; text-align: start; cursor: pointer; transition: background-color var(--t-state) var(--ease);
+}
+.hr-ua-session:hover { background: var(--surface-tint); }
+.hr-ua-session:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.hr-ua-session.is-on { background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent-tint-2); }
+.hr-ua-session-top { display: flex; justify-content: space-between; gap: var(--s-3); font-size: var(--fs-label); }
+.hr-ua-session-top .hr-cell-strong { display: inline; }
+.hr-ua-stepshead { flex-wrap: wrap; }
+
+/* Steps: one session read in order, newest first. */
+.hr-ua-steps { margin: 0; padding: 0; list-style: none; }
+.hr-ua-step { display: grid; grid-template-columns: 4.5rem 1.75rem minmax(0, 1fr); gap: var(--s-3); padding-block: var(--s-3); border-block-end: 1px solid var(--line-soft); }
+.hr-ua-step:last-child { border-block-end: 0; }
+.hr-ua-step time { padding-block-start: 3px; font-size: var(--fs-caption); font-weight: 600; color: var(--text-3); }
+.hr-ua-step-mark { display: grid; place-items: center; inline-size: 1.75rem; block-size: 1.75rem; border-radius: var(--r-full); background: var(--surface-sunken); color: var(--text-2); }
+.hr-ua-step.is-failed .hr-ua-step-mark { background: var(--danger-tint); color: var(--danger); }
+.hr-ua-step-title { margin: 0; font-size: var(--fs-label); font-weight: 600; color: var(--text); }
+.hr-ua-step-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-3); margin: var(--s-1) 0 0; font-size: var(--fs-caption); color: var(--text-3); }
+.hr-ua-step-meta:empty { display: none; }
+@container (max-width: 36rem) {
+    .hr-ua-step { grid-template-columns: 3.75rem 1.5rem minmax(0, 1fr); gap: var(--s-2); }
+    /* On a phone the whole working day fits the width: each name sits on its own line above a full-width track. */
+    .hr-ua-lanes { min-inline-size: 0; padding-inline: var(--s-3); }
+    .hr-ua-axis, .hr-ua-lane { grid-template-columns: minmax(0, 1fr); }
+    .hr-ua-axis > span:first-child { display: none; }
+    .hr-ua-axis-ticks > span:nth-child(even) { color: transparent; }
+    .hr-ua-lane-name { block-size: auto; padding-block-start: var(--s-2); }
+    .hr-ua-track { block-size: 2rem; }
+    .hr-ua-ribbon { inset-block: .5rem; }
+}
+@media (pointer: coarse) {
+    .hr-ua-lane, .hr-ua-track { min-block-size: 44px; }
 }

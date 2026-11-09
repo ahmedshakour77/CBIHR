@@ -1,7 +1,9 @@
 @page "/admin/user-analytics"
+@using System.Globalization
+@using System.Text
+@using System.Text.RegularExpressions
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.EntityFrameworkCore
-@using System.Text
 @using API.HR.Node.Data
 @using API.HR.Node.Services.Audit
 @attribute [Authorize(Roles = "Admin")]
@@ -12,766 +14,1009 @@
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject IJSRuntime JS
 
-<PageTitle>تحليلات ومراقبة نشاط المستخدمين</PageTitle>
+<PageTitle>نشاط المستخدمين</PageTitle>
 
-<div class="max-w-[1650px] mx-auto px-4 sm:px-6 py-6 space-y-6" dir="rtl">
+@*
+    User activity.
 
-    <!-- Header Banner -->
-    <div class="relative overflow-hidden rounded-3xl bg-gradient-to-l from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-xl border border-indigo-500/20">
-        <div class="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-            <div class="space-y-2">
-                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-xs font-bold">
-                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span>خاص بحساب مسؤول النظام فقط (Admin Only) — الحسابات والأمان</span>
-                </div>
-                <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white">
-                    تحليلات ومراقبة نشاط المستخدمين الشاملة
-                </h1>
-                <p class="text-sm text-slate-300 max-w-3xl leading-relaxed">
-                    مراقبة تفصيلية لكل مستخدم من لحظة تسجيل الدخول إلى الخروج: تتبع الصفحات ومدة البقاء فيها، تغييرات القوائم المنسدلة (Dropdowns)، عمليات البحث والكتابة، النقرات، والعمليات الأمنية.
-                </p>
-            </div>
+    Activity is read as sessions: a run of one user's events with no gap
+    longer than 30 minutes, opened by a login and closed by a logout. A
+    session is drawn as a ribbon, split into the pages visited and sized by
+    the time spent on each; the Day lanes and the User tab both use it, and
+    clicking one opens its steps.
 
-            <!-- Controls -->
-            <div class="flex flex-wrap items-center gap-2.5">
-                <!-- Time Range -->
-                <div class="inline-flex rounded-xl bg-slate-800/90 p-1 border border-slate-700">
-                    @foreach (var range in _timeRanges)
-                    {
-                        var active = _selectedRange == range.Key;
-                        <button type="button"
-                                @onclick="() => ChangeRangeAsync(range.Key)"
-                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition @(active ? "bg-indigo-600 text-white shadow" : "text-slate-300 hover:text-white")">
-                            @range.Label
-                        </button>
-                    }
-                </div>
+    Time on a page is measured from timestamps (from entering a page to the
+    next page or the end of the session). The PAGE_VIEW event's own
+    DurationSeconds belongs to the page that was left, not the one entered.
 
-                <!-- Auto Refresh Toggle -->
-                <button type="button"
-                        @onclick="ToggleAutoRefresh"
-                        class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition @(_autoRefresh ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200" : "bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white")">
-                    <span class="w-2 h-2 rounded-full @(_autoRefresh ? "bg-emerald-400 animate-ping" : "bg-slate-500")"></span>
-                    <span>@(_autoRefresh ? "بث حي مفعل (٤ث)" : "تفعيل البث الحي")</span>
-                </button>
+    Pages take the --series-* colours; categories never do, so one colour
+    means one thing on every tab. Categories carry an icon and a word.
+*@
 
-                <!-- Manual Refresh -->
-                <button type="button"
-                        @onclick="RefreshDataAsync"
-                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition">
-                    <Icon Name="arrow-path" Class="w-4 h-4" />
-                    <span>تحديث الآن</span>
-                </button>
+<div class="hr-stack hr-ua">
 
-                <!-- Export CSV -->
-                <button type="button"
-                        @onclick="ExportCsvAsync"
-                        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow transition">
-                    <Icon Name="arrow-down-tray" Class="w-4 h-4" />
-                    <span>تصدير CSV</span>
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Executive KPI Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">المتصلون الآن</span>
-                <span class="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400">
-                    <Icon Name="signal" Class="w-5 h-5" />
-                </span>
-            </div>
-            <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-2xl font-black text-slate-900 dark:text-white">@_onlineUsersCount</span>
-                <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400">من أصل @_userSummaries.Count مستخدم نشط</span>
-            </div>
+    <header class="hr-pagehead">
+        <div class="hr-pagehead-titles">
+            <h1 class="hr-h1">نشاط المستخدمين</h1>
+            <p class="hr-sub hr-measure">
+                من يستخدم النظام، ومتى، وفي أي صفحات.
+                آخر تحديث <span class="hr-num">@_lastRefreshedLocal.ToString("HH:mm:ss")</span>
+            </p>
         </div>
 
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">إجمالي الحركات المسجلة</span>
-                <span class="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
-                    <Icon Name="bolt" Class="w-5 h-5" />
-                </span>
+        <div class="hr-pagehead-actions">
+            <div class="hr-segment" role="group" aria-label="الفترة">
+                @foreach (var range in TimeRanges)
+                {
+                    <button type="button" class="hr-segment-btn"
+                            aria-pressed="@(_selectedRange == range.Key ? "true" : "false")"
+                            @onclick="() => ChangeRangeAsync(range.Key)">
+                        @range.Label
+                    </button>
+                }
             </div>
-            <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-2xl font-black text-slate-900 dark:text-white">@_allRangeEvents.Count.ToString("N0")</span>
-                <span class="text-xs text-slate-500">حركة مفصلة</span>
-            </div>
-        </div>
 
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">الدخول والخروج</span>
-                <span class="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
-                    <Icon Name="arrow-right-on-rectangle" Class="w-5 h-5" />
-                </span>
-            </div>
-            <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-2xl font-black text-slate-900 dark:text-white">@_authEventsCount.ToString("N0")</span>
-                <span class="text-xs text-slate-500">عملية مصادقة</span>
-            </div>
-        </div>
-
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">تصفح الصفحات</span>
-                <span class="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/50 text-violet-600 dark:text-violet-400">
-                    <Icon Name="globe-alt" Class="w-5 h-5" />
-                </span>
-            </div>
-            <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-2xl font-black text-slate-900 dark:text-white">@_navEventsCount.ToString("N0")</span>
-                <span class="text-xs text-slate-500">انتقال بين الصفحات</span>
-            </div>
-        </div>
-
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">القوائم المنسدلة والبحث</span>
-                <span class="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400">
-                    <Icon Name="adjustments-horizontal" Class="w-5 h-5" />
-                </span>
-            </div>
-            <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-2xl font-black text-slate-900 dark:text-white">@((_dropdownEventsCount + _searchEventsCount).ToString("N0"))</span>
-                <span class="text-xs text-slate-500">@_dropdownEventsCount قائمة / @_searchEventsCount بحث</span>
-            </div>
-        </div>
-
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 shadow-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold text-slate-500 dark:text-slate-400">النقرات والعمليات الأمنية</span>
-                <span class="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400">
-                    <Icon Name="shield-check" Class="w-5 h-5" />
-                </span>
-            </div>
-            <div class="mt-2 flex items-baseline gap-2">
-                <span class="text-2xl font-black text-slate-900 dark:text-white">@((_clickEventsCount + _securityEventsCount).ToString("N0"))</span>
-                <span class="text-xs text-slate-500">@_clickEventsCount نقرة / @_securityEventsCount أمني</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Main View Tabs -->
-    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
-        <div class="flex flex-wrap items-center gap-2">
-            <button type="button"
-                    @onclick='() => _activeTab = "journey"'
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition @(_activeTab == "journey" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50")">
-                <Icon Name="user-circle" Class="w-5 h-5" />
-                <span>مسار وجلسة المستخدم (من الدخول إلى الخروج)</span>
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                    aria-pressed="@(_autoRefresh ? "true" : "false")"
+                    title="@(_autoRefresh ? "إيقاف التحديث التلقائي" : "تحديث تلقائي كل 4 ثوانٍ")"
+                    @onclick="ToggleAutoRefresh">
+                <span class="hr-dot @(_autoRefresh ? "hr-dot-ok" : "hr-dot-quiet")" aria-hidden="true"></span>
+                <span>@(_autoRefresh ? "بث حي" : "البث متوقف")</span>
             </button>
 
-            <button type="button"
-                    @onclick='() => _activeTab = "stream"'
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition @(_activeTab == "stream" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50")">
-                <Icon Name="queue-list" Class="w-5 h-5" />
-                <span>البث الحي الشامل لكافة الحركات</span>
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-icon hr-btn-sm"
+                    aria-label="تحديث الآن" title="تحديث الآن"
+                    disabled="@_isRefreshing" @onclick="RefreshNowAsync">
+                <Icon Name="arrow-path" Size="sm" />
             </button>
 
-            <button type="button"
-                    @onclick='() => _activeTab = "analytics"'
-                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition @(_activeTab == "analytics" ? "bg-indigo-600 text-white shadow-sm" : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50")">
-                <Icon Name="chart-bar-square" Class="w-5 h-5" />
-                <span>الإحصائيات والتحليلات التفصيلية</span>
+            <button type="button" class="hr-btn hr-btn-primary hr-btn-sm"
+                    title="تصدير حركات السجل بحسب الفلاتر الحالية"
+                    disabled="@(_allRangeEvents.Count == 0)" @onclick="ExportCsvAsync">
+                <Icon Name="arrow-down-tray" Size="sm" />
+                <span>تصدير CSV</span>
             </button>
         </div>
+    </header>
 
-        <div class="text-xs text-slate-500 dark:text-slate-400">
-            آخر تحديث: <span class="font-bold text-slate-700 dark:text-slate-200">@_lastRefreshedLocal.ToString("HH:mm:ss")</span>
-        </div>
-    </div>
-
-    @if (_activeTab == "journey")
+    @if (_dbMergeFailed)
     {
-        <!-- TAB 1: USER JOURNEY (FROM LOGIN TO LOGOUT) -->
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
-            <!-- Left Column: Users List -->
-            <div class="lg:col-span-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                <div class="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
-                    <div class="flex items-center justify-between">
-                        <h2 class="text-sm font-black text-slate-900 dark:text-white">قائمة المستخدمين المراقبين</h2>
-                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                            @_filteredUserSummaries.Count مستخدم
-                        </span>
-                    </div>
-                    <div class="relative">
-                        <input type="text"
-                               @bind="_userListSearch"
-                               @bind:event="oninput"
-                               placeholder="ابحث باسم المستخدم أو الرقم الوظيفي..."
-                               class="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/70 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                    </div>
-                </div>
-
-                <div class="divide-y divide-slate-100 dark:divide-slate-800 max-h-[680px] overflow-y-auto">
-                    @if (_filteredUserSummaries.Count == 0)
-                    {
-                        <div class="p-8 text-center text-xs text-slate-400">
-                            لا توجد حركات مسجلة للمستخدمين ضمن الفترة المحددة.
-                        </div>
-                    }
-                    else
-                    {
-                        @foreach (var u in _filteredUserSummaries)
-                        {
-                            var isSelected = string.Equals(_selectedUserKey, u.UserName, StringComparison.OrdinalIgnoreCase)
-                                          || (!string.IsNullOrEmpty(u.UserId) && string.Equals(_selectedUserKey, u.UserId, StringComparison.OrdinalIgnoreCase));
-
-                            <button type="button"
-                                    @onclick="() => SelectUserForJourney(u)"
-                                    class="w-full text-right p-4 transition flex flex-col gap-2 @(isSelected ? "bg-indigo-50/90 dark:bg-indigo-950/40 border-r-4 border-indigo-600" : "hover:bg-slate-50 dark:hover:bg-slate-800/50")">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="flex items-center gap-2.5 min-w-0">
-                                        <span class="relative flex h-3 w-3 shrink-0">
-                                            @if (u.IsOnlineNow)
-                                            {
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                                            }
-                                            else
-                                            {
-                                                <span class="relative inline-flex rounded-full h-3 w-3 bg-slate-300 dark:bg-slate-600"></span>
-                                            }
-                                        </span>
-                                        <div class="truncate">
-                                            <div class="text-sm font-black text-slate-900 dark:text-white truncate">
-                                                @(string.IsNullOrWhiteSpace(u.EmployeeName) ? u.UserName : $"{u.EmployeeName} ({u.UserName})")
-                                            </div>
-                                            <div class="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                                                @if (!string.IsNullOrWhiteSpace(u.UserRole))
-                                                {
-                                                    <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-semibold">@u.UserRole</span>
-                                                }
-                                                @if (!string.IsNullOrWhiteSpace(u.EmployeeId))
-                                                {
-                                                    <span>رقم وظيفي: @u.EmployeeId</span>
-                                                }
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <span class="px-2 py-0.5 rounded-lg text-xs font-extrabold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shrink-0">
-                                        @u.TotalEvents حركة
-                                    </span>
-                                </div>
-
-                                <!-- Mini Counters -->
-                                <div class="grid grid-cols-5 gap-1 pt-1 text-[11px]">
-                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
-                                        <span class="block text-slate-400">دخول</span>
-                                        <span class="font-bold text-slate-800 dark:text-slate-200">@u.LoginCount</span>
-                                    </div>
-                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
-                                        <span class="block text-slate-400">صفحات</span>
-                                        <span class="font-bold text-violet-600 dark:text-violet-400">@u.PageViewCount</span>
-                                    </div>
-                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
-                                        <span class="block text-slate-400">قوائم</span>
-                                        <span class="font-bold text-amber-600 dark:text-amber-400">@u.DropdownCount</span>
-                                    </div>
-                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
-                                        <span class="block text-slate-400">بحث</span>
-                                        <span class="font-bold text-emerald-600 dark:text-emerald-400">@u.SearchCount</span>
-                                    </div>
-                                    <div class="rounded-lg bg-slate-100/80 dark:bg-slate-800/70 px-2 py-1 text-center">
-                                        <span class="block text-slate-400">نقرات</span>
-                                        <span class="font-bold text-rose-600 dark:text-rose-400">@u.ClickCount</span>
-                                    </div>
-                                </div>
-
-                                <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                                    <span class="truncate max-w-[210px]">آخر تواجد: @(UserActivityService.GetArabicPageTitle(u.LastPagePath))</span>
-                                    <span>@FormatRelativeTime(u.LastSeenUtc)</span>
-                                </div>
-                            </button>
-                        }
-                    }
-                </div>
-            </div>
-
-            <!-- Right Column: Detailed Step-by-Step User Timeline -->
-            <div class="lg:col-span-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                @if (_selectedUserSummary is null)
-                {
-                    <div class="p-12 text-center space-y-2">
-                        <div class="mx-auto w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center text-indigo-600">
-                            <Icon Name="cursor-arrow-rays" Class="w-6 h-6" />
-                        </div>
-                        <h3 class="text-base font-bold text-slate-800 dark:text-slate-100">اختر مستخدماً من القائمة لعرض مساره الكامل</h3>
-                        <p class="text-xs text-slate-500">سيتم عرض كل خطوة قام بها المستخدم من لحظة تسجيل الدخول وحتى الخروج بالتسلسل الزمني الدقيق.</p>
-                    </div>
-                }
-                else
-                {
-                    <!-- Selected User Banner -->
-                    <div class="p-5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 space-y-4">
-                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <div>
-                                <div class="flex items-center gap-2">
-                                    <h2 class="text-lg font-black text-slate-900 dark:text-white">
-                                        مسار حركات المستخدم: @(_selectedUserSummary.EmployeeName ?? _selectedUserSummary.UserName)
-                                    </h2>
-                                    @if (_selectedUserSummary.IsOnlineNow)
-                                    {
-                                        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                            متصل الآن
-                                        </span>
-                                    }
-                                </div>
-                                <p class="text-xs text-slate-500 mt-0.5">
-                                    اسم الحساب: <span class="font-bold">@_selectedUserSummary.UserName</span>
-                                    | أول نشاط في الفترة: <span class="font-bold">@_selectedUserSummary.FirstSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
-                                    | آخر نشاط: <span class="font-bold">@_selectedUserSummary.LastSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
-                                </p>
-                            </div>
-
-                            <!-- Category Filter inside Journey -->
-                            <div class="flex flex-wrap items-center gap-1.5">
-                                @foreach (var cat in _categoryFilters)
-                                {
-                                    var active = _journeyCategoryFilter == cat.Key;
-                                    <button type="button"
-                                            @onclick="() => _journeyCategoryFilter = cat.Key"
-                                            class="px-2.5 py-1 rounded-lg text-xs font-bold transition @(active ? "bg-indigo-600 text-white" : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700")">
-                                        @cat.Label
-                                    </button>
-                                }
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Chronological Journey Feed -->
-                    <div class="p-5 max-h-[640px] overflow-y-auto space-y-3">
-                        @{
-                            var journeyEvents = GetSelectedUserJourneyEvents();
-                        }
-                        @if (journeyEvents.Count == 0)
-                        {
-                            <div class="p-8 text-center text-xs text-slate-400">
-                                لا توجد حركات مطابقة للفلتر المحدد لهذا المستخدم.
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="relative pr-6 border-r-2 border-indigo-200 dark:border-indigo-900 space-y-3">
-                                @foreach (var ev in journeyEvents)
-                                {
-                                    <div class="relative rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 shadow-xs hover:border-indigo-300 transition">
-                                        <!-- Timeline Dot -->
-                                        <span class="absolute -right-[31px] top-4 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 @GetCategoryDotColor(ev.Category)"></span>
-
-                                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                                            <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="px-2.5 py-0.5 rounded-md text-[11px] font-bold @GetCategoryBadgeClass(ev.Category)">
-                                                    @GetCategoryArabicName(ev.Category)
-                                                </span>
-                                                <span class="text-sm font-extrabold text-slate-900 dark:text-white">
-                                                    @ev.ActionTitle
-                                                </span>
-                                                @if (ev.DurationSeconds is > 0)
-                                                {
-                                                    <span class="px-2 py-0.5 rounded-md bg-violet-50 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300 text-[11px] font-bold">
-                                                        مدة البقاء: @FormatDuration(ev.DurationSeconds.Value)
-                                                    </span>
-                                                }
-                                            </div>
-                                            <div class="text-xs font-mono text-slate-500 dark:text-slate-400 shrink-0" dir="ltr">
-                                                @ev.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                                            </div>
-                                        </div>
-
-                                        <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-600 dark:text-slate-300">
-                                            @if (!string.IsNullOrWhiteSpace(ev.PagePath))
-                                            {
-                                                <div class="inline-flex items-center gap-1">
-                                                    <span class="text-slate-400">الصفحة:</span>
-                                                    <span class="font-bold text-indigo-600 dark:text-indigo-400">@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
-                                                    <span class="text-[11px] text-slate-400 font-mono" dir="ltr">(@ev.PagePath)</span>
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(ev.ElementLabel))
-                                            {
-                                                <div class="inline-flex items-center gap-1">
-                                                    <span class="text-slate-400">العنصر / الحقل:</span>
-                                                    <span class="font-bold text-slate-800 dark:text-slate-100">@ev.ElementLabel</span>
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(ev.ValueText))
-                                            {
-                                                <div class="inline-flex items-center gap-1">
-                                                    <span class="text-slate-400">القيمة / الاختيار:</span>
-                                                    <span class="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold">@ev.ValueText</span>
-                                                </div>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(ev.IpAddress))
-                                            {
-                                                <div class="inline-flex items-center gap-1 text-[11px] text-slate-400">
-                                                    <span>IP:</span>
-                                                    <span class="font-mono" dir="ltr">@ev.IpAddress</span>
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        }
-                    </div>
-                }
+        <div class="hr-alert hr-alert-warn" role="status">
+            <Icon Name="exclamation-triangle" Size="sm" />
+            <div>
+                <p class="hr-alert-title">سجل التدقيق غير مدمج</p>
+                <p style="margin-block-start:.25rem">تعذّرت قراءة سجل التدقيق من قاعدة البيانات، فالعرض يقتصر على الحركات المسجلة منذ تشغيل الخادم. سيُعاد المحاولة مع التحديث التالي.</p>
             </div>
         </div>
     }
-    else if (_activeTab == "stream")
-    {
-        <!-- TAB 2: LIVE ACTIVITY STREAM TABLE -->
-        <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <!-- Filters Bar -->
-            <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                <div class="flex flex-wrap items-center gap-1.5">
-                    @foreach (var cat in _categoryFilters)
+
+    <div class="hr-tabs hr-ua-tabs" role="tablist" aria-label="طرق العرض">
+        @foreach (var tab in Tabs)
+        {
+            <button type="button" role="tab" class="hr-tab" id="ua-tab-@tab.Key"
+                    aria-selected="@(_activeTab == tab.Key ? "true" : "false")"
+                    aria-controls="ua-panel"
+                    tabindex="@(_activeTab == tab.Key ? 0 : -1)"
+                    @onclick="() => _activeTab = tab.Key"
+                    @onkeydown="OnTabKeyAsync">
+                <Icon Name="@tab.Icon" Size="sm" />
+                <span>@tab.Label</span>
+                @if (tab.Key == "live" && _onlineUsers.Count > 0)
+                {
+                    <span class="hr-tab-badge hr-num">@_onlineUsers.Count</span>
+                }
+            </button>
+        }
+    </div>
+
+    <div id="ua-panel" role="tabpanel" aria-labelledby="ua-tab-@_activeTab">
+        @if (!_loaded)
+        {
+            <div class="hr-ua-figs" aria-hidden="true">
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div class="hr-skeleton" style="height:7.5rem"></div>
+                }
+            </div>
+        }
+        else if (_allRangeEvents.Count == 0)
+        {
+            <section class="hr-card">
+                <div class="hr-empty">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="presentation-chart-bar" Size="lg" /></span>
+                    <p class="hr-h3">لا نشاط في هذه الفترة</p>
+                    <p class="hr-sub hr-measure-sm">لم تُسجَّل أي حركة لأي مستخدم ضمن «@RangeLabel». جرّب فترة أطول.</p>
+                    @if (_selectedRange != "all")
                     {
-                        var active = _streamCategoryFilter == cat.Key;
-                        <button type="button"
-                                @onclick="() => _streamCategoryFilter = cat.Key"
-                                class="px-3 py-1.5 rounded-xl text-xs font-bold transition @(active ? "bg-indigo-600 text-white shadow-xs" : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200")">
-                            @cat.Label
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick='() => ChangeRangeAsync("all")'>
+                            <span>عرض كل السجلات</span>
                         </button>
                     }
                 </div>
+            </section>
+        }
+        else if (_activeTab == "overview")
+        {
+            @Overview
+        }
+        else if (_activeTab == "live")
+        {
+            @Live
+        }
+        else if (_activeTab == "day")
+        {
+            @Day
+        }
+        else
+        {
+            @UserTab
+        }
+    </div>
+</div>
 
-                <div class="flex flex-wrap items-center gap-2">
-                    <select @bind="_streamUserFilter"
-                            aria-label="فلتر المستخدم"
-                            class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-bold text-slate-800 dark:text-slate-100">
-                        <option value="">كل المستخدمين (@_userSummaries.Count)</option>
-                        @foreach (var u in _userSummaries)
-                        {
-                            <option value="@u.UserName">@(string.IsNullOrWhiteSpace(u.EmployeeName) ? u.UserName : $"{u.EmployeeName} ({u.UserName})")</option>
-                        }
-                    </select>
+@code {
+    // ───────────────────────── Overview ─────────────────────────
 
-                    <input type="text"
-                           @bind="_streamSearchQuery"
-                           @bind:event="oninput"
-                           placeholder="ابحث في الحركات، القوائم المنسدلة، الصفحات، القيم..."
-                           class="w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+    private RenderFragment Overview => @<div class="hr-stack-sm">
+        <section class="hr-card hr-ua-figs" aria-label="أرقام الفترة">
+            @foreach (var fig in _figures)
+            {
+                <div class="hr-ua-fig @(fig.Tone is null ? null : $"is-{fig.Tone}")">
+                    <p class="hr-ua-fig-label">@fig.Label</p>
+                    <p class="hr-ua-fig-value hr-num">@fig.Value</p>
+                    <p class="hr-ua-fig-sub">@fig.Sub</p>
+                    @if (_buckets.Count > 1)
+                    {
+                        var max = Math.Max(1, fig.History.Max());
+                        <div class="hr-ua-hist" role="img" aria-label="@HistoryLabel(fig)" title="@(fig.HistoryOf ?? fig.Label) بحسب @(_bucketIsHour ? "الساعة" : "اليوم")">
+                            @for (var i = 0; i < fig.History.Length; i++)
+                            {
+                                <span class="hr-ua-hist-bar @(i == fig.History.Length - 1 ? "is-last" : null)"
+                                      style="--v:@Css((double)fig.History[i] / max)"
+                                      title="@_buckets[i]: @fig.History[i].ToString("N0")"></span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        <div class="hr-ua-split">
+            <section class="hr-card">
+                <div class="hr-card-head">
+                    <div>
+                        <h2 class="hr-h2">إيقاع الاستخدام</h2>
+                        <p class="hr-sub">عدد الحركات بحسب يوم الأسبوع والساعة.</p>
+                    </div>
+                </div>
+                <div class="hr-card-body hr-viz-heat">
+                    <div class="hr-tablewrap">
+                        <table class="hr-viz-heat-table hr-ua-heat">
+                            <caption class="hr-sr">توزيع الحركات على أيام الأسبوع وساعات اليوم</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">اليوم</th>
+                                    @for (var h = _heatFromHour; h <= _heatToHour; h++)
+                                    {
+                                        <th scope="col" class="hr-num">@h.ToString("00")</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var day in WeekOrder)
+                                {
+                                    <tr @key="day">
+                                        <th scope="row">@ArabicCulture.DateTimeFormat.GetDayName(day)</th>
+                                        @for (var h = _heatFromHour; h <= _heatToHour; h++)
+                                        {
+                                            var n = _heat[(int)day, h];
+                                            <td>
+                                                <span class="hr-viz-heat-cell is-d@(Depth(n, _heatMax))"
+                                                      title="@($"{ArabicCulture.DateTimeFormat.GetDayName(day)} {h:00}:00 — {n:N0} حركة")">
+                                                    @if (n > 0)
+                                                    {
+                                                        <span class="hr-num">@Compact(n)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="hr-sr">لا شيء</span>
+                                                    }
+                                                </span>
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section class="hr-card">
+                <div class="hr-card-head">
+                    <div>
+                        <h2 class="hr-h2">الصفحات الأكثر استخداماً</h2>
+                        <p class="hr-sub">بحسب الوقت المقضي فيها.</p>
+                    </div>
+                </div>
+                <div class="hr-card-body">
+                    @PageBars(_pageStats.Take(8).ToList())
+                </div>
+            </section>
+        </div>
+
+        <div class="hr-ua-split is-even">
+            <section class="hr-card">
+                <div class="hr-card-head">
+                    <div>
+                        <h2 class="hr-h2">أكثر الاختيارات في القوائم</h2>
+                        <p class="hr-sub">القيم التي اختارها المستخدمون في القوائم المنسدلة والفلاتر.</p>
+                    </div>
+                </div>
+                <div class="hr-card-body">@ValueBars(_topDropdowns, "لم يُغيَّر أي فلتر أو قائمة في هذه الفترة.")</div>
+            </section>
+            <section class="hr-card">
+                <div class="hr-card-head">
+                    <div>
+                        <h2 class="hr-h2">أكثر عبارات البحث</h2>
+                        <p class="hr-sub">ما كتبه المستخدمون في حقول البحث والإدخال.</p>
+                    </div>
+                </div>
+                <div class="hr-card-body">@ValueBars(_topSearches, "لم يُبحث عن شيء في هذه الفترة.")</div>
+            </section>
+        </div>
+
+        <section class="hr-card">
+            <div class="hr-card-head">
+                <div>
+                    <h2 class="hr-h2">المستخدمون</h2>
+                    <p class="hr-sub"><span class="hr-num">@_users.Count</span> مستخدماً نشطاً خلال «@RangeLabel». افتح أي مستخدم لقراءة جلساته.</p>
                 </div>
             </div>
-
-            <!-- Stream Table -->
-            <div class="overflow-x-auto max-h-[680px]">
-                @{
-                    var filteredStream = GetFilteredStreamEvents();
-                }
-                <table class="w-full text-right text-xs">
-                    <thead class="bg-slate-50 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+            <div class="hr-tablewrap">
+                <table class="hr-table hr-table-tight hr-table-wide">
+                    <caption class="hr-sr">ملخص نشاط كل مستخدم</caption>
+                    <thead>
                         <tr>
-                            <th class="py-3 px-4 font-bold">الوقت</th>
-                            <th class="py-3 px-4 font-bold">المستخدم</th>
-                            <th class="py-3 px-4 font-bold">نوع الحركة</th>
-                            <th class="py-3 px-4 font-bold">الوصف التفصيلي</th>
-                            <th class="py-3 px-4 font-bold">الصفحة</th>
-                            <th class="py-3 px-4 font-bold">الحقل / العنصر</th>
-                            <th class="py-3 px-4 font-bold">القيمة / المدة</th>
-                            <th class="py-3 px-4 font-bold">IP</th>
+                            <th scope="col">المستخدم</th>
+                            <th scope="col">آخر نشاط</th>
+                            <th scope="col">الجلسات</th>
+                            <th scope="col">وقت الاستخدام</th>
+                            <th scope="col">صفحات</th>
+                            <th scope="col">بحث</th>
+                            <th scope="col">قوائم</th>
+                            <th scope="col">نقرات</th>
+                            <th scope="col">أمنية</th>
+                            <th scope="col"><span class="hr-sr">إجراءات</span></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                        @if (filteredStream.Count == 0)
+                    <tbody>
+                        @foreach (var u in _users)
                         {
-                            <tr>
-                                <td colspan="8" class="py-10 text-center text-slate-400">
-                                    لا توجد حركات مطابقة للفلاتر الحالية.
+                            <tr @key="u.Key">
+                                <td>@UserCell(u)</td>
+                                <td>
+                                    <span class="hr-cell-strong">@(u.Online ? "متصل الآن" : RelativeTime(u.LastSeen))</span>
+                                    <span class="hr-cell-sub hr-truncate">@(u.LastPageTitle ?? "—")</span>
+                                </td>
+                                <td class="hr-num">@u.Sessions.ToString("N0")</td>
+                                <td class="hr-num">@Short(u.ActiveSeconds)</td>
+                                <td class="hr-num">@u.Pages.ToString("N0")</td>
+                                <td class="hr-num">@u.Searches.ToString("N0")</td>
+                                <td class="hr-num">@u.Dropdowns.ToString("N0")</td>
+                                <td class="hr-num">@u.Clicks.ToString("N0")</td>
+                                <td>
+                                    @if (u.SecurityFailed > 0)
+                                    {
+                                        <span class="hr-badge hr-badge--plain hr-badge-danger"><Icon Name="exclamation-circle" Size="xs" /><span class="hr-num">@u.Security</span> · <span class="hr-num">@u.SecurityFailed</span> فاشلة</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hr-num">@u.Security.ToString("N0")</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="hr-rowactions">
+                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => OpenUser(u.Key)">
+                                            <span>الجلسات</span>
+                                            <Icon Name="chevron-left" Size="xs" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
-                        }
-                        else
-                        {
-                            @foreach (var ev in filteredStream.Take(400))
-                            {
-                                <tr class="hover:bg-slate-50/90 dark:hover:bg-slate-800/40 transition">
-                                    <td class="py-2.5 px-4 font-mono text-slate-500 whitespace-nowrap" dir="ltr">
-                                        @ev.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                                    </td>
-                                    <td class="py-2.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                                        <div>@(string.IsNullOrWhiteSpace(ev.EmployeeName) ? ev.UserName : ev.EmployeeName)</div>
-                                        <div class="text-[10px] text-slate-400 font-normal">@ev.UserName @(string.IsNullOrWhiteSpace(ev.UserRole) ? "" : $"• {ev.UserRole}")</div>
-                                    </td>
-                                    <td class="py-2.5 px-4 whitespace-nowrap">
-                                        <span class="px-2.5 py-0.5 rounded-md text-[11px] font-bold @GetCategoryBadgeClass(ev.Category)">
-                                            @GetCategoryArabicName(ev.Category)
-                                        </span>
-                                    </td>
-                                    <td class="py-2.5 px-4 font-bold text-slate-800 dark:text-slate-100">
-                                        @ev.ActionTitle
-                                    </td>
-                                    <td class="py-2.5 px-4">
-                                        <div class="font-semibold text-indigo-600 dark:text-indigo-400">
-                                            @(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))
-                                        </div>
-                                        @if (!string.IsNullOrWhiteSpace(ev.PagePath))
-                                        {
-                                            <div class="text-[10px] font-mono text-slate-400" dir="ltr">@ev.PagePath</div>
-                                        }
-                                    </td>
-                                    <td class="py-2.5 px-4 text-slate-700 dark:text-slate-300 font-semibold">
-                                        @(string.IsNullOrWhiteSpace(ev.ElementLabel) ? "—" : ev.ElementLabel)
-                                    </td>
-                                    <td class="py-2.5 px-4">
-                                        @if (ev.DurationSeconds is > 0)
-                                        {
-                                            <span class="px-2 py-0.5 rounded bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-300 font-bold">
-                                                @FormatDuration(ev.DurationSeconds.Value)
-                                            </span>
-                                        }
-                                        else if (!string.IsNullOrWhiteSpace(ev.ValueText))
-                                        {
-                                            <span class="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 font-bold">
-                                                @ev.ValueText
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-slate-400">—</span>
-                                        }
-                                    </td>
-                                    <td class="py-2.5 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap" dir="ltr">
-                                        @(string.IsNullOrWhiteSpace(ev.IpAddress) ? "—" : ev.IpAddress)
-                                    </td>
-                                </tr>
-                            }
                         }
                     </tbody>
                 </table>
             </div>
-        </div>
-    }
-    else if (_activeTab == "analytics")
-    {
-        <!-- TAB 3: SEPARATE DETAILED ADMIN STATISTICS & ANALYTICS -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        </section>
+    </div>;
 
-            <!-- 1. Top Visited Pages & Time Spent -->
-            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 dark:text-white">أكثر الصفحات زيارة ومتوسط مدة البقاء</h3>
-                        <p class="text-xs text-slate-500">تحليل الصفحات الأكثر استقطاباً للمستخدمين وزمن المكوث الفعلي فيها</p>
-                    </div>
-                    <Icon Name="globe-alt" Class="w-6 h-6 text-indigo-600" />
-                </div>
+    // ───────────────────────── Live ─────────────────────────
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-right text-xs">
-                        <thead class="bg-slate-50 dark:bg-slate-800 text-slate-500">
-                            <tr>
-                                <th class="py-2.5 px-3 font-bold">الصفحة</th>
-                                <th class="py-2.5 px-3 font-bold">عدد الزيارات</th>
-                                <th class="py-2.5 px-3 font-bold">المستخدمون الفريدون</th>
-                                <th class="py-2.5 px-3 font-bold">إجمالي الوقت المقضي</th>
-                                <th class="py-2.5 px-3 font-bold">متوسط البقاء</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                            @foreach (var p in GetTopPagesStats())
-                            {
-                                <tr>
-                                    <td class="py-2.5 px-3">
-                                        <div class="font-bold text-slate-900 dark:text-white">@p.PageTitle</div>
-                                        <div class="text-[10px] font-mono text-slate-400" dir="ltr">@p.PagePath</div>
-                                    </td>
-                                    <td class="py-2.5 px-3 font-black text-indigo-600 dark:text-indigo-400">@p.VisitCount</td>
-                                    <td class="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300">@p.UniqueUsers</td>
-                                    <td class="py-2.5 px-3 font-bold text-violet-600 dark:text-violet-400">@FormatDuration(p.TotalSeconds)</td>
-                                    <td class="py-2.5 px-3 text-slate-600 dark:text-slate-300">@FormatDuration(p.AverageSeconds)</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+    private RenderFragment Live => @<div class="hr-stack-sm">
+        <section class="hr-card">
+            <div class="hr-card-head">
+                <div>
+                    <h2 class="hr-h2">في النظام الآن</h2>
+                    <p class="hr-sub">من كان له نشاط خلال آخر 5 دقائق ولم يسجّل الخروج، والصفحة التي هو فيها.</p>
                 </div>
             </div>
-
-            <!-- 2. Most Active Users Breakdown -->
-            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 dark:text-white">تحليل نشاط المستخدمين التفصيلي</h3>
-                        <p class="text-xs text-slate-500">مقارنة شاملة لحركات كل مستخدم حسب نوع التفاعل</p>
-                    </div>
-                    <Icon Name="users" Class="w-6 h-6 text-emerald-600" />
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-right text-xs">
-                        <thead class="bg-slate-50 dark:bg-slate-800 text-slate-500">
-                            <tr>
-                                <th class="py-2.5 px-3 font-bold">المستخدم</th>
-                                <th class="py-2.5 px-3 font-bold">الإجمالي</th>
-                                <th class="py-2.5 px-3 font-bold">دخول</th>
-                                <th class="py-2.5 px-3 font-bold">صفحات</th>
-                                <th class="py-2.5 px-3 font-bold">قوائم</th>
-                                <th class="py-2.5 px-3 font-bold">بحث</th>
-                                <th class="py-2.5 px-3 font-bold">نقرات</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                            @foreach (var u in _userSummaries.Take(12))
-                            {
-                                <tr>
-                                    <td class="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                                        @(string.IsNullOrWhiteSpace(u.EmployeeName) ? u.UserName : $"{u.EmployeeName} ({u.UserName})")
-                                    </td>
-                                    <td class="py-2.5 px-3 font-black text-indigo-600">@u.TotalEvents</td>
-                                    <td class="py-2.5 px-3 font-semibold">@u.LoginCount</td>
-                                    <td class="py-2.5 px-3 font-semibold text-violet-600">@u.PageViewCount</td>
-                                    <td class="py-2.5 px-3 font-semibold text-amber-600">@u.DropdownCount</td>
-                                    <td class="py-2.5 px-3 font-semibold text-emerald-600">@u.SearchCount</td>
-                                    <td class="py-2.5 px-3 font-semibold text-rose-600">@u.ClickCount</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- 3. Top Dropdown Changes & Top Searches -->
-            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 dark:text-white">أكثر القوائم المنسدلة (Dropdowns) وعبارات البحث استخداماً</h3>
-                        <p class="text-xs text-slate-500">تحليل اختيارات المستخدمين في الفلاتر والقوائم وحقول البحث</p>
-                    </div>
-                    <Icon Name="adjustments-horizontal" Class="w-6 h-6 text-amber-600" />
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-extrabold text-amber-700 dark:text-amber-400">تغييرات القوائم المنسدلة (Dropdowns)</h4>
-                        @foreach (var d in GetTopDropdownStats())
+            @if (_onlineUsers.Count == 0)
+            {
+                <div class="hr-empty">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="signal" Size="lg" /></span>
+                    <p class="hr-h3">لا أحد متصل الآن</p>
+                    <p class="hr-sub hr-measure-sm">
+                        @if (_users.Count > 0)
                         {
-                            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-xs">
-                                <div class="truncate pl-2">
-                                    <span class="font-bold text-slate-800 dark:text-slate-200">@d.Label:</span>
-                                    <span class="text-amber-700 dark:text-amber-300 font-semibold mr-1">@d.Value</span>
-                                </div>
-                                <span class="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold shrink-0">@d.Count مرة</span>
-                            </div>
+                            <span>آخر نشاط كان لـ @_users[0].DisplayName @RelativeTime(_users[0].LastSeen).</span>
                         }
-                    </div>
-
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-extrabold text-emerald-700 dark:text-emerald-400">عبارات البحث والإدخال</h4>
-                        @foreach (var s in GetTopSearchStats())
-                        {
-                            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 text-xs">
-                                <div class="truncate pl-2">
-                                    <span class="font-bold text-slate-800 dark:text-slate-200">@s.Label:</span>
-                                    <span class="text-emerald-700 dark:text-emerald-300 font-semibold mr-1">@s.Value</span>
-                                </div>
-                                <span class="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold shrink-0">@s.Count مرة</span>
-                            </div>
-                        }
-                    </div>
+                    </p>
                 </div>
-            </div>
-
-            <!-- 4. Hourly Activity Distribution -->
-            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h3 class="text-base font-black text-slate-900 dark:text-white">توزيع كثافة النشاط حسب ساعات اليوم</h3>
-                        <p class="text-xs text-slate-500">معرفة أوقات الذروة الفعلية لاستخدام النظام على مدار ٢٤ ساعة</p>
-                    </div>
-                    <Icon Name="clock" Class="w-6 h-6 text-violet-600" />
-                </div>
-
-                @{
-                    var hourly = GetHourlyDistribution();
-                    var maxHourCount = Math.Max(1, hourly.Max(x => x.Count));
-                }
-                <div class="grid grid-cols-12 gap-1.5 items-end h-44 pt-4 px-2">
-                    @for (var h = 0; h < 24; h += 2)
+            }
+            else
+            {
+                <ul class="hr-ua-presence" role="list">
+                    @foreach (var u in _onlineUsers)
                     {
-                        var bucketCount = hourly[h].Count + hourly[h + 1].Count;
-                        var heightPct = Math.Max(6, (int)Math.Round(bucketCount * 100.0 / (maxHourCount * 2)));
-                        <div class="flex flex-col items-center gap-1 h-full justify-end">
-                            <span class="text-[10px] font-bold text-slate-600 dark:text-slate-300">@bucketCount</span>
-                            <div class="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-violet-500 transition-all"
-                                 style="height: @(Math.Min(100, heightPct))%"></div>
-                            <span class="text-[10px] font-mono text-slate-400" dir="ltr">@($"{h:00}:00")</span>
+                        <li @key="u.Key">
+                            <button type="button" class="hr-ua-presence-item" @onclick="() => OpenUser(u.Key)">
+                                <span class="hr-avatar hr-ua-avatar is-online" aria-hidden="true">@Initial(u.DisplayName)</span>
+                                <span class="hr-ua-presence-text">
+                                    <span class="hr-cell-strong">@u.DisplayName</span>
+                                    <span class="hr-ua-presence-page">
+                                        <span class="hr-truncate">@(u.CurrentPageTitle ?? "—")</span>
+                                        @if (u.CurrentPageSince is { } since)
+                                        {
+                                            <span class="hr-num hr-ua-presence-since" title="الوقت في هذه الصفحة">@Clock(DateTimeOffset.UtcNow - since)</span>
+                                        }
+                                    </span>
+                                    <span class="hr-cell-sub">@RoleLine(u) · دخل @u.SessionStart?.ToLocalTime().ToString("HH:mm")</span>
+                                </span>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="hr-card">
+            <div class="hr-toolbar">
+                <div class="hr-toolbar-search">
+                    <label class="hr-field-label" for="ua-stream-search">بحث في الحركات</label>
+                    <div class="hr-search">
+                        <span class="hr-search-icon" aria-hidden="true"><Icon Name="magnifying-glass" Size="sm" /></span>
+                        <input id="ua-stream-search" type="search" class="hr-input"
+                               placeholder="اسم، صفحة، حقل أو قيمة"
+                               @bind="_streamSearchQuery" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="hr-toolbar-field">
+                    <label class="hr-field-label" for="ua-stream-user">المستخدم</label>
+                    <select id="ua-stream-user" class="hr-select" @bind="_streamUserFilter">
+                        <option value="">كل المستخدمين (@_users.Count)</option>
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Key">@u.DisplayName</option>
+                        }
+                    </select>
+                </div>
+                <div class="hr-ua-toolbar-chips">
+                    <span class="hr-field-label" id="ua-stream-cat">النوع</span>
+                    @CategoryChips(_streamCategoryFilter, key => _streamCategoryFilter = key, "ua-stream-cat")
+                </div>
+            </div>
+
+            @{
+                var stream = GetFilteredStreamEvents();
+            }
+            @if (stream.Count == 0)
+            {
+                <div class="hr-empty">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="funnel" Size="lg" /></span>
+                    <p class="hr-h3">لا حركات مطابقة</p>
+                    <p class="hr-sub hr-measure-sm">لا توجد حركة تطابق البحث والفلاتر الحالية.</p>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ClearStreamFilters">
+                        <Icon Name="x-mark" Size="xs" />
+                        <span>مسح عوامل التصفية</span>
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="hr-tablewrap hr-ua-streamwrap">
+                    <table class="hr-table hr-table-tight hr-table-wide">
+                        <caption class="hr-sr">سجل حركات المستخدمين، الأحدث أولاً</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">الوقت</th>
+                                <th scope="col">المستخدم</th>
+                                <th scope="col">النوع</th>
+                                <th scope="col">الحركة</th>
+                                <th scope="col">الصفحة</th>
+                                <th scope="col">الحقل / العنصر</th>
+                                <th scope="col">القيمة / المدة</th>
+                                <th scope="col">IP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var ev in stream.Take(StreamCap))
+                            {
+                                <tr @key="ev.Id">
+                                    <td class="hr-num" style="white-space:nowrap">
+                                        <span class="hr-cell-strong">@ev.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                                        <span class="hr-cell-sub">@ev.TimestampUtc.ToLocalTime().ToString("yyyy/MM/dd")</span>
+                                    </td>
+                                    <td>
+                                        <button type="button" class="hr-link hr-ua-linkbtn" @onclick="() => OpenUser(KeyOf(ev))">@DisplayNameOf(ev)</button>
+                                        <span class="hr-cell-sub">@ev.UserName@(string.IsNullOrWhiteSpace(ev.UserRole) ? "" : $" · {ev.UserRole}")</span>
+                                    </td>
+                                    <td>@CategoryTag(ev)</td>
+                                    <td><span class="hr-cell-strong">@ev.ActionTitle</span></td>
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(ev.PagePath))
+                                        {
+                                            <span class="hr-cell-strong">@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
+                                            <span class="hr-cell-sub hr-num" dir="ltr">@ev.PagePath</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-meta">—</span>
+                                        }
+                                    </td>
+                                    <td>@(string.IsNullOrWhiteSpace(ev.ElementLabel) ? "—" : ev.ElementLabel)</td>
+                                    <td>@ValueCell(ev)</td>
+                                    <td class="hr-num" dir="ltr" style="text-align:end">@(string.IsNullOrWhiteSpace(ev.IpAddress) ? "—" : ev.IpAddress)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="hr-card-foot">
+                    <p class="hr-meta">
+                        عرض <span class="hr-num">@Math.Min(stream.Count, StreamCap).ToString("N0")</span>
+                        من <span class="hr-num">@stream.Count.ToString("N0")</span> حركة مطابقة.
+                        @if (stream.Count > StreamCap)
+                        {
+                            <span>يقتصر الجدول على أحدث <span class="hr-num">@StreamCap</span>؛ ملف CSV يضم كل الحركات المطابقة.</span>
+                        }
+                    </p>
+                </div>
+            }
+        </section>
+    </div>;
+
+    // ───────────────────────── Day ─────────────────────────
+
+    private RenderFragment Day => @<div class="hr-stack-sm">
+        @{
+            var day = _selectedDay ?? _days.FirstOrDefault();
+            var dayIndex = _days.IndexOf(day);
+            var lanes = DayLanes(day);
+            var (fromH, toH) = DayHours(lanes);
+            var dayStart = new DateTimeOffset(day.ToDateTime(new TimeOnly(fromH, 0)), LocalOffset(day));
+            var spanSecs = (toH - fromH) * 3600.0;
+            var isToday = day == DateOnly.FromDateTime(DateTime.Now);
+            var nowPos = (DateTimeOffset.Now - dayStart).TotalSeconds / spanSecs;
+            var groups = lanes.SelectMany(l => l.Sessions).SelectMany(s => s.Segments).Select(s => s.Group).Distinct().ToList();
+        }
+        <section class="hr-card">
+            <div class="hr-card-head hr-ua-dayhead">
+                <div>
+                    <h2 class="hr-h2">@day.ToString("dddd d MMMM yyyy", ArabicCulture)</h2>
+                    <p class="hr-sub">
+                        <span class="hr-num">@lanes.Count</span> مستخدماً ·
+                        <span class="hr-num">@lanes.Sum(l => l.Sessions.Count)</span> جلسة.
+                        كل شريط جلسة واحدة من الدخول إلى الخروج، مقسّمة على الصفحات بحسب الوقت المقضي في كل منها.
+                    </p>
+                </div>
+                <div class="hr-ua-daynav">
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-icon hr-btn-sm" aria-label="اليوم السابق"
+                            disabled="@(dayIndex < 0 || dayIndex >= _days.Count - 1)" @onclick="() => SelectDay(dayIndex + 1)">
+                        <Icon Name="chevron-right" Size="sm" />
+                    </button>
+                    <label class="hr-sr" for="ua-day">اليوم</label>
+                    <select id="ua-day" class="hr-select hr-select-compact" value="@day.ToString("yyyy-MM-dd")" @onchange="OnDayPicked">
+                        @foreach (var d in _days)
+                        {
+                            <option value="@d.ToString("yyyy-MM-dd")">@d.ToString("dddd d MMMM", ArabicCulture)</option>
+                        }
+                    </select>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-icon hr-btn-sm" aria-label="اليوم التالي"
+                            disabled="@(dayIndex <= 0)" @onclick="() => SelectDay(dayIndex - 1)">
+                        <Icon Name="chevron-left" Size="sm" />
+                    </button>
+                </div>
+            </div>
+
+            @if (lanes.Count == 0)
+            {
+                <div class="hr-empty">
+                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="calendar-days" Size="lg" /></span>
+                    <p class="hr-h3">لا جلسات في هذا اليوم</p>
+                </div>
+            }
+            else
+            {
+                <div class="hr-ua-lanes-wrap">
+                    <div class="hr-ua-lanes" style="--hours:@(toH - fromH)">
+                        <div class="hr-ua-axis" aria-hidden="true">
+                            <span></span>
+                            <span class="hr-ua-axis-ticks">
+                                @for (var h = fromH; h < toH; h++)
+                                {
+                                    <span class="hr-num">@h.ToString("00")</span>
+                                }
+                            </span>
+                        </div>
+                        @foreach (var lane in lanes)
+                        {
+                            <div class="hr-ua-lane" @key="lane.User.Key">
+                                <button type="button" class="hr-ua-lane-name" @onclick="() => OpenUser(lane.User.Key)" title="فتح جلسات @lane.User.DisplayName">
+                                    <span class="hr-dot @(lane.User.Online ? "hr-dot-ok" : "hr-dot-quiet")" aria-hidden="true"></span>
+                                    <span class="hr-truncate">@lane.User.DisplayName</span>
+                                    @if (lane.User.Online)
+                                    {
+                                        <span class="hr-sr">(متصل الآن)</span>
+                                    }
+                                </button>
+                                <div class="hr-ua-track">
+                                    @foreach (var s in lane.Sessions)
+                                    {
+                                        var start = Math.Clamp((s.Start - dayStart).TotalSeconds / spanSecs, 0, 1);
+                                        var end = Math.Clamp((s.End - dayStart).TotalSeconds / spanSecs, 0, 1);
+                                        <button type="button" @key="s.Id"
+                                                class="hr-ua-ribbon @(s.Id == _daySessionId ? "is-on" : null) @(s.Open ? "is-open" : null)"
+                                                style="--from:@Css(start);--to:@Css(end)"
+                                                aria-pressed="@(s.Id == _daySessionId ? "true" : "false")"
+                                                aria-label="@SessionLabel(lane.User, s)"
+                                                title="@SessionLabel(lane.User, s)"
+                                                @onclick="() => _daySessionId = s.Id">
+                                            @Ribbon(s)
+                                        </button>
+                                    }
+                                    @if (isToday && nowPos is > 0 and < 1)
+                                    {
+                                        <span class="hr-ua-now" style="--at:@Css(nowPos)" aria-hidden="true"></span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="hr-card-foot">
+                    @PageLegend(groups)
+                </div>
+            }
+        </section>
+
+        @{
+            var picked = lanes.SelectMany(l => l.Sessions).FirstOrDefault(s => s.Id == _daySessionId);
+        }
+        @if (picked is not null && _userByKey.TryGetValue(picked.UserKey, out var pickedUser))
+        {
+            <section class="hr-card">
+                <div class="hr-card-head">
+                    <div>
+                        <h2 class="hr-h2">جلسة @pickedUser.DisplayName</h2>
+                        <p class="hr-sub">@SessionSummary(picked)</p>
+                    </div>
+                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => OpenUser(pickedUser.Key, picked.Id)">
+                        <span>كل جلسات المستخدم</span>
+                        <Icon Name="chevron-left" Size="xs" />
+                    </button>
+                </div>
+                <div class="hr-card-body">
+                    @Steps(picked.Events.AsEnumerable().Reverse().ToList())
+                </div>
+            </section>
+        }
+        else if (lanes.Count > 0)
+        {
+            <p class="hr-meta hr-ua-hint">اختر شريط جلسة لقراءة خطواتها بالترتيب.</p>
+        }
+    </div>;
+
+    // ───────────────────────── User ─────────────────────────
+
+    private RenderFragment UserTab => @<div class="hr-stack-sm">
+        @{
+            var user = SelectedUser;
+        }
+        <section class="hr-card">
+            <div class="hr-toolbar">
+                <div class="hr-toolbar-field hr-ua-userpick">
+                    <label class="hr-field-label" for="ua-user">المستخدم</label>
+                    <select id="ua-user" class="hr-select" value="@user?.Key" @onchange="OnUserPicked">
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Key">@u.DisplayName@(u.Online ? " — متصل" : "")</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (user is not null)
+            {
+                <div class="hr-card-body hr-ua-who">
+                    <span class="hr-avatar hr-avatar-xl hr-ua-avatar @(user.Online ? "is-online" : null)" aria-hidden="true">@Initial(user.DisplayName)</span>
+                    <div class="hr-ua-who-text">
+                        <h2 class="hr-h1">
+                            @user.DisplayName
+                            @if (user.Online)
+                            {
+                                <span class="hr-badge hr-badge-ok"><span>متصل الآن</span></span>
+                            }
+                        </h2>
+                        <p class="hr-sub">
+                            <span class="hr-num" dir="ltr">@user.UserName</span>
+                            @if (!string.IsNullOrWhiteSpace(user.Role)) { <span> · @user.Role</span> }
+                            @if (!string.IsNullOrWhiteSpace(user.EmployeeId)) { <span> · رقم وظيفي <span class="hr-num">@user.EmployeeId</span></span> }
+                            <span> · @(user.Online ? $"في {user.CurrentPageTitle ?? "—"}" : $"آخر نشاط {RelativeTime(user.LastSeen)}")</span>
+                        </p>
+                    </div>
+                    <dl class="hr-ua-who-figs">
+                        <div><dt>الجلسات</dt><dd class="hr-num">@user.Sessions.ToString("N0")</dd></div>
+                        <div><dt>وقت الاستخدام</dt><dd class="hr-num">@Short(user.ActiveSeconds)</dd></div>
+                        <div><dt>صفحات</dt><dd class="hr-num">@user.Pages.ToString("N0")</dd></div>
+                        <div><dt>بحث وقوائم</dt><dd class="hr-num">@((user.Searches + user.Dropdowns).ToString("N0"))</dd></div>
+                        <div><dt>نقرات</dt><dd class="hr-num">@user.Clicks.ToString("N0")</dd></div>
+                        <div class="@(user.SecurityFailed > 0 ? "is-danger" : null)"><dt>أمنية@(user.SecurityFailed > 0 ? $" ({user.SecurityFailed} فاشلة)" : "")</dt><dd class="hr-num">@user.Security.ToString("N0")</dd></div>
+                    </dl>
+                </div>
+            }
+        </section>
+
+        @if (user is not null)
+        {
+            var sessions = _sessionsByUser.GetValueOrDefault(user.Key) ?? new List<Session>();
+            var session = sessions.FirstOrDefault(s => s.Id == _userSessionId) ?? sessions.FirstOrDefault();
+            <div class="hr-ua-split is-reverse">
+                <div class="hr-stack-sm">
+                    <section class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h2 class="hr-h2">الجلسات</h2>
+                                <p class="hr-sub">الأحدث أولاً. كل شريط مقسّم على الصفحات بحسب الوقت.</p>
+                            </div>
+                        </div>
+                        <ul class="hr-ua-sessions" role="list">
+                            @foreach (var s in sessions.Take(40))
+                            {
+                                var on = s.Id == session?.Id;
+                                <li @key="s.Id">
+                                    <button type="button" class="hr-ua-session @(on ? "is-on" : null)"
+                                            aria-pressed="@(on ? "true" : "false")" @onclick="() => _userSessionId = s.Id">
+                                        <span class="hr-ua-session-top">
+                                            <span class="hr-cell-strong">@DayName(s.Start)</span>
+                                            <span><span class="hr-num">@s.Start.ToLocalTime().ToString("HH:mm")</span> إلى @(s.Open ? "الآن" : "")<span class="hr-num">@(s.Open ? "" : s.End.ToLocalTime().ToString("HH:mm"))</span></span>
+                                        </span>
+                                        <span class="hr-ua-ribbon is-static" aria-hidden="true">@Ribbon(s)</span>
+                                        <span class="hr-cell-sub">@Short((int)(s.End - s.Start).TotalSeconds) · <span class="hr-num">@s.Segments.Select(x => x.Group).Distinct().Count()</span> صفحات · <span class="hr-num">@s.Events.Count</span> حركة@(s.LoggedOut ? " · سجّل الخروج" : "")</span>
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                        @if (sessions.Count > 40)
+                        {
+                            <div class="hr-card-foot"><p class="hr-meta">تُعرض أحدث <span class="hr-num">40</span> جلسة من <span class="hr-num">@sessions.Count</span>.</p></div>
+                        }
+                    </section>
+
+                    <section class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h2 class="hr-h2">صفحاته الأكثر استخداماً</h2>
+                                <p class="hr-sub">بحسب الوقت المقضي خلال «@RangeLabel».</p>
+                            </div>
+                        </div>
+                        <div class="hr-card-body">@PageBars(PageStatsFor(sessions).Take(6).ToList())</div>
+                    </section>
+                </div>
+
+                <section class="hr-card">
+                    @if (session is null)
+                    {
+                        <div class="hr-empty"><p class="hr-h3">لا جلسات لهذا المستخدم</p></div>
+                    }
+                    else
+                    {
+                        var steps = session.Events
+                            .Where(e => string.IsNullOrEmpty(_journeyCategoryFilter) || e.Category == _journeyCategoryFilter)
+                            .Reverse().Take(300).ToList();
+                        <div class="hr-card-head hr-ua-stepshead">
+                            <div>
+                                <h2 class="hr-h2">خطوات الجلسة</h2>
+                                <p class="hr-sub">@SessionSummary(session)</p>
+                            </div>
+                            @CategoryChips(_journeyCategoryFilter, key => _journeyCategoryFilter = key, null)
+                        </div>
+                        <div class="hr-card-body">
+                            @if (steps.Count == 0)
+                            {
+                                <p class="hr-viz-empty">لا خطوات من هذا النوع في الجلسة.</p>
+                            }
+                            else
+                            {
+                                @Steps(steps)
+                            }
                         </div>
                     }
-                </div>
+                </section>
             </div>
+        }
+    </div>;
 
-        </div>
-    }
+    // ───────────────────────── Shared fragments ─────────────────────────
 
-</div>
+    private RenderFragment Ribbon(Session s) => @<span class="hr-ua-ribbon-segs">
+        @foreach (var seg in s.Segments)
+        {
+            <span class="hr-ua-seg is-@SeriesOf(seg.Group)" style="flex-grow:@Math.Max(1, seg.Seconds)" title="@seg.Title — @Short(seg.Seconds)"></span>
+        }
+        @if (s.Segments.Count == 0)
+        {
+            <span class="hr-ua-seg is-other" style="flex-grow:1"></span>
+        }
+    </span>;
+
+    private RenderFragment PageLegend(IEnumerable<string> groups) => @<ul class="hr-ua-legend" role="list" aria-label="ألوان الصفحات">
+        @foreach (var g in groups.OrderBy(g => _seriesByGroup.TryGetValue(g, out var i) ? i : 99).DistinctBy(SeriesOf))
+        {
+            <li><span class="hr-viz-swatch is-@SeriesOf(g)" aria-hidden="true"></span>@(SeriesOf(g) == "other" ? "صفحات أخرى" : _groupTitles.GetValueOrDefault(g, g))</li>
+        }
+    </ul>;
+
+    private RenderFragment PageBars(IReadOnlyList<PageStat> rows) => @<div class="hr-viz-bars">
+        @if (rows.Count == 0)
+        {
+            <p class="hr-viz-empty">لم تُفتح أي صفحة في هذه الفترة.</p>
+        }
+        else
+        {
+            var max = Math.Max(1, rows.Max(r => r.Seconds));
+            <ol class="hr-viz-bars-list" aria-label="الصفحات بحسب الوقت المقضي">
+                @foreach (var p in rows)
+                {
+                    <li @key="p.Group" class="hr-viz-bar">
+                        <span class="hr-viz-bar-name" title="@p.Title"><span class="hr-viz-swatch is-@SeriesOf(p.Group)" aria-hidden="true"></span> @p.Title</span>
+                        <span class="hr-viz-bar-value"><span class="hr-num">@Short(p.Seconds)</span><span class="hr-viz-bar-pct"><span class="hr-num">@p.Visits</span> زيارة · <span class="hr-num">@p.Users</span> مستخدم</span></span>
+                        <span class="hr-viz-bar-track" aria-hidden="true"><span class="hr-viz-bar-fill" style="--v:@Css((double)p.Seconds / max)"></span></span>
+                    </li>
+                }
+            </ol>
+        }
+    </div>;
+
+    private RenderFragment ValueBars(IReadOnlyList<ValueStat> rows, string empty) => @<div class="hr-viz-bars is-dense">
+        @if (rows.Count == 0)
+        {
+            <p class="hr-viz-empty">@empty</p>
+        }
+        else
+        {
+            var max = Math.Max(1, rows.Max(r => r.Count));
+            <ol class="hr-viz-bars-list">
+                @foreach (var r in rows)
+                {
+                    <li @key="r.Label + r.Value" class="hr-viz-bar">
+                        <span class="hr-viz-bar-name" title="@r.Label: @r.Value"><span class="hr-ua-valuechip">@r.Value</span> <span class="hr-meta">@r.Label</span></span>
+                        <span class="hr-viz-bar-value"><span class="hr-num">@r.Count.ToString("N0")</span><span class="hr-viz-bar-pct">مرة</span></span>
+                        <span class="hr-viz-bar-track" aria-hidden="true"><span class="hr-viz-bar-fill" style="--v:@Css((double)r.Count / max)"></span></span>
+                    </li>
+                }
+            </ol>
+        }
+    </div>;
+
+    private RenderFragment CategoryChips(string current, Action<string> set, string? labelledBy) => @<div class="hr-chips" role="group" aria-labelledby="@labelledBy" aria-label="@(labelledBy is null ? "نوع الحركة" : null)">
+        @foreach (var cat in CategoryFilters)
+        {
+            <button type="button" class="hr-chip" aria-pressed="@(current == cat.Key ? "true" : "false")" @onclick="() => set(cat.Key)">
+                @if (cat.Key.Length > 0)
+                {
+                    <Icon Name="@CategoryIcon(cat.Key)" Size="xs" />
+                }
+                <span>@cat.Label</span>
+            </button>
+        }
+    </div>;
+
+    private RenderFragment CategoryTag(UserActivityEvent ev) => @<span class="hr-badge hr-badge--plain @(ev.Success ? null : "hr-badge-danger")">
+        <Icon Name="@(ev.Success ? CategoryIcon(ev.Category) : "exclamation-circle")" Size="xs" />
+        <span>@CategoryName(ev.Category)@(ev.Success ? "" : " · فاشلة")</span>
+    </span>;
+
+    private RenderFragment ValueCell(UserActivityEvent ev) => @<span>
+        @if (ev.Category == ActivityCategories.Navigation && ev.DurationSeconds is > 0)
+        {
+            <span class="hr-meta">قبلها @Short(ev.DurationSeconds.Value)</span>
+        }
+        else if (!string.IsNullOrWhiteSpace(ev.ValueText))
+        {
+            <span class="hr-ua-valuechip">@ev.ValueText</span>
+        }
+        else
+        {
+            <span class="hr-meta">—</span>
+        }
+    </span>;
+
+    private RenderFragment UserCell(UserRow u) => @<span class="hr-ua-usercell">
+        <span class="hr-avatar hr-avatar-sm hr-ua-avatar @(u.Online ? "is-online" : null)" aria-hidden="true">@Initial(u.DisplayName)</span>
+        <span>
+            <button type="button" class="hr-link hr-ua-linkbtn" @onclick="() => OpenUser(u.Key)">@u.DisplayName</button>
+            <span class="hr-cell-sub">@RoleLine(u)@(u.Online ? " · متصل" : "")</span>
+        </span>
+    </span>;
+
+    private RenderFragment Steps(IReadOnlyList<UserActivityEvent> events) => @<ol class="hr-ua-steps">
+        @foreach (var ev in events)
+        {
+            <li @key="ev.Id" class="hr-ua-step @(ev.Success ? null : "is-failed")">
+                <time class="hr-num" datetime="@ev.TimestampUtc.ToString("o")">@ev.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</time>
+                <span class="hr-ua-step-mark" aria-hidden="true"><Icon Name="@(ev.Success ? CategoryIcon(ev.Category) : "exclamation-circle")" Size="xs" /></span>
+                <div>
+                    <p class="hr-ua-step-title">
+                        <span class="hr-sr">@CategoryName(ev.Category):</span>
+                        @ev.ActionTitle
+                        @if (!ev.Success) { <span class="hr-badge hr-badge-danger">فاشلة</span> }
+                    </p>
+                    <p class="hr-ua-step-meta">
+                        @if (!string.IsNullOrWhiteSpace(ev.PagePath) && ev.Category != ActivityCategories.Navigation)
+                        {
+                            <span>@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(ev.ElementLabel))
+                        {
+                            <span>@ev.ElementLabel</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(ev.ValueText) && ev.Category != ActivityCategories.Navigation)
+                        {
+                            <span class="hr-ua-valuechip">@ev.ValueText</span>
+                        }
+                        @if (ev.Category == ActivityCategories.Navigation && ev.DurationSeconds is > 0)
+                        {
+                            <span>بعد @Short(ev.DurationSeconds.Value) في الصفحة السابقة</span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(ev.IpAddress))
+                        {
+                            <span class="hr-num" dir="ltr">@ev.IpAddress</span>
+                        }
+                    </p>
+                </div>
+            </li>
+        }
+    </ol>;
+}
 
 @code {
     private sealed record RangeOption(string Key, string Label);
+    private sealed record TabOption(string Key, string Label, string Icon);
     private sealed record CategoryOption(string Key, string Label);
-    private sealed record PageStatRow(string PagePath, string PageTitle, int VisitCount, int UniqueUsers, int TotalSeconds, int AverageSeconds);
-    private sealed record LabelValueStatRow(string Label, string Value, int Count);
-    private sealed record HourBucket(int Hour, int Count);
+    private sealed record ValueStat(string Label, string Value, int Count);
+    private sealed record PageStat(string Group, string Title, int Seconds, int Visits, int Users);
+    private sealed record Figure(string Label, string Value, string Sub, int[] History, string? Tone, string? HistoryOf = null);
+    private sealed record Lane(UserRow User, List<Session> Sessions);
 
-    private static readonly RangeOption[] _timeRanges =
+    private sealed record Segment(string Group, string Title, DateTimeOffset Start, DateTimeOffset End)
+    {
+        public int Seconds => (int)Math.Max(0, (End - Start).TotalSeconds);
+    }
+
+    private sealed class Session
+    {
+        public required string Id { get; init; }
+        public required string UserKey { get; init; }
+        public List<UserActivityEvent> Events { get; } = [];
+        public List<Segment> Segments { get; set; } = [];
+        public DateTimeOffset Start => Events[0].TimestampUtc;
+        public DateTimeOffset End { get; set; }
+        public bool Open { get; set; }
+        public bool LoggedOut { get; set; }
+    }
+
+    private sealed class UserRow
+    {
+        public required string Key { get; init; }
+        public string UserName { get; init; } = "";
+        public string DisplayName { get; init; } = "";
+        public string? EmployeeId { get; init; }
+        public string? Role { get; init; }
+        public bool Online { get; init; }
+        public DateTimeOffset LastSeen { get; init; }
+        public string? LastPageTitle { get; init; }
+        public string? CurrentPageTitle { get; init; }
+        public DateTimeOffset? CurrentPageSince { get; init; }
+        public DateTimeOffset? SessionStart { get; init; }
+        public int Sessions { get; init; }
+        public int ActiveSeconds { get; init; }
+        public int Pages { get; init; }
+        public int Searches { get; init; }
+        public int Dropdowns { get; init; }
+        public int Clicks { get; init; }
+        public int Security { get; init; }
+        public int SecurityFailed { get; init; }
+    }
+
+    private static readonly TimeSpan SessionGap = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan OnlineWindow = TimeSpan.FromMinutes(5);
+    private const int StreamCap = 400;
+    private static readonly CultureInfo ArabicCulture = CultureInfo.GetCultureInfo("ar-IQ");
+    private static readonly DayOfWeek[] WeekOrder =
+        [DayOfWeek.Sunday, DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday];
+
+    private static readonly RangeOption[] TimeRanges =
     [
         new("today", "اليوم"),
-        new("7d", "آخر ٧ أيام"),
-        new("30d", "آخر ٣٠ يوماً"),
-        new("all", "كل السجلات")
+        new("7d", "7 أيام"),
+        new("30d", "30 يوماً"),
+        new("all", "الكل")
     ];
 
-    private static readonly CategoryOption[] _categoryFilters =
+    private static readonly TabOption[] Tabs =
+    [
+        new("overview", "نظرة عامة", "chart-bar"),
+        new("live", "المباشر والسجل", "signal"),
+        new("day", "يوم العمل", "calendar-days"),
+        new("user", "مستخدم", "user-circle")
+    ];
+
+    private static readonly CategoryOption[] CategoryFilters =
     [
         new("", "الكل"),
         new(ActivityCategories.Auth, "الدخول والخروج"),
-        new(ActivityCategories.Navigation, "الصفحات والمدة"),
-        new(ActivityCategories.Dropdown, "القوائم المنسدلة"),
+        new(ActivityCategories.Navigation, "الصفحات"),
+        new(ActivityCategories.Dropdown, "القوائم"),
         new(ActivityCategories.Search, "البحث والكتابة"),
-        new(ActivityCategories.Click, "النقرات والأزرار"),
+        new(ActivityCategories.Click, "النقرات"),
         new(ActivityCategories.Security, "العمليات الأمنية")
     ];
 
     private string _selectedRange = "7d";
-    private string _activeTab = "journey";
+    private string _activeTab = "overview";
     private bool _autoRefresh = true;
+    private bool _loaded;
+    private bool _isRefreshing;
+    private bool _dbMergeFailed;
     private DateTime _lastRefreshedLocal = DateTime.Now;
     private Timer? _refreshTimer;
 
     private List<UserActivityEvent> _allRangeEvents = [];
-    private List<UserActivitySummaryDto> _userSummaries = [];
+    private List<UserRow> _users = [];
+    private List<UserRow> _onlineUsers = [];
+    private Dictionary<string, UserRow> _userByKey = [];
+    private Dictionary<string, List<Session>> _sessionsByUser = [];
+    private List<Session> _sessions = [];
+    private List<DateOnly> _days = [];
 
-    private string _userListSearch = string.Empty;
+    private List<Figure> _figures = [];
+    private List<string> _buckets = [];
+    private bool _bucketIsHour;
+    private int[,] _heat = new int[7, 24];
+    private int _heatMax;
+    private int _heatFromHour = 8;
+    private int _heatToHour = 16;
+    private List<PageStat> _pageStats = [];
+    private List<ValueStat> _topDropdowns = [];
+    private List<ValueStat> _topSearches = [];
+    private Dictionary<string, int> _seriesByGroup = [];
+    private Dictionary<string, string> _groupTitles = [];
+
     private string? _selectedUserKey;
-    private UserActivitySummaryDto? _selectedUserSummary;
+    private string? _userSessionId;
     private string _journeyCategoryFilter = string.Empty;
+    private DateOnly? _selectedDay;
+    private string? _daySessionId;
 
     private string _streamCategoryFilter = string.Empty;
     private string _streamUserFilter = string.Empty;
     private string _streamSearchQuery = string.Empty;
 
-    private int _onlineUsersCount;
-    private int _authEventsCount;
-    private int _navEventsCount;
-    private int _dropdownEventsCount;
-    private int _searchEventsCount;
-    private int _clickEventsCount;
-    private int _securityEventsCount;
+    private string RangeLabel => TimeRanges.First(r => r.Key == _selectedRange).Label;
 
-    private List<UserActivitySummaryDto> _filteredUserSummaries =>
-        string.IsNullOrWhiteSpace(_userListSearch)
-            ? _userSummaries
-            : _userSummaries.Where(u =>
-                u.UserName.Contains(_userListSearch, StringComparison.OrdinalIgnoreCase) ||
-                (u.EmployeeName?.Contains(_userListSearch, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (u.EmployeeId?.Contains(_userListSearch, StringComparison.OrdinalIgnoreCase) ?? false))
-              .ToList();
+    private UserRow? SelectedUser =>
+        (_selectedUserKey is not null && _userByKey.TryGetValue(_selectedUserKey, out var u) ? u : null) ?? _users.FirstOrDefault();
 
     protected override async Task OnInitializedAsync()
     {
@@ -810,9 +1055,19 @@
         StartOrStopTimer();
     }
 
+    private async Task RefreshNowAsync()
+    {
+        _isRefreshing = true;
+        try { await RefreshDataAsync(); }
+        finally { _isRefreshing = false; }
+    }
+
     private async Task ChangeRangeAsync(string rangeKey)
     {
         _selectedRange = rangeKey;
+        _selectedDay = null;
+        _daySessionId = null;
+        _userSessionId = null;
         await RefreshDataAsync();
     }
 
@@ -821,7 +1076,7 @@
         var nowUtc = DateTimeOffset.UtcNow;
         return _selectedRange switch
         {
-            "today" => new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero),
+            "today" => new DateTimeOffset(DateTime.Today).ToUniversalTime(),
             "7d" => nowUtc.AddDays(-7),
             "30d" => nowUtc.AddDays(-30),
             _ => null
@@ -835,7 +1090,7 @@
         // 1. Live & JSONL events from UserActivityService
         var memoryEvents = ActivityService.GetRecentEvents(fromUtc: fromUtc, maxCount: 8000).ToList();
 
-        // 2. Also merge historical AuditLogs from SQLite so historical logins/actions are always included
+        // 2. Merge historical AuditLogs so logins and security actions from before the last restart are included
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
@@ -858,8 +1113,7 @@
             foreach (var log in dbLogs)
             {
                 var ts = log.Timestamp;
-                var dedupKey = $"{log.Action}|{log.UserId}|{ts.ToUnixTimeSeconds()}";
-                if (existingKeys.Contains(dedupKey))
+                if (existingKeys.Contains($"{log.Action}|{log.UserId}|{ts.ToUnixTimeSeconds()}"))
                 {
                     continue;
                 }
@@ -884,96 +1138,333 @@
                     Success = log.Success
                 });
             }
+            _dbMergeFailed = false;
         }
         catch
         {
-            // Keep fast in-memory stream if DB is busy
+            // Keep the in-memory stream; the page says the audit log is missing.
+            _dbMergeFailed = true;
         }
 
         _allRangeEvents = memoryEvents
+            .Where(e => !string.IsNullOrWhiteSpace(e.UserName) || !string.IsNullOrWhiteSpace(e.UserId))
             .OrderByDescending(e => e.TimestampUtc)
             .ToList();
 
-        // Rebuild user summaries across merged events
-        var onlineCutoff = DateTimeOffset.UtcNow.AddMinutes(-5);
-        _userSummaries = _allRangeEvents
-            .Where(e => !string.IsNullOrWhiteSpace(e.UserName) || !string.IsNullOrWhiteSpace(e.UserId))
-            .GroupBy(e => !string.IsNullOrWhiteSpace(e.UserName) ? e.UserName.ToLowerInvariant() : e.UserId.ToLowerInvariant())
-            .Select(g =>
-            {
-                var ordered = g.OrderBy(x => x.TimestampUtc).ToList();
-                var first = ordered[0];
-                var last = ordered[^1];
-                return new UserActivitySummaryDto(
-                    UserId: last.UserId,
-                    UserName: string.IsNullOrWhiteSpace(last.UserName) ? last.UserId : last.UserName,
-                    EmployeeId: ordered.Select(x => x.EmployeeId).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
-                    EmployeeName: ordered.Select(x => x.EmployeeName).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
-                    UserRole: ordered.Select(x => x.UserRole).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
-                    TotalEvents: ordered.Count,
-                    LoginCount: ordered.Count(x => x.Category == ActivityCategories.Auth && x.ActionCode.Contains("LOGIN", StringComparison.OrdinalIgnoreCase)),
-                    PageViewCount: ordered.Count(x => x.Category == ActivityCategories.Navigation && x.ActionCode == "PAGE_VIEW"),
-                    SearchCount: ordered.Count(x => x.Category == ActivityCategories.Search),
-                    DropdownCount: ordered.Count(x => x.Category == ActivityCategories.Dropdown),
-                    ClickCount: ordered.Count(x => x.Category == ActivityCategories.Click),
-                    SecurityCount: ordered.Count(x => x.Category == ActivityCategories.Security),
-                    FirstSeenUtc: first.TimestampUtc,
-                    LastSeenUtc: last.TimestampUtc,
-                    LastPagePath: ordered.Select(x => x.PagePath).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
-                    LastActionTitle: last.ActionTitle,
-                    IsOnlineNow: last.TimestampUtc >= onlineCutoff && !string.Equals(last.ActionCode, "USER_LOGOUT", StringComparison.OrdinalIgnoreCase)
-                );
-            })
-            .OrderByDescending(u => u.IsOnlineNow)
-            .ThenByDescending(u => u.LastSeenUtc)
-            .ToList();
+        BuildSessions();
+        BuildUsers();
+        BuildOverview();
 
-        _onlineUsersCount = _userSummaries.Count(u => u.IsOnlineNow);
-        _authEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Auth);
-        _navEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Navigation && e.ActionCode == "PAGE_VIEW");
-        _dropdownEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Dropdown);
-        _searchEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Search);
-        _clickEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Click);
-        _securityEventsCount = _allRangeEvents.Count(e => e.Category == ActivityCategories.Security);
-
-        if (string.IsNullOrWhiteSpace(_selectedUserKey) && _userSummaries.Count > 0)
+        _days = _sessions.Select(s => DateOnly.FromDateTime(s.Start.LocalDateTime)).Distinct().OrderDescending().ToList();
+        if (_selectedDay is { } day && !_days.Contains(day))
         {
-            _selectedUserSummary = _userSummaries[0];
-            _selectedUserKey = _selectedUserSummary.UserName;
-        }
-        else if (!string.IsNullOrWhiteSpace(_selectedUserKey))
-        {
-            _selectedUserSummary = _userSummaries.FirstOrDefault(u =>
-                string.Equals(u.UserName, _selectedUserKey, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(u.UserId, _selectedUserKey, StringComparison.OrdinalIgnoreCase));
+            _selectedDay = null;
         }
 
+        _loaded = true;
         _lastRefreshedLocal = DateTime.Now;
     }
 
-    private void SelectUserForJourney(UserActivitySummaryDto user)
+    // A session is one user's run of events with no gap over 30 minutes; a successful
+    // login opens a new one and a logout closes it.
+    private void BuildSessions()
     {
-        _selectedUserSummary = user;
-        _selectedUserKey = user.UserName;
+        var nowUtc = DateTimeOffset.UtcNow;
+        _sessions = [];
+        _sessionsByUser = new(StringComparer.Ordinal);
+
+        foreach (var group in _allRangeEvents.GroupBy(KeyOf))
+        {
+            var list = new List<Session>();
+            Session? current = null;
+
+            foreach (var ev in group.OrderBy(e => e.TimestampUtc))
+            {
+                var isLogin = ev.Category == ActivityCategories.Auth && ev.Success
+                    && ev.ActionCode.Contains("LOGIN", StringComparison.OrdinalIgnoreCase)
+                    && !ev.ActionCode.Contains("LOGOUT", StringComparison.OrdinalIgnoreCase);
+
+                if (current is null || ev.TimestampUtc - current.Events[^1].TimestampUtc > SessionGap || (isLogin && current.Events.Count > 0))
+                {
+                    current = new Session { Id = $"{group.Key}|{ev.TimestampUtc.ToUnixTimeMilliseconds()}", UserKey = group.Key };
+                    list.Add(current);
+                }
+
+                current.Events.Add(ev);
+
+                if (ev.ActionCode.Equals("USER_LOGOUT", StringComparison.OrdinalIgnoreCase))
+                {
+                    current.LoggedOut = true;
+                    current = null;
+                }
+            }
+
+            foreach (var s in list)
+            {
+                var last = s.Events[^1].TimestampUtc;
+                s.Open = !s.LoggedOut && nowUtc - last <= OnlineWindow;
+                s.End = s.Open ? nowUtc : last;
+                s.Segments = BuildSegments(s);
+            }
+
+            list.Reverse();
+            _sessionsByUser[group.Key] = list;
+            _sessions.AddRange(list);
+        }
+
+        // Pages keep one colour on every tab: the five with the most time get a series each.
+        var totals = _sessions.SelectMany(s => s.Segments)
+            .GroupBy(s => s.Group)
+            .Select(g => (Group: g.Key, Title: g.First().Title, Seconds: g.Sum(x => x.Seconds)))
+            .OrderByDescending(x => x.Seconds)
+            .ToList();
+        _groupTitles = totals.ToDictionary(t => t.Group, t => t.Title);
+        _seriesByGroup = totals.Take(5).Select((t, i) => (t.Group, i)).ToDictionary(x => x.Group, x => x.i + 1);
     }
 
-    private List<UserActivityEvent> GetSelectedUserJourneyEvents()
+    private static List<Segment> BuildSegments(Session s)
     {
-        if (_selectedUserSummary is null)
+        var segments = new List<Segment>();
+        string? group = null;
+        string? title = null;
+        DateTimeOffset start = default;
+
+        foreach (var ev in s.Events.Where(e => !string.IsNullOrWhiteSpace(e.PagePath)))
         {
-            return [];
+            var g = PageGroup(ev.PagePath);
+            if (g == group) continue;
+            if (group is not null) segments.Add(new Segment(group, title!, start, ev.TimestampUtc));
+            group = g;
+            title = GroupTitle(ev);
+            start = ev.TimestampUtc;
         }
 
-        var query = _allRangeEvents.Where(e =>
-            string.Equals(e.UserName, _selectedUserSummary.UserName, StringComparison.OrdinalIgnoreCase) ||
-            (!string.IsNullOrWhiteSpace(_selectedUserSummary.UserId) && string.Equals(e.UserId, _selectedUserSummary.UserId, StringComparison.OrdinalIgnoreCase)));
+        if (group is not null) segments.Add(new Segment(group, title!, start, s.End));
+        return segments;
+    }
 
-        if (!string.IsNullOrWhiteSpace(_journeyCategoryFilter))
+    private void BuildUsers()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        _users = _sessionsByUser.Select(kv =>
+            {
+                var sessions = kv.Value;
+                var events = sessions.SelectMany(s => s.Events).ToList();
+                var latest = sessions[0];
+                var lastEv = latest.Events[^1];
+                var online = latest.Open;
+                var currentSeg = online ? latest.Segments.LastOrDefault() : null;
+                var name = events.Select(e => e.EmployeeName).LastOrDefault(n => !string.IsNullOrWhiteSpace(n));
+                var userName = string.IsNullOrWhiteSpace(lastEv.UserName) ? lastEv.UserId : lastEv.UserName;
+                return new UserRow
+                {
+                    Key = kv.Key,
+                    UserName = userName,
+                    DisplayName = string.IsNullOrWhiteSpace(name) ? userName : name!,
+                    EmployeeId = events.Select(e => e.EmployeeId).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+                    Role = events.Select(e => e.UserRole).LastOrDefault(x => !string.IsNullOrWhiteSpace(x)),
+                    Online = online,
+                    LastSeen = lastEv.TimestampUtc,
+                    LastPageTitle = latest.Segments.LastOrDefault()?.Title,
+                    CurrentPageTitle = currentSeg?.Title,
+                    CurrentPageSince = currentSeg?.Start,
+                    SessionStart = latest.Start,
+                    Sessions = sessions.Count,
+                    ActiveSeconds = sessions.Sum(s => (int)(s.End - s.Start).TotalSeconds),
+                    Pages = events.Count(e => e.Category == ActivityCategories.Navigation && e.ActionCode == "PAGE_VIEW"),
+                    Searches = events.Count(e => e.Category == ActivityCategories.Search),
+                    Dropdowns = events.Count(e => e.Category == ActivityCategories.Dropdown),
+                    Clicks = events.Count(e => e.Category == ActivityCategories.Click),
+                    Security = events.Count(e => e.Category == ActivityCategories.Security),
+                    SecurityFailed = events.Count(e => !e.Success)
+                };
+            })
+            .OrderByDescending(u => u.Online)
+            .ThenByDescending(u => u.LastSeen)
+            .ToList();
+
+        _userByKey = _users.ToDictionary(u => u.Key, StringComparer.Ordinal);
+        _onlineUsers = _users.Where(u => u.Online).ToList();
+    }
+
+    private void BuildOverview()
+    {
+        var nowLocal = DateTime.Now;
+
+        // Buckets: hours of today, or days of the range (the last 30 at most).
+        _bucketIsHour = _selectedRange == "today";
+        Func<DateTimeOffset, int> bucketOf;
+        if (_bucketIsHour)
         {
-            query = query.Where(e => string.Equals(e.Category, _journeyCategoryFilter, StringComparison.OrdinalIgnoreCase));
+            var hours = nowLocal.Hour + 1;
+            _buckets = Enumerable.Range(0, hours).Select(h => $"{h:00}:00").ToList();
+            bucketOf = t => t.LocalDateTime.Date == nowLocal.Date ? t.LocalDateTime.Hour : -1;
+        }
+        else
+        {
+            var earliest = _allRangeEvents.Count > 0 ? _allRangeEvents[^1].TimestampUtc.LocalDateTime.Date : nowLocal.Date;
+            var span = Math.Clamp((nowLocal.Date - earliest).Days + 1, 1, 30);
+            var first = nowLocal.Date.AddDays(1 - span);
+            _buckets = Enumerable.Range(0, span).Select(i => first.AddDays(i).ToString("dddd d/M", ArabicCulture)).ToList();
+            bucketOf = t => (t.LocalDateTime.Date - first).Days;
         }
 
-        return query.OrderByDescending(e => e.TimestampUtc).Take(300).ToList();
+        int[] Series(IEnumerable<DateTimeOffset> times)
+        {
+            var arr = new int[_buckets.Count];
+            foreach (var t in times)
+            {
+                var i = bucketOf(t);
+                if (i >= 0 && i < arr.Length) arr[i]++;
+            }
+            return arr;
+        }
+
+        int[] ActiveUsers()
+        {
+            var arr = new int[_buckets.Count];
+            foreach (var g in _allRangeEvents.GroupBy(KeyOf))
+            {
+                foreach (var i in g.Select(e => bucketOf(e.TimestampUtc)).Distinct())
+                {
+                    if (i >= 0 && i < arr.Length) arr[i]++;
+                }
+            }
+            return arr;
+        }
+
+        var pageViews = _allRangeEvents.Where(e => e.Category == ActivityCategories.Navigation && e.ActionCode == "PAGE_VIEW").ToList();
+        var searches = _allRangeEvents.Count(e => e.Category == ActivityCategories.Search);
+        var dropdowns = _allRangeEvents.Count(e => e.Category == ActivityCategories.Dropdown);
+        var security = _allRangeEvents.Where(e => e.Category == ActivityCategories.Security || !e.Success).ToList();
+        var failed = security.Count(e => !e.Success);
+        var avgSession = _sessions.Count == 0 ? 0 : (int)_sessions.Average(s => (s.End - s.Start).TotalSeconds);
+
+        _figures =
+        [
+            new("المتصلون الآن", _onlineUsers.Count.ToString("N0"), $"الأعمدة: النشطون {(_bucketIsHour ? "كل ساعة" : "كل يوم")} من {_users.Count:N0}", ActiveUsers(), _onlineUsers.Count > 0 ? "ok" : null, "المستخدمون النشطون"),
+            new("الجلسات", _sessions.Count.ToString("N0"), $"متوسط الجلسة {Short(avgSession)}", Series(_sessions.Select(s => s.Start)), null),
+            new("الصفحات المفتوحة", pageViews.Count.ToString("N0"), $"{_groupTitles.Count:N0} صفحة مختلفة", Series(pageViews.Select(e => e.TimestampUtc)), null),
+            new("البحث والقوائم", (searches + dropdowns).ToString("N0"), $"{searches:N0} بحث · {dropdowns:N0} قائمة",
+                Series(_allRangeEvents.Where(e => e.Category is ActivityCategories.Search or ActivityCategories.Dropdown).Select(e => e.TimestampUtc)), null),
+            new("العمليات الأمنية", security.Count.ToString("N0"), failed > 0 ? $"{failed:N0} محاولة فاشلة" : "لا محاولات فاشلة", Series(security.Select(e => e.TimestampUtc)), failed > 0 ? "danger" : null)
+        ];
+
+        // Weekday × hour rhythm, trimmed to the hours that have activity (never narrower than 08–16).
+        _heat = new int[7, 24];
+        foreach (var ev in _allRangeEvents)
+        {
+            var t = ev.TimestampUtc.LocalDateTime;
+            _heat[(int)t.DayOfWeek, t.Hour]++;
+        }
+        var activeHours = Enumerable.Range(0, 24).Where(h => Enumerable.Range(0, 7).Any(d => _heat[d, h] > 0)).ToList();
+        _heatFromHour = Math.Min(8, activeHours.DefaultIfEmpty(8).Min());
+        _heatToHour = Math.Max(16, activeHours.DefaultIfEmpty(16).Max());
+        _heatMax = _heat.Cast<int>().DefaultIfEmpty(0).Max();
+
+        _pageStats = PageStatsFor(_sessions);
+
+        _topDropdowns = TopValues(ActivityCategories.Dropdown, "قائمة منسدلة");
+        _topSearches = TopValues(ActivityCategories.Search, "حقل بحث");
+    }
+
+    private static List<PageStat> PageStatsFor(IEnumerable<Session> sessions) =>
+        sessions.SelectMany(s => s.Segments.Select(seg => (seg, s.UserKey)))
+            .GroupBy(x => x.seg.Group)
+            .Select(g => new PageStat(
+                g.Key,
+                g.First().seg.Title,
+                g.Sum(x => x.seg.Seconds),
+                g.Count(),
+                g.Select(x => x.UserKey).Distinct().Count()))
+            .OrderByDescending(p => p.Seconds)
+            .ThenByDescending(p => p.Visits)
+            .ToList();
+
+    private List<ValueStat> TopValues(string category, string fallbackLabel) =>
+        _allRangeEvents
+            .Where(e => e.Category == category && !string.IsNullOrWhiteSpace(e.ValueText))
+            .GroupBy(e => $"{e.ElementLabel ?? fallbackLabel}|{e.ValueText}")
+            .Select(g => new ValueStat(g.First().ElementLabel ?? fallbackLabel, g.First().ValueText!, g.Count()))
+            .OrderByDescending(x => x.Count)
+            .Take(8)
+            .ToList();
+
+    private List<Lane> DayLanes(DateOnly day) =>
+        _sessions
+            .Where(s => DateOnly.FromDateTime(s.Start.LocalDateTime) == day)
+            .GroupBy(s => s.UserKey)
+            .Where(g => _userByKey.ContainsKey(g.Key))
+            .Select(g => new Lane(_userByKey[g.Key], g.OrderBy(s => s.Start).ToList()))
+            .OrderBy(l => l.Sessions[0].Start)
+            .ToList();
+
+    private static (int From, int To) DayHours(List<Lane> lanes)
+    {
+        if (lanes.Count == 0) return (8, 16);
+        var sessions = lanes.SelectMany(l => l.Sessions).ToList();
+        var from = Math.Min(8, sessions.Min(s => s.Start.LocalDateTime.Hour));
+        var lastEnd = sessions.Max(s => s.End.LocalDateTime);
+        var to = Math.Max(16, Math.Min(24, lastEnd.Hour + 1));
+        if (lastEnd.Date > sessions.Min(s => s.Start.LocalDateTime.Date)) to = 24;
+        return (from, to);
+    }
+
+    private static TimeSpan LocalOffset(DateOnly day) => TimeZoneInfo.Local.GetUtcOffset(day.ToDateTime(new TimeOnly(12, 0)));
+
+    private void SelectDay(int index)
+    {
+        if (index < 0 || index >= _days.Count) return;
+        _selectedDay = _days[index];
+        _daySessionId = null;
+    }
+
+    private void OnDayPicked(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse(e.Value?.ToString(), CultureInfo.InvariantCulture, out var day))
+        {
+            _selectedDay = day;
+            _daySessionId = null;
+        }
+    }
+
+    private void OnUserPicked(ChangeEventArgs e)
+    {
+        _selectedUserKey = e.Value?.ToString();
+        _userSessionId = null;
+    }
+
+    // Tabs follow the ARIA pattern: one tab in the Tab order, arrows move along the row
+    // (ArrowLeft is "next" in RTL), Home and End jump to the ends.
+    private async Task OnTabKeyAsync(KeyboardEventArgs e)
+    {
+        var i = Array.FindIndex(Tabs, t => t.Key == _activeTab);
+        var next = e.Key switch
+        {
+            "ArrowLeft" => (i + 1) % Tabs.Length,
+            "ArrowRight" => (i - 1 + Tabs.Length) % Tabs.Length,
+            "Home" => 0,
+            "End" => Tabs.Length - 1,
+            _ => -1
+        };
+        if (next < 0) return;
+        _activeTab = Tabs[next].Key;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval", $"document.getElementById('ua-tab-{_activeTab}')?.focus()");
+    }
+
+    private void OpenUser(string key, string? sessionId = null)
+    {
+        _selectedUserKey = key;
+        _userSessionId = sessionId;
+        _activeTab = "user";
+    }
+
+    private void ClearStreamFilters()
+    {
+        _streamCategoryFilter = string.Empty;
+        _streamUserFilter = string.Empty;
+        _streamSearchQuery = string.Empty;
     }
 
     private List<UserActivityEvent> GetFilteredStreamEvents()
@@ -987,9 +1478,7 @@
 
         if (!string.IsNullOrWhiteSpace(_streamUserFilter))
         {
-            query = query.Where(e =>
-                string.Equals(e.UserName, _streamUserFilter, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(e.UserId, _streamUserFilter, StringComparison.OrdinalIgnoreCase));
+            query = query.Where(e => KeyOf(e) == _streamUserFilter);
         }
 
         if (!string.IsNullOrWhiteSpace(_streamSearchQuery))
@@ -1008,80 +1497,11 @@
         return query.ToList();
     }
 
-    private List<PageStatRow> GetTopPagesStats()
-    {
-        return _allRangeEvents
-            .Where(e => e.Category == ActivityCategories.Navigation && !string.IsNullOrWhiteSpace(e.PagePath))
-            .GroupBy(e => e.PagePath!.ToLowerInvariant())
-            .Select(g =>
-            {
-                var visits = g.Count(x => x.ActionCode == "PAGE_VIEW");
-                var totalSecs = g.Where(x => x.DurationSeconds is > 0).Sum(x => x.DurationSeconds ?? 0);
-                var effectiveVisits = Math.Max(1, visits);
-                var first = g.First();
-                return new PageStatRow(
-                    PagePath: first.PagePath!,
-                    PageTitle: first.PageTitle ?? UserActivityService.GetArabicPageTitle(first.PagePath),
-                    VisitCount: effectiveVisits,
-                    UniqueUsers: g.Select(x => x.UserName).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                    TotalSeconds: totalSecs,
-                    AverageSeconds: totalSecs / effectiveVisits);
-            })
-            .OrderByDescending(p => p.VisitCount)
-            .ThenByDescending(p => p.TotalSeconds)
-            .Take(10)
-            .ToList();
-    }
-
-    private List<LabelValueStatRow> GetTopDropdownStats()
-    {
-        return _allRangeEvents
-            .Where(e => e.Category == ActivityCategories.Dropdown && !string.IsNullOrWhiteSpace(e.ValueText))
-            .GroupBy(e => $"{e.ElementLabel ?? "قائمة"}|{e.ValueText}")
-            .Select(g =>
-            {
-                var f = g.First();
-                return new LabelValueStatRow(f.ElementLabel ?? "قائمة منسدلة", f.ValueText ?? "", g.Count());
-            })
-            .OrderByDescending(x => x.Count)
-            .Take(8)
-            .ToList();
-    }
-
-    private List<LabelValueStatRow> GetTopSearchStats()
-    {
-        return _allRangeEvents
-            .Where(e => e.Category == ActivityCategories.Search && !string.IsNullOrWhiteSpace(e.ValueText))
-            .GroupBy(e => $"{e.ElementLabel ?? "حقل بحث"}|{e.ValueText}")
-            .Select(g =>
-            {
-                var f = g.First();
-                return new LabelValueStatRow(f.ElementLabel ?? "حقل بحث", f.ValueText ?? "", g.Count());
-            })
-            .OrderByDescending(x => x.Count)
-            .Take(8)
-            .ToList();
-    }
-
-    private List<HourBucket> GetHourlyDistribution()
-    {
-        var counts = new int[24];
-        foreach (var ev in _allRangeEvents)
-        {
-            var localHour = ev.TimestampUtc.ToLocalTime().Hour;
-            if (localHour is >= 0 and < 24)
-            {
-                counts[localHour]++;
-            }
-        }
-        return Enumerable.Range(0, 24).Select(h => new HourBucket(h, counts[h])).ToList();
-    }
-
     private async Task ExportCsvAsync()
     {
         var rows = GetFilteredStreamEvents();
         var sb = new StringBuilder();
-        sb.AppendLine("Timestamp,UserName,EmployeeName,Role,Category,ActionTitle,PageTitle,PagePath,ElementLabel,ValueText,DurationSeconds,IpAddress");
+        sb.AppendLine("Timestamp,UserName,EmployeeName,Role,Category,ActionTitle,PageTitle,PagePath,ElementLabel,ValueText,DurationSeconds,IpAddress,Success");
 
         foreach (var r in rows)
         {
@@ -1090,14 +1510,15 @@
                 EscapeCsv(r.UserName),
                 EscapeCsv(r.EmployeeName),
                 EscapeCsv(r.UserRole),
-                EscapeCsv(GetCategoryArabicName(r.Category)),
+                EscapeCsv(CategoryName(r.Category)),
                 EscapeCsv(r.ActionTitle),
                 EscapeCsv(r.PageTitle ?? UserActivityService.GetArabicPageTitle(r.PagePath)),
                 EscapeCsv(r.PagePath),
                 EscapeCsv(r.ElementLabel),
                 EscapeCsv(r.ValueText),
                 r.DurationSeconds?.ToString() ?? "",
-                EscapeCsv(r.IpAddress)));
+                EscapeCsv(r.IpAddress),
+                r.Success ? "true" : "false"));
         }
 
         var csvBytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
@@ -1111,58 +1532,109 @@
         return $"\"{val.Replace("\"", "\"\"")}\"";
     }
 
-    private static string GetCategoryArabicName(string category) => category switch
+    // ───────────────────────── Formatting ─────────────────────────
+
+    private static string KeyOf(UserActivityEvent e) =>
+        (!string.IsNullOrWhiteSpace(e.UserName) ? e.UserName : e.UserId).ToLowerInvariant();
+
+    private string DisplayNameOf(UserActivityEvent e) =>
+        _userByKey.TryGetValue(KeyOf(e), out var u) ? u.DisplayName
+        : string.IsNullOrWhiteSpace(e.EmployeeName) ? e.UserName : e.EmployeeName;
+
+    private static string PageGroup(string? path)
+    {
+        var clean = (path ?? "").Split('?', '#')[0].Trim('/').ToLowerInvariant();
+        if (clean.Length == 0) return "/";
+        var slash = clean.IndexOf('/');
+        return slash < 0 ? clean : clean[..slash];
+    }
+
+    private static readonly Regex TrailingParens = new(@"\s*\([^)]*\)\s*$", RegexOptions.Compiled);
+
+    // "ملف الموظف (10442)" and "ملف الموظف (10391)" are one page for dwell and colour.
+    private static string GroupTitle(UserActivityEvent ev) =>
+        TrailingParens.Replace(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath), "");
+
+    private string SeriesOf(string group) =>
+        _seriesByGroup.TryGetValue(group, out var i) ? $"s{i}" : "other";
+
+    private static string CategoryName(string category) => category switch
     {
         ActivityCategories.Auth => "دخول / خروج",
-        ActivityCategories.Navigation => "تصفح صفحة",
-        ActivityCategories.Dropdown => "قائمة منسدلة",
+        ActivityCategories.Navigation => "صفحة",
+        ActivityCategories.Dropdown => "قائمة",
         ActivityCategories.Search => "بحث / إدخال",
-        ActivityCategories.Click => "نقر عنصر",
+        ActivityCategories.Click => "نقر",
         ActivityCategories.Security => "عملية أمنية",
         _ => category
     };
 
-    private static string GetCategoryBadgeClass(string category) => category switch
+    private static string CategoryIcon(string category) => category switch
     {
-        ActivityCategories.Auth => "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
-        ActivityCategories.Navigation => "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
-        ActivityCategories.Dropdown => "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-        ActivityCategories.Search => "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-        ActivityCategories.Click => "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300",
-        ActivityCategories.Security => "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-        _ => "bg-slate-100 text-slate-700"
+        ActivityCategories.Auth => "arrow-right-on-rectangle",
+        ActivityCategories.Navigation => "document-text",
+        ActivityCategories.Dropdown => "adjustments-horizontal",
+        ActivityCategories.Search => "magnifying-glass",
+        ActivityCategories.Click => "squares-2x2",
+        ActivityCategories.Security => "shield-check",
+        _ => "question-mark-circle"
     };
 
-    private static string GetCategoryDotColor(string category) => category switch
-    {
-        ActivityCategories.Auth => "bg-blue-600",
-        ActivityCategories.Navigation => "bg-violet-600",
-        ActivityCategories.Dropdown => "bg-amber-500",
-        ActivityCategories.Search => "bg-emerald-500",
-        ActivityCategories.Click => "bg-slate-500",
-        ActivityCategories.Security => "bg-rose-600",
-        _ => "bg-indigo-500"
-    };
+    private static string RoleLine(UserRow u) =>
+        string.Join(" · ", new[] { u.UserName, u.Role }.Where(x => !string.IsNullOrWhiteSpace(x)));
 
-    private static string FormatDuration(int seconds)
+    private static string Initial(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "؟" : name.Trim()[..1].ToUpperInvariant();
+
+    private string SessionLabel(UserRow u, Session s) =>
+        $"{u.DisplayName}: {s.Start.ToLocalTime():HH:mm} إلى {(s.Open ? "الآن" : s.End.ToLocalTime().ToString("HH:mm"))}، {Short((int)(s.End - s.Start).TotalSeconds)}، "
+        + string.Join("، ", s.Segments.GroupBy(x => x.Title).Select(g => $"{g.Key} {Short(g.Sum(x => x.Seconds))}"));
+
+    private static string SessionSummary(Session s) =>
+        $"{DayName(s.Start)} من {s.Start.ToLocalTime():HH:mm} إلى {(s.Open ? "الآن" : s.End.ToLocalTime().ToString("HH:mm"))} · "
+        + $"{Short((int)(s.End - s.Start).TotalSeconds)} · {s.Events.Count:N0} حركة"
+        + (s.LoggedOut ? " · انتهت بتسجيل الخروج" : s.Open ? " · جارية" : "");
+
+    private static string DayName(DateTimeOffset t)
     {
-        if (seconds <= 0) return "أقل من ثانية";
-        if (seconds < 60) return $"{seconds} ثانية";
-        var mins = seconds / 60;
-        var remSecs = seconds % 60;
-        if (mins < 60) return remSecs > 0 ? $"{mins} د و {remSecs} ث" : $"{mins} دقيقة";
-        var hours = mins / 60;
-        var remMins = mins % 60;
-        return $"{hours} ساعة و {remMins} د";
+        var d = t.LocalDateTime.Date;
+        if (d == DateTime.Today) return "اليوم";
+        if (d == DateTime.Today.AddDays(-1)) return "أمس";
+        return d.ToString("dddd d MMMM", ArabicCulture);
     }
 
-    private static string FormatRelativeTime(DateTimeOffset utc)
+    private string HistoryLabel(Figure fig) =>
+        $"{fig.HistoryOf ?? fig.Label} بحسب {(_bucketIsHour ? "الساعة" : "اليوم")}: "
+        + string.Join("، ", _buckets.Select((b, i) => $"{b} {fig.History[i]:N0}"));
+
+    private static int Depth(int n, int max)
+    {
+        if (n <= 0 || max <= 0) return 0;
+        return Math.Clamp((int)Math.Ceiling(n * 5.0 / max), 1, 5);
+    }
+
+    private static string Compact(int n) => n >= 1000 ? $"{n / 1000.0:0.#}k" : n.ToString();
+
+    private static string Css(double v) => Math.Clamp(v, 0, 1).ToString("0.####", CultureInfo.InvariantCulture);
+
+    private static string Short(int seconds)
+    {
+        if (seconds < 60) return $"{Math.Max(0, seconds)} ث";
+        var mins = seconds / 60;
+        if (mins < 60) return $"{mins} د";
+        return mins % 60 == 0 ? $"{mins / 60} س" : $"{mins / 60} س {mins % 60} د";
+    }
+
+    private static string Clock(TimeSpan t) =>
+        t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes}:{t.Seconds:00}";
+
+    private static string RelativeTime(DateTimeOffset utc)
     {
         var diff = DateTimeOffset.UtcNow - utc;
         if (diff.TotalSeconds < 60) return "الآن";
         if (diff.TotalMinutes < 60) return $"منذ {(int)diff.TotalMinutes} د";
         if (diff.TotalHours < 24) return $"منذ {(int)diff.TotalHours} س";
-        return utc.ToLocalTime().ToString("MM/dd HH:mm");
+        return $"{DayName(utc)} {utc.ToLocalTime():HH:mm}";
     }
 
     public void Dispose()
@@ -1170,4 +1642,3 @@
         _refreshTimer?.Dispose();
     }
 }
-
