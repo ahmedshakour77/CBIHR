@@ -239,7 +239,9 @@ public static class EmployeeProfilePhotoEndpoints
             user.HasPermission(Permissions.GalleryEdit) ||
             user.HasPermission(Permissions.ContactsView) ||
             user.HasPermission(Permissions.LeavesView) ||
-            user.HasPermission(Permissions.CoursesView))
+            user.HasPermission(Permissions.CoursesView) ||
+            user.HasPermission(Permissions.BirthdaysView) ||
+            user.HasPermission(Permissions.BirthdaysEdit))
             return true;
 
         // 3. Staff roles whose pages (directory, gallery, leaves) show the roster's
