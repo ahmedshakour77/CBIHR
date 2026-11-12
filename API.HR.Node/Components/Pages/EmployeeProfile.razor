@@ -38,6 +38,8 @@
 @inject API.HR.Node.Services.DesignSystem.IToastService Toast
 @inject API.HR.Node.Services.Employees.IEmployeeLifecycleService LifecycleService
 @inject API.HR.Node.Services.Employees.IEmployeeVehicleService VehicleService
+@inject IMagicLoginService MagicLoginService
+@inject API.HR.Node.Services.Audit.IAuditLogger AuditLogger
 
 <PageTitle>@(employee is null ? "الملف الإلكتروني للموظف" : $"{employee.Name} | الملف الإلكتروني للموظف")</PageTitle>
 
@@ -289,7 +291,7 @@
                 </div>
 
                 <div class="hr-dossier-actions hr-no-print">
-                    @if (isStaff || isOwnProfile)
+                    @if (isAdmin)
                     {
                         <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="ExportPdfAsync" disabled="@isExportingPdf" title="تحميل وتصدير الملف كملف PDF رسمي موثق">
                             @if (isExportingPdf)
@@ -1159,6 +1161,17 @@
                                                         <span>رئيسي</span>
                                                     </span>
                                                 }
+                                                @if (isAdmin)
+                                                {
+                                                    <button type="button"
+                                                            class="hr-btn hr-btn-secondary hr-btn-sm"
+                                                            style="padding:.18rem .55rem; font-size:.75rem;"
+                                                            title="إنشاء رابط دخول سريع أو رمز QR لهذا البريد الإلكتروني (حتى لو لم يدخل الموظف مسبقاً)"
+                                                            @onclick="() => OpenMagicLinkForEmailAsync(mail.Email)">
+                                                        <Icon Name="qr-code" Size="xs" />
+                                                        <span>دخول برابط / QR</span>
+                                                    </button>
+                                                }
                                             </span>
                                         </li>
                                     }
@@ -1199,13 +1212,26 @@
                                                         <span class="hr-badge hr-badge-ok" style="font-size:0.75rem;">نشط</span>
                                                     }
                                                 </div>
-                                                @if (canViewUsers)
-                                                {
-                                                    <a href="/users?search=@acc.User.UserName" class="hr-btn hr-btn-outline" style="padding:.2rem .5rem; font-size:0.8rem;" title="تعديل حساب المستخدم">
-                                                        <Icon Name="pencil-square" Size="xs" />
-                                                        <span>إدارة الحساب</span>
-                                                    </a>
-                                                }
+                                                <div style="display:flex; align-items:center; gap:.4rem;">
+                                                    @if (isAdmin)
+                                                    {
+                                                        <button type="button"
+                                                                class="hr-btn hr-btn-secondary"
+                                                                style="padding:.2rem .55rem; font-size:0.8rem;"
+                                                                title="إنشاء رابط دخول مؤقت ورمز QR لمدة دقيقتين"
+                                                                @onclick="() => OpenMagicLinkForUserAsync(acc.User, acc.Roles)">
+                                                            <Icon Name="qr-code" Size="xs" />
+                                                            <span>رابط / QR</span>
+                                                        </button>
+                                                    }
+                                                    @if (canViewUsers)
+                                                    {
+                                                        <a href="/users?search=@acc.User.UserName" class="hr-btn hr-btn-outline" style="padding:.2rem .5rem; font-size:0.8rem;" title="تعديل حساب المستخدم">
+                                                            <Icon Name="pencil-square" Size="xs" />
+                                                            <span>إدارة الحساب</span>
+                                                        </a>
+                                                    }
+                                                </div>
                                             </div>
                                             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:.5rem; font-size:0.82rem; background:rgba(255,255,255,0.4); padding:.5rem .75rem; border-radius:6px;">
                                                 <div>
@@ -1239,11 +1265,23 @@
                             }
                             else
                             {
-                                <div class="hr-alert">
-                                    <Icon Name="information-circle" Size="sm" />
-                                    <div class="hr-alert-grow">
-                                        <p>لا يمتلك هذا الموظف أي حساب تسجيل دخول بالمنظومة حتى الآن.</p>
+                                <div class="hr-alert" style="align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem;">
+                                    <div style="display:flex; align-items:center; gap:.5rem;">
+                                        <Icon Name="information-circle" Size="sm" />
+                                        <div class="hr-alert-grow">
+                                            <p style="margin:0;">لا يمتلك هذا الموظف أي حساب تسجيل دخول بالمنظومة حتى الآن.</p>
+                                        </div>
                                     </div>
+                                    @if (isAdmin)
+                                    {
+                                        <button type="button"
+                                                class="hr-btn hr-btn-primary hr-btn-sm"
+                                                title="تهيئة حساب للموظف وتوليد رابط دخول ورمز QR لمدة دقيقتين"
+                                                @onclick="() => OpenMagicLinkForEmailAsync(emails.FirstOrDefault()?.Email)">
+                                            <Icon Name="qr-code" Size="xs" />
+                                            <span>دخول برابط / QR (لأول مرة)</span>
+                                        </button>
+                                    }
                                 </div>
                             }
                         </div>
@@ -5118,6 +5156,145 @@
                OnConfirm="ConfirmHardDelete"
                OnCancel="() => showHardDeleteModal = false" />
 
+@* ---------- Admin 2-Minute Magic Login Link & QR Modal ---------- *@
+<Modal IsOpen="@showProfileMagicModal"
+       Title="رابط الدخول السريع ورمز QR (صالح لمدة دقيقتين)"
+       Subtitle="@(employee is null ? null : $"الموظف: {employee.Name} · #{employee.EmployeeID}")"
+       Icon="qr-code"
+       Size="md"
+       OnClose="CloseProfileMagicModal">
+    <Body>
+        @if (profileMagicTicket is not null)
+        {
+            <div class="hr-card hr-card-subtle" style="padding: .85rem 1rem; margin-block-end: 1rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap;">
+                    <div>
+                        <div style="font-weight:800; color:var(--text);">@(profileMagicTicket.TargetEmployeeName ?? employee?.Name ?? profileMagicTicket.TargetUserName)</div>
+                        <div class="hr-meta" dir="ltr" style="font-size:.8rem;">
+                            @profileMagicTicket.TargetUserName
+                            @if (!string.IsNullOrWhiteSpace(profileMagicTicket.TargetEmployeeId))
+                            {
+                                <span> · #@profileMagicTicket.TargetEmployeeId</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="hr-chips">
+                        @if (profileMagicTicket.TargetRoles.Count > 0)
+                        {
+                            @foreach (var r in profileMagicTicket.TargetRoles)
+                            {
+                                <span class="hr-badge hr-badge-accent">@r</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="hr-badge">Employee</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (profileMagicTicketState?.Status == MagicLoginTokenStatus.Active)
+            {
+                var rem = Math.Max(0, profileMagicTicketState.RemainingSeconds);
+                var mins = rem / 60;
+                var secs = rem % 60;
+                var pct = Math.Clamp((int)Math.Round(rem * 100.0 / Math.Max(1, profileMagicTicket.DurationSeconds)), 0, 100);
+
+                <div class="hr-alert @(rem <= 25 ? "hr-alert-warn" : "hr-alert-ok")" style="margin-block-end: 1rem;">
+                    <Icon Name="clock" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <strong>صالح للاستخدام لمرة واحدة فقط</strong>
+                            <span class="hr-num" style="font-size:1.15rem; font-weight:800; letter-spacing:.05em;" dir="ltr">
+                                @($"{mins:D2}:{secs:D2}")
+                            </span>
+                        </div>
+                        <div style="height:6px; background:rgba(0,0,0,.08); border-radius:999px; overflow:hidden; margin-block-start:.45rem;">
+                            <div style="height:100%; width:@(pct)%; background:@(rem <= 25 ? "#d97706" : "#00875a"); transition: width 0.9s linear;"></div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (profileMagicTicketState?.Status == MagicLoginTokenStatus.Consumed)
+            {
+                <div class="hr-alert hr-alert-ok" style="margin-block-end: 1rem;">
+                    <Icon Name="check-circle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تم تسجيل دخول الموظف بنجاح!</p>
+                        <p style="margin-block-start:.25rem">
+                            قام الموظف بفتح الرابط أو مسح رمز QR وتم إدخاله إلى النظام حسب دوره وصلاحياته.
+                        </p>
+                    </div>
+                </div>
+            }
+            else if (profileMagicTicketState?.Status == MagicLoginTokenStatus.Revoked)
+            {
+                <div class="hr-alert hr-alert-danger" style="margin-block-end: 1rem;">
+                    <Icon Name="no-symbol" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">تم إبطال الرابط</p>
+                        <p style="margin-block-start:.25rem">تم إلغاء صلاحية هذا الرابط يدوياً ولم يعد قابلاً للاستخدام.</p>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="hr-alert hr-alert-warn" style="margin-block-end: 1rem;">
+                    <Icon Name="exclamation-triangle" Size="sm" />
+                    <div class="hr-alert-grow">
+                        <p class="hr-alert-title">انتهت صلاحية الرابط (مرّت دقيقتان)</p>
+                        <p style="margin-block-start:.25rem">اضغط على «توليد رابط جديد» بالأسفل لإنشاء رمز ورابط جديدين.</p>
+                    </div>
+                </div>
+            }
+
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:.75rem; background:#fff; border:1px solid var(--line-subtle, #e2e8f0); border-radius:var(--r-md, 12px); margin-block-end:1rem; position:relative;">
+                <img src="@profileMagicTicket.QrCodeDataUrl"
+                     alt="رمز QR للدخول المؤقت"
+                     style="width:210px; height:210px; image-rendering:pixelated; opacity:@(profileMagicTicketState?.Status == MagicLoginTokenStatus.Active ? "1" : "0.22"); transition:opacity .25s ease;" />
+                <p class="hr-meta" style="margin-block-start:.4rem; text-align:center;">
+                    امسح رمز الـ QR بكاميرا الهاتف أو جهاز الموظف للدخول الفوري
+                </p>
+            </div>
+
+            <div class="hr-field">
+                <label class="hr-field-label" for="profile-magic-url-input">رابط الدخول المباشر (لمرة واحدة خلال دقيقتين)</label>
+                <div style="display:flex; gap:.5rem;">
+                    <input id="profile-magic-url-input"
+                           type="text"
+                           class="hr-input hr-num"
+                           dir="ltr"
+                           readonly
+                           value="@profileMagicTicket.LoginUrl"
+                           style="flex:1; font-size:.82rem;" />
+                    <button type="button"
+                            class="hr-btn @(profileMagicLinkCopied ? "hr-btn-ok" : "hr-btn-primary")"
+                            @onclick="CopyProfileMagicLinkAsync"
+                            disabled="@(profileMagicTicketState?.Status != MagicLoginTokenStatus.Active)">
+                        <Icon Name="@(profileMagicLinkCopied ? "check" : "link")" Size="xs" />
+                        <span>@(profileMagicLinkCopied ? "تم النسخ!" : "نسخ الرابط")</span>
+                    </button>
+                </div>
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseProfileMagicModal">إغلاق</button>
+        @if (profileMagicTicketState?.Status == MagicLoginTokenStatus.Active)
+        {
+            <button type="button" class="hr-btn hr-btn-danger-quiet" @onclick="RevokeProfileMagicLinkAsync">
+                <Icon Name="no-symbol" Size="xs" />
+                <span>إلغاء الرابط فوراً</span>
+            </button>
+        }
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="RegenerateProfileMagicLinkAsync">
+            <Icon Name="arrow-path" Size="xs" />
+            <span>توليد رابط جديد (دقيقتين)</span>
+        </button>
+    </Footer>
+</Modal>
+
 @code {
     [Parameter] public string? EmployeeId { get; set; }
 
@@ -6366,7 +6543,7 @@
 
     private async Task ExportPdfAsync()
     {
-        if (employee is null || isExportingPdf || (!isStaff && !isOwnProfile)) return;
+        if (employee is null || isExportingPdf || !isAdmin) return;
 
         try
         {
@@ -8001,9 +8178,249 @@
         }
     }
 
+    private bool showProfileMagicModal;
+    private MagicLoginTicket? profileMagicTicket;
+    private MagicLoginTokenState? profileMagicTicketState;
+    private bool profileMagicLinkCopied;
+    private string? lastMagicEmailOrUsername;
+    private CancellationTokenSource? profileMagicTimerCts;
+
+    private async Task OpenMagicLinkForEmailAsync(string? rawEmail)
+    {
+        if (!isAdmin || employee is null) return;
+
+        StopProfileMagicTimer();
+        profileMagicLinkCopied = false;
+        var cleanEmail = (rawEmail ?? string.Empty).Trim();
+        lastMagicEmailOrUsername = cleanEmail;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            ApplicationUser? targetUser = null;
+
+            // 1. Try finding existing user by email or username prefix
+            if (!string.IsNullOrWhiteSpace(cleanEmail))
+            {
+                var prefix = cleanEmail.Contains('@') ? cleanEmail.Split('@')[0].Trim() : cleanEmail;
+                targetUser = await userManager.FindByEmailAsync(cleanEmail)
+                          ?? await userManager.FindByNameAsync(prefix)
+                          ?? await userManager.FindByNameAsync(cleanEmail);
+            }
+
+            // 2. Fallback: check if an account is already linked to this EmployeeID
+            if (targetUser is null)
+            {
+                targetUser = await db.Users.FirstOrDefaultAsync(u => u.EmployeeID == employee.EmployeeID);
+                if (targetUser is not null)
+                {
+                    targetUser = await userManager.FindByIdAsync(targetUser.Id);
+                }
+            }
+
+            // 3. If the employee has NEVER logged in before, auto-provision their account now!
+            bool wasProvisionedNow = false;
+            if (targetUser is null)
+            {
+                var candidateUserName = !string.IsNullOrWhiteSpace(cleanEmail) && cleanEmail.Contains('@')
+                    ? cleanEmail.Split('@')[0].Trim()
+                    : (!string.IsNullOrWhiteSpace(cleanEmail) ? cleanEmail : $"emp_{employee.EmployeeID}");
+
+                // Ensure username uniqueness
+                if (await userManager.FindByNameAsync(candidateUserName) is not null)
+                {
+                    candidateUserName = !string.IsNullOrWhiteSpace(cleanEmail)
+                        ? cleanEmail
+                        : $"emp_{employee.EmployeeID}_{Random.Shared.Next(100, 999)}";
+                }
+
+                targetUser = new ApplicationUser
+                {
+                    UserName = candidateUserName,
+                    Email = !string.IsNullOrWhiteSpace(cleanEmail) ? cleanEmail : $"{candidateUserName}@aml.lan",
+                    EmailConfirmed = true,
+                    EmployeeID = employee.EmployeeID
+                };
+
+                var createRes = await userManager.CreateAsync(targetUser);
+                if (!createRes.Succeeded)
+                {
+                    var errText = string.Join("، ", createRes.Errors.Select(e => e.Description));
+                    Toast.Danger($"تعذر تهيئة حساب المستخدم: {errText}");
+                    return;
+                }
+
+                await userManager.AddToRoleAsync(targetUser, "Employee");
+                wasProvisionedNow = true;
+            }
+            else
+            {
+                // Sync EmployeeID if missing
+                if (string.IsNullOrWhiteSpace(targetUser.EmployeeID))
+                {
+                    targetUser.EmployeeID = employee.EmployeeID;
+                    await userManager.UpdateAsync(targetUser);
+                }
+            }
+
+            var roles = (await userManager.GetRolesAsync(targetUser)).ToList();
+            if (roles.Count == 0)
+            {
+                await userManager.AddToRoleAsync(targetUser, "Employee");
+                roles.Add("Employee");
+            }
+
+            if (wasProvisionedNow)
+            {
+                await LoadDossier();
+                Toast.Success($"تمت تهيئة حساب الدخول للموظف ({targetUser.UserName}) وتوليد الرابط ورمز QR بنجاح.");
+            }
+
+            await GenerateAndShowProfileMagicLinkAsync(targetUser, roles);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error generating magic link for employee email {Email}", cleanEmail);
+            Toast.Danger("حدث خطأ أثناء توليد رابط الدخول السريع.");
+        }
+    }
+
+    private async Task OpenMagicLinkForUserAsync(ApplicationUser user, List<string> roles)
+    {
+        if (!isAdmin || employee is null) return;
+        lastMagicEmailOrUsername = user.Email ?? user.UserName;
+
+        using var scope = ScopeFactory.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var freshUser = await userManager.FindByIdAsync(user.Id) ?? user;
+        var freshRoles = (await userManager.GetRolesAsync(freshUser)).ToList();
+        if (freshRoles.Count == 0) freshRoles = roles.Count > 0 ? roles : ["Employee"];
+
+        await GenerateAndShowProfileMagicLinkAsync(freshUser, freshRoles);
+    }
+
+    private async Task GenerateAndShowProfileMagicLinkAsync(ApplicationUser targetUser, IReadOnlyList<string> roles)
+    {
+        StopProfileMagicTimer();
+        profileMagicLinkCopied = false;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var adminId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "ADMIN";
+        var adminName = authState.User.Identity?.Name ?? currentUserName;
+
+        profileMagicTicket = MagicLoginService.CreateMagicLink(
+            targetUser,
+            employee?.Name,
+            roles,
+            Nav.BaseUri.TrimEnd('/'),
+            adminId,
+            adminName);
+
+        profileMagicTicketState = MagicLoginService.PeekToken(profileMagicTicket.Token);
+        showProfileMagicModal = true;
+
+        try
+        {
+            await AuditLogger.LogAsync(
+                "MAGIC_LINK_CREATED",
+                employee?.EmployeeID ?? targetUser.UserName ?? targetUser.Id,
+                null,
+                true,
+                authState.User,
+                null,
+                null,
+                $"Created 2-minute magic link & QR from employee profile for {targetUser.UserName}");
+        }
+        catch { }
+
+        StartProfileMagicTimer();
+        StateHasChanged();
+    }
+
+    private async Task RegenerateProfileMagicLinkAsync()
+    {
+        await OpenMagicLinkForEmailAsync(lastMagicEmailOrUsername ?? emails.FirstOrDefault()?.Email);
+    }
+
+    private void RevokeProfileMagicLinkAsync()
+    {
+        if (profileMagicTicket is null) return;
+        MagicLoginService.RevokeToken(profileMagicTicket.Token);
+        profileMagicTicketState = MagicLoginService.PeekToken(profileMagicTicket.Token);
+        StopProfileMagicTimer();
+    }
+
+    private async Task CopyProfileMagicLinkAsync()
+    {
+        if (profileMagicTicket is null) return;
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", profileMagicTicket.LoginUrl);
+            profileMagicLinkCopied = true;
+            Toast.Success("تم نسخ رابط الدخول المؤقت إلى الحافظة.");
+            StateHasChanged();
+        }
+        catch
+        {
+            Toast.Info(profileMagicTicket.LoginUrl);
+        }
+    }
+
+    private void CloseProfileMagicModal()
+    {
+        showProfileMagicModal = false;
+        StopProfileMagicTimer();
+    }
+
+    private void StartProfileMagicTimer()
+    {
+        StopProfileMagicTimer();
+        profileMagicTimerCts = new CancellationTokenSource();
+        var ct = profileMagicTimerCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(ct))
+                {
+                    if (profileMagicTicket is null) break;
+                    var state = MagicLoginService.PeekToken(profileMagicTicket.Token);
+                    await InvokeAsync(() =>
+                    {
+                        profileMagicTicketState = state;
+                        StateHasChanged();
+                    });
+                    if (state.Status != MagicLoginTokenStatus.Active)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, ct);
+    }
+
+    private void StopProfileMagicTimer()
+    {
+        if (profileMagicTimerCts is not null)
+        {
+            try { profileMagicTimerCts.Cancel(); } catch { }
+            profileMagicTimerCts.Dispose();
+            profileMagicTimerCts = null;
+        }
+    }
+
     public void Dispose()
     {
         FeatureService.OnSettingsChanged -= HandleFeaturesChanged;
+        StopProfileMagicTimer();
         toastCts?.Cancel();
         toastCts?.Dispose();
     }

@@ -103,7 +103,7 @@
                 <span>@tab.Label</span>
                 @if (tab.Key == "live" && _onlineUsers.Count > 0)
                 {
-                    <span class="hr-tab-badge hr-num">@_onlineUsers.Count</span>
+                    <span @key="_onlineUsers.Count" class="hr-tab-badge hr-num hr-ua-tick">@_onlineUsers.Count</span>
                 }
             </button>
         }
@@ -163,7 +163,7 @@
             {
                 <div class="hr-ua-fig @(fig.Tone is null ? null : $"is-{fig.Tone}")">
                     <p class="hr-ua-fig-label">@fig.Label</p>
-                    <p class="hr-ua-fig-value hr-num">@fig.Value</p>
+                    <p class="hr-ua-fig-value hr-num"><span @key="fig.Value" class="hr-ua-tick">@fig.Value</span></p>
                     <p class="hr-ua-fig-sub">@fig.Sub</p>
                     @if (_buckets.Count > 1)
                     {
@@ -189,47 +189,7 @@
                         <p class="hr-sub">عدد الحركات بحسب يوم الأسبوع والساعة.</p>
                     </div>
                 </div>
-                <div class="hr-card-body hr-viz-heat">
-                    <div class="hr-tablewrap">
-                        <table class="hr-viz-heat-table hr-ua-heat">
-                            <caption class="hr-sr">توزيع الحركات على أيام الأسبوع وساعات اليوم</caption>
-                            <thead>
-                                <tr>
-                                    <th scope="col">اليوم</th>
-                                    @for (var h = _heatFromHour; h <= _heatToHour; h++)
-                                    {
-                                        <th scope="col" class="hr-num">@h.ToString("00")</th>
-                                    }
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var day in WeekOrder)
-                                {
-                                    <tr @key="day">
-                                        <th scope="row">@ArabicCulture.DateTimeFormat.GetDayName(day)</th>
-                                        @for (var h = _heatFromHour; h <= _heatToHour; h++)
-                                        {
-                                            var n = _heat[(int)day, h];
-                                            <td>
-                                                <span class="hr-viz-heat-cell is-d@(Depth(n, _heatMax))"
-                                                      title="@($"{ArabicCulture.DateTimeFormat.GetDayName(day)} {h:00}:00 — {n:N0} حركة")">
-                                                    @if (n > 0)
-                                                    {
-                                                        <span class="hr-num">@Compact(n)</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="hr-sr">لا شيء</span>
-                                                    }
-                                                </span>
-                                            </td>
-                                        }
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                @HeatTable(_heat, "توزيع الحركات على أيام الأسبوع وساعات اليوم")
             </section>
 
             <section class="hr-card">
@@ -294,18 +254,28 @@
                         @foreach (var u in _users)
                         {
                             <tr @key="u.Key">
-                                <td>@UserCell(u)</td>
-                                <td>
+                                <td class="hr-td-person">@UserCell(u)</td>
+                                <td class="hr-ua-lastcell" data-label="آخر نشاط">
+                                    <span class="hr-ua-cellstack">
                                     <span class="hr-cell-strong">@(u.Online ? "متصل الآن" : RelativeTime(u.LastSeen))</span>
                                     <span class="hr-cell-sub hr-truncate">@(u.LastPageTitle ?? "—")</span>
+                                    @if (u.Latest is { } latest)
+                                    {
+                                        <button type="button" class="hr-ua-ribbon is-static is-mini @(latest.Open ? "is-open" : null)"
+                                                title="@SessionLabel(u, latest)" aria-label="آخر جلسة: @SessionLabel(u, latest)"
+                                                @onclick="() => OpenUser(u.Key, latest.Id)">
+                                            @Ribbon(latest)
+                                        </button>
+                                    }
+                                    </span>
                                 </td>
-                                <td class="hr-num">@u.Sessions.ToString("N0")</td>
-                                <td class="hr-num">@Short(u.ActiveSeconds)</td>
-                                <td class="hr-num">@u.Pages.ToString("N0")</td>
-                                <td class="hr-num">@u.Searches.ToString("N0")</td>
-                                <td class="hr-num">@u.Dropdowns.ToString("N0")</td>
-                                <td class="hr-num">@u.Clicks.ToString("N0")</td>
-                                <td>
+                                <td class="hr-num" data-label="الجلسات">@u.Sessions.ToString("N0")</td>
+                                <td class="hr-num" data-label="وقت الاستخدام">@Short(u.ActiveSeconds)</td>
+                                <td class="hr-num hr-ua-hide-sm" data-label="صفحات">@u.Pages.ToString("N0")</td>
+                                <td class="hr-num hr-ua-hide-sm" data-label="بحث">@u.Searches.ToString("N0")</td>
+                                <td class="hr-num hr-ua-hide-sm" data-label="قوائم">@u.Dropdowns.ToString("N0")</td>
+                                <td class="hr-num hr-ua-hide-sm" data-label="نقرات">@u.Clicks.ToString("N0")</td>
+                                <td data-label="أمنية">
                                     @if (u.SecurityFailed > 0)
                                     {
                                         <span class="hr-badge hr-badge--plain hr-badge-danger"><Icon Name="exclamation-circle" Size="xs" /><span class="hr-num">@u.Security</span> · <span class="hr-num">@u.SecurityFailed</span> فاشلة</span>
@@ -315,7 +285,7 @@
                                         <span class="hr-num">@u.Security.ToString("N0")</span>
                                     }
                                 </td>
-                                <td>
+                                <td class="hr-td-more">
                                     <div class="hr-rowactions">
                                         <button type="button" class="hr-btn hr-btn-quiet hr-btn-sm" @onclick="() => OpenUser(u.Key)">
                                             <span>الجلسات</span>
@@ -343,13 +313,13 @@
             </div>
             @if (_onlineUsers.Count == 0)
             {
-                <div class="hr-empty">
-                    <span class="hr-empty-art" aria-hidden="true"><Icon Name="signal" Size="lg" /></span>
-                    <p class="hr-h3">لا أحد متصل الآن</p>
-                    <p class="hr-sub hr-measure-sm">
+                <div class="hr-card-body hr-ua-nobody">
+                    <span class="hr-ua-nobody-mark" aria-hidden="true"><Icon Name="signal" Size="sm" /></span>
+                    <p>
+                        <strong>لا أحد متصل الآن.</strong>
                         @if (_users.Count > 0)
                         {
-                            <span>آخر نشاط كان لـ @_users[0].DisplayName @RelativeTime(_users[0].LastSeen).</span>
+                            <span>آخر نشاط كان لـ <button type="button" class="hr-link hr-ua-linkbtn" @onclick="() => OpenUser(_users[0].Key)">@_users[0].DisplayName</button> @RelativeTime(_users[0].LastSeen).</span>
                         }
                     </p>
                 </div>
@@ -443,30 +413,36 @@
                             @foreach (var ev in stream.Take(StreamCap))
                             {
                                 <tr @key="ev.Id">
-                                    <td class="hr-num" style="white-space:nowrap">
-                                        <span class="hr-cell-strong">@ev.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
-                                        <span class="hr-cell-sub">@ev.TimestampUtc.ToLocalTime().ToString("yyyy/MM/dd")</span>
+                                    <td class="hr-num hr-td-more" style="white-space:nowrap">
+                                        <span class="hr-ua-cellstack">
+                                            <span class="hr-cell-strong">@ev.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                                            <span class="hr-cell-sub">@ev.TimestampUtc.ToLocalTime().ToString("yyyy/MM/dd")</span>
+                                        </span>
                                     </td>
-                                    <td>
-                                        <button type="button" class="hr-link hr-ua-linkbtn" @onclick="() => OpenUser(KeyOf(ev))">@DisplayNameOf(ev)</button>
-                                        <span class="hr-cell-sub">@ev.UserName@(string.IsNullOrWhiteSpace(ev.UserRole) ? "" : $" · {ev.UserRole}")</span>
+                                    <td class="hr-td-person">
+                                        <span class="hr-ua-cellstack">
+                                            <button type="button" class="hr-link hr-ua-linkbtn" @onclick="() => OpenUser(KeyOf(ev))">@DisplayNameOf(ev)</button>
+                                            <span class="hr-cell-sub">@ev.UserName@(string.IsNullOrWhiteSpace(ev.UserRole) ? "" : $" · {ev.UserRole}")</span>
+                                        </span>
                                     </td>
-                                    <td>@CategoryTag(ev)</td>
-                                    <td><span class="hr-cell-strong">@ev.ActionTitle</span></td>
-                                    <td>
+                                    <td data-label="النوع">@CategoryTag(ev)</td>
+                                    <td data-label="الحركة"><span class="hr-cell-strong">@ev.ActionTitle</span></td>
+                                    <td data-label="الصفحة" class="@(string.IsNullOrWhiteSpace(ev.PagePath) ? "hr-ua-empty" : null)">
                                         @if (!string.IsNullOrWhiteSpace(ev.PagePath))
                                         {
-                                            <span class="hr-cell-strong">@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
-                                            <span class="hr-cell-sub hr-num" dir="ltr">@ev.PagePath</span>
+                                            <span class="hr-ua-cellstack">
+                                                <span class="hr-cell-strong">@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
+                                                <span class="hr-cell-sub hr-num"><bdi dir="ltr">@ev.PagePath</bdi></span>
+                                            </span>
                                         }
                                         else
                                         {
                                             <span class="hr-meta">—</span>
                                         }
                                     </td>
-                                    <td>@(string.IsNullOrWhiteSpace(ev.ElementLabel) ? "—" : ev.ElementLabel)</td>
-                                    <td>@ValueCell(ev)</td>
-                                    <td class="hr-num" dir="ltr" style="text-align:end">@(string.IsNullOrWhiteSpace(ev.IpAddress) ? "—" : ev.IpAddress)</td>
+                                    <td data-label="الحقل / العنصر" class="@(string.IsNullOrWhiteSpace(ev.ElementLabel) ? "hr-ua-empty" : null)">@(string.IsNullOrWhiteSpace(ev.ElementLabel) ? "—" : ev.ElementLabel)</td>
+                                    <td data-label="القيمة / المدة">@ValueCell(ev)</td>
+                                    <td data-label="IP" class="hr-num @(string.IsNullOrWhiteSpace(ev.IpAddress) ? "hr-ua-empty" : null)"><bdi dir="ltr">@(string.IsNullOrWhiteSpace(ev.IpAddress) ? "—" : ev.IpAddress)</bdi></td>
                                 </tr>
                             }
                         </tbody>
@@ -606,7 +582,8 @@
                         <Icon Name="chevron-left" Size="xs" />
                     </button>
                 </div>
-                <div class="hr-card-body">
+                <div class="hr-card-body hr-ua-detail">
+                    @SessionStrip(picked)
                     @Steps(picked.Events.AsEnumerable().Reverse().ToList())
                 </div>
             </section>
@@ -731,7 +708,8 @@
                             </div>
                             @CategoryChips(_journeyCategoryFilter, key => _journeyCategoryFilter = key, null)
                         </div>
-                        <div class="hr-card-body">
+                        <div class="hr-card-body hr-ua-detail">
+                            @SessionStrip(session)
                             @if (steps.Count == 0)
                             {
                                 <p class="hr-viz-empty">لا خطوات من هذا النوع في الجلسة.</p>
@@ -744,6 +722,16 @@
                     }
                 </section>
             </div>
+
+            <section class="hr-card">
+                <div class="hr-card-head">
+                    <div>
+                        <h2 class="hr-h2">إيقاع عمله</h2>
+                        <p class="hr-sub">حركاته بحسب يوم الأسبوع والساعة خلال «@RangeLabel».</p>
+                    </div>
+                </div>
+                @HeatTable(HeatFor(sessions.SelectMany(s => s.Events)), $"توزيع حركات {user.DisplayName} على أيام الأسبوع وساعات اليوم")
+            </section>
         }
     </div>;
 
@@ -759,6 +747,63 @@
             <span class="hr-ua-seg is-other" style="flex-grow:1"></span>
         }
     </span>;
+
+    private RenderFragment HeatTable(HeatGrid heat, string caption) => @<div class="hr-card-body hr-viz-heat">
+        <div class="hr-tablewrap">
+            <table class="hr-viz-heat-table hr-ua-heat">
+                <caption class="hr-sr">@caption</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">اليوم</th>
+                        @for (var h = heat.From; h <= heat.To; h++)
+                        {
+                            <th scope="col" class="hr-num">@h.ToString("00")</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var day in WeekOrder)
+                    {
+                        <tr @key="day">
+                            <th scope="row">@ArabicCulture.DateTimeFormat.GetDayName(day)</th>
+                            @for (var h = heat.From; h <= heat.To; h++)
+                            {
+                                var n = heat.Cells[(int)day, h];
+                                <td>
+                                    <span class="hr-viz-heat-cell is-d@(Depth(n, heat.Max))"
+                                          title="@($"{ArabicCulture.DateTimeFormat.GetDayName(day)} {h:00}:00 — {n:N0} حركة")">
+                                        @if (n > 0)
+                                        {
+                                            <span class="hr-num">@Compact(n)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="hr-sr">لا شيء</span>
+                                        }
+                                    </span>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>;
+
+    // One session spelled out: each page it visited in order, with the time spent there written
+    // under its part of the bar. Parts too narrow for a label keep it for screen readers only.
+    private RenderFragment SessionStrip(Session s) => @<ol class="hr-ua-strip" aria-label="الصفحات في هذه الجلسة بالترتيب">
+        @foreach (var seg in s.Segments)
+        {
+            <li class="hr-ua-strip-seg" style="flex-grow:@Math.Max(1, seg.Seconds)" title="@seg.Title — @Short(seg.Seconds)">
+                <span class="hr-ua-seg is-@SeriesOf(seg.Group) hr-ua-strip-bar" aria-hidden="true"></span>
+                <span class="hr-ua-strip-label">
+                    <span class="hr-ua-strip-title">@seg.Title</span>
+                    <span class="hr-num">@Short(seg.Seconds)</span>
+                </span>
+            </li>
+        }
+    </ol>;
 
     private RenderFragment PageLegend(IEnumerable<string> groups) => @<ul class="hr-ua-legend" role="list" aria-label="ألوان الصفحات">
         @foreach (var g in groups.OrderBy(g => _seriesByGroup.TryGetValue(g, out var i) ? i : 99).DistinctBy(SeriesOf))
@@ -850,6 +895,46 @@
         </span>
     </span>;
 
+    // A step reads as a sentence with what was chosen or typed inline. Verbal nouns keep it
+    // neutral ("اختيار", not "اختار/اختارت"); unknown actions fall back to their stored title.
+    private RenderFragment StepSentence(UserActivityEvent ev) => __builder =>
+    {
+        var label = ev.ElementLabel;
+        var value = ev.ValueText;
+        var hasLabel = !string.IsNullOrWhiteSpace(label);
+        var hasValue = !string.IsNullOrWhiteSpace(value);
+
+        if (ev.ActionCode == "PAGE_VIEW")
+        {
+            <text>فتح صفحة <strong>@GroupTitle(ev)</strong></text>
+        }
+        else if (ev.ActionCode == "DROPDOWN_CHANGE" && hasLabel)
+        {
+            if (hasValue) { <text>اختيار <span class="hr-ua-valuechip">@value</span> في <strong>@label</strong></text> }
+            else { <text>تفريغ <strong>@label</strong></text> }
+        }
+        else if (ev.ActionCode is "SEARCH_QUERY" or "TEXT_INPUT" && hasLabel && hasValue)
+        {
+            <text>@(ev.ActionCode == "SEARCH_QUERY" ? "بحث عن" : "كتابة") <span class="hr-ua-valuechip">@value</span> في <strong>@label</strong></text>
+        }
+        else if (ev.ActionCode == "CHECKBOX_TOGGLE" && hasLabel)
+        {
+            <text>@(value == "مفعّل" ? "تفعيل" : "إلغاء تحديد") <strong>@label</strong></text>
+        }
+        else if (ev.ActionCode is "TAB_SWITCH" or "BUTTON_CLICK" && hasLabel)
+        {
+            <text>@(ev.ActionCode == "TAB_SWITCH" ? "فتح تبويب" : "نقر") <strong>@label</strong></text>
+        }
+        else
+        {
+            <strong>@ev.ActionTitle</strong>
+            if (hasValue && ev.Category != ActivityCategories.Navigation)
+            {
+                <text> </text><span class="hr-ua-valuechip">@value</span>
+            }
+        }
+    };
+
     private RenderFragment Steps(IReadOnlyList<UserActivityEvent> events) => @<ol class="hr-ua-steps">
         @foreach (var ev in events)
         {
@@ -859,21 +944,13 @@
                 <div>
                     <p class="hr-ua-step-title">
                         <span class="hr-sr">@CategoryName(ev.Category):</span>
-                        @ev.ActionTitle
+                        @StepSentence(ev)
                         @if (!ev.Success) { <span class="hr-badge hr-badge-danger">فاشلة</span> }
                     </p>
                     <p class="hr-ua-step-meta">
                         @if (!string.IsNullOrWhiteSpace(ev.PagePath) && ev.Category != ActivityCategories.Navigation)
                         {
                             <span>@(ev.PageTitle ?? UserActivityService.GetArabicPageTitle(ev.PagePath))</span>
-                        }
-                        @if (!string.IsNullOrWhiteSpace(ev.ElementLabel))
-                        {
-                            <span>@ev.ElementLabel</span>
-                        }
-                        @if (!string.IsNullOrWhiteSpace(ev.ValueText) && ev.Category != ActivityCategories.Navigation)
-                        {
-                            <span class="hr-ua-valuechip">@ev.ValueText</span>
                         }
                         @if (ev.Category == ActivityCategories.Navigation && ev.DurationSeconds is > 0)
                         {
@@ -898,6 +975,7 @@
     private sealed record PageStat(string Group, string Title, int Seconds, int Visits, int Users);
     private sealed record Figure(string Label, string Value, string Sub, int[] History, string? Tone, string? HistoryOf = null);
     private sealed record Lane(UserRow User, List<Session> Sessions);
+    private sealed record HeatGrid(int[,] Cells, int Max, int From, int To);
 
     private sealed record Segment(string Group, string Title, DateTimeOffset Start, DateTimeOffset End)
     {
@@ -929,6 +1007,7 @@
         public string? CurrentPageTitle { get; init; }
         public DateTimeOffset? CurrentPageSince { get; init; }
         public DateTimeOffset? SessionStart { get; init; }
+        public Session? Latest { get; init; }
         public int Sessions { get; init; }
         public int ActiveSeconds { get; init; }
         public int Pages { get; init; }
@@ -993,10 +1072,7 @@
     private List<Figure> _figures = [];
     private List<string> _buckets = [];
     private bool _bucketIsHour;
-    private int[,] _heat = new int[7, 24];
-    private int _heatMax;
-    private int _heatFromHour = 8;
-    private int _heatToHour = 16;
+    private HeatGrid _heat = HeatFor([]);
     private List<PageStat> _pageStats = [];
     private List<ValueStat> _topDropdowns = [];
     private List<ValueStat> _topSearches = [];
@@ -1269,6 +1345,7 @@
                     CurrentPageTitle = currentSeg?.Title,
                     CurrentPageSince = currentSeg?.Start,
                     SessionStart = latest.Start,
+                    Latest = latest,
                     Sessions = sessions.Count,
                     ActiveSeconds = sessions.Sum(s => (int)(s.End - s.Start).TotalSeconds),
                     Pages = events.Count(e => e.Category == ActivityCategories.Navigation && e.ActionCode == "PAGE_VIEW"),
@@ -1350,22 +1427,29 @@
             new("العمليات الأمنية", security.Count.ToString("N0"), failed > 0 ? $"{failed:N0} محاولة فاشلة" : "لا محاولات فاشلة", Series(security.Select(e => e.TimestampUtc)), failed > 0 ? "danger" : null)
         ];
 
-        // Weekday × hour rhythm, trimmed to the hours that have activity (never narrower than 08–16).
-        _heat = new int[7, 24];
-        foreach (var ev in _allRangeEvents)
-        {
-            var t = ev.TimestampUtc.LocalDateTime;
-            _heat[(int)t.DayOfWeek, t.Hour]++;
-        }
-        var activeHours = Enumerable.Range(0, 24).Where(h => Enumerable.Range(0, 7).Any(d => _heat[d, h] > 0)).ToList();
-        _heatFromHour = Math.Min(8, activeHours.DefaultIfEmpty(8).Min());
-        _heatToHour = Math.Max(16, activeHours.DefaultIfEmpty(16).Max());
-        _heatMax = _heat.Cast<int>().DefaultIfEmpty(0).Max();
+        _heat = HeatFor(_allRangeEvents);
 
         _pageStats = PageStatsFor(_sessions);
 
         _topDropdowns = TopValues(ActivityCategories.Dropdown, "قائمة منسدلة");
         _topSearches = TopValues(ActivityCategories.Search, "حقل بحث");
+    }
+
+    // Weekday × hour rhythm, trimmed to the hours that have activity (never narrower than 08–16).
+    private static HeatGrid HeatFor(IEnumerable<UserActivityEvent> events)
+    {
+        var cells = new int[7, 24];
+        foreach (var ev in events)
+        {
+            var t = ev.TimestampUtc.LocalDateTime;
+            cells[(int)t.DayOfWeek, t.Hour]++;
+        }
+        var activeHours = Enumerable.Range(0, 24).Where(h => Enumerable.Range(0, 7).Any(d => cells[d, h] > 0)).ToList();
+        return new HeatGrid(
+            cells,
+            cells.Cast<int>().DefaultIfEmpty(0).Max(),
+            Math.Min(8, activeHours.DefaultIfEmpty(8).Min()),
+            Math.Max(16, activeHours.DefaultIfEmpty(16).Max()));
     }
 
     private static List<PageStat> PageStatsFor(IEnumerable<Session> sessions) =>

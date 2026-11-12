@@ -15,6 +15,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JSRuntime
 @inject API.HR.Node.Services.DesignSystem.IToastService Toast
+@inject API.HR.Node.Services.Telegram.ITelegramBirthdayBotService TelegramBot
 
 <PageTitle>تقويم أعياد الميلاد والتصنيف الديمغرافي | الموظف ٣٦٠°</PageTitle>
 
@@ -52,6 +53,11 @@
         </div>
 
         <div class="hr-pagehead-actions" style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;">
+            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="OpenTelegramBotModal" title="إعدادات وإدارة بوت تيليجرام لأعياد الميلاد">
+                <span style="width:8px;height:8px;border-radius:999px;background:@(TelegramBot.IsConnected ? "#10b981" : "#94a3b8");display:inline-block;"></span>
+                <Icon Name="paper-airplane" Size="xs" />
+                <span>بوت تيليجرام @(TelegramBot.IsConnected && !string.IsNullOrEmpty(TelegramBot.BotUsername) ? $"(@{TelegramBot.BotUsername})" : "")</span>
+            </button>
             <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="ExportCsvAsync" disabled="@isLoading" title="تصدير القائمة المفلترة إلى ملف CSV">
                 <Icon Name="arrow-down-tray" Size="xs" />
                 <span>تصدير CSV</span>
@@ -1185,9 +1191,235 @@
                 <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showGreetingModal = false">
                     إغلاق
                 </button>
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="SendGreetingTargetToTelegramAsync" disabled="@isSendingTelegramCard">
+                    <Icon Name="paper-airplane" Size="xs" />
+                    <span>@(isSendingTelegramCard ? "جارٍ الإرسال..." : "إرسال البطاقة والصورة لتلكرام")</span>
+                </button>
                 <button type="button" class="hr-btn hr-btn-primary" @onclick="CopyGreetingText">
                     <Icon Name="clipboard-document-list" Size="xs" />
                     <span>نسخ نص التهنئة للحافظة</span>
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ==================== MODAL: TELEGRAM BIRTHDAY BOT SETTINGS ==================== *@
+@if (showTelegramModal && botConfigDraft != null)
+{
+    <div class="hr-modal-scrim" @onclick="() => showTelegramModal = false">
+        <div class="hr-modal" style="max-width:720px;width:95%;" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-labelledby="tg-bot-modal-title">
+            <div class="hr-modal-head">
+                <div class="hr-modal-lead">
+                    <span class="hr-iconplate hr-plate-a" aria-hidden="true">
+                        <Icon Name="paper-airplane" Size="sm" />
+                    </span>
+                    <div class="hr-modal-titles">
+                        <h2 id="tg-bot-modal-title" class="hr-h3">إعدادات وإدارة بوت تيليجرام لأعياد الميلاد</h2>
+                        <p class="hr-meta">
+                            جلب أعياد ميلاد الموظفين الحاليين، الشهر الحالي والقادم، والبحث المخصص مع الصور الشخصية والتفاصيل بدون أي تعديل على قاعدة البيانات
+                        </p>
+                    </div>
+                </div>
+                <button type="button" class="hr-btn hr-btn-quiet hr-btn-icon" @onclick="() => showTelegramModal = false" aria-label="إغلاق">
+                    <Icon Name="x-mark" Size="sm" />
+                </button>
+            </div>
+
+            <div class="hr-modal-body hr-stack" style="max-height:74vh;overflow-y:auto;">
+                <!-- Connection Status Banner -->
+                <div class="hr-alert @(TelegramBot.IsConnected ? "hr-alert-ok" : "hr-alert-warn")" style="margin:0;">
+                    <Icon Name="@(TelegramBot.IsConnected ? "check-circle" : "information-circle")" Size="sm" />
+                    <div class="hr-alert-grow">
+                        @if (TelegramBot.IsConnected)
+                        {
+                            <strong>البوت متصل ويعمل بالخلفية بنجاح @(!string.IsNullOrEmpty(TelegramBot.BotUsername) ? $"(@{TelegramBot.BotUsername})" : "")</strong>
+                            <p style="margin:0.2rem 0 0;font-size:0.8rem;">
+                                يستجيب للأوامر التفاعلية (مواليد اليوم، الغد، الأسبوع، الشهر الحالي، الشهر القادم، التشكيلات، والبحث بالاسم/التاريخ مع الصور).
+                            </p>
+                        }
+                        else
+                        {
+                            <strong>البوت غير متصل حالياً</strong>
+                            <p style="margin:0.2rem 0 0;font-size:0.8rem;">
+                                @(string.IsNullOrWhiteSpace(TelegramBot.LastError)
+                                    ? "أدخل رمز البوت (Bot Token) من @BotFather وقم بتفعيل الخيار بالأسفل ثم اضغط حفظ."
+                                    : $"آخر ملاحظة: {TelegramBot.LastError}")
+                            </p>
+                        }
+                    </div>
+                    @if (TelegramBot.IsConnected)
+                    {
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="BroadcastTodayToTelegramAsync" disabled="@isTestingBot">
+                            <Icon Name="paper-airplane" Size="xs" />
+                            <span>بث مواليد اليوم الآن</span>
+                        </button>
+                    }
+                </div>
+
+                <!-- Bot Token & Core Toggles -->
+                <div class="hr-card" style="padding:var(--s-3);display:flex;flex-direction:column;gap:var(--s-3);">
+                    <div class="hr-field" style="margin:0;">
+                        <label class="hr-label" for="tg-bot-token">رمز البوت (Telegram Bot Token من @@BotFather)</label>
+                        <div style="display:flex;gap:0.5rem;">
+                            <input id="tg-bot-token"
+                                   type="password"
+                                   dir="ltr"
+                                   class="hr-input hr-num"
+                                   style="flex:1;"
+                                   placeholder="1234567890:AAH..."
+                                   @bind="botConfigDraft.BotToken" />
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="TestTelegramTokenAsync" disabled="@isTestingBot">
+                                <Icon Name="bolt" Size="xs" />
+                                <span>@(isTestingBot ? "جارٍ الفحص..." : "فحص الرمز")</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0.75rem;">
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;font-weight:700;cursor:pointer;">
+                            <input type="checkbox" @bind="botConfigDraft.IsEnabled" />
+                            <span>تفعيل خدمة البوت في النظام</span>
+                        </label>
+
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;font-weight:700;cursor:pointer;">
+                            <input type="checkbox" @bind="botConfigDraft.SendPhotosAutomatically" />
+                            <span>إرسال الصور الشخصية تلقائياً مع البطاقات</span>
+                        </label>
+
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;font-weight:700;cursor:pointer;">
+                            <input type="checkbox" @bind="botConfigDraft.DailyAutoBroadcastEnabled" />
+                            <span>إشعار صباحي يومي تلقائي بمواليد اليوم</span>
+                        </label>
+
+                        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;font-weight:700;cursor:pointer;">
+                            <input type="checkbox" @bind="botConfigDraft.AllowAllUsers" />
+                            <span>السماح لأي مستخدم بدون رمز سري</span>
+                        </label>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;">
+                        <div class="hr-field" style="margin:0;">
+                            <label class="hr-label" for="tg-pin-input">رمز التفعيل السري في تيليجرام (PIN)</label>
+                            <input id="tg-pin-input"
+                                   type="text"
+                                   dir="ltr"
+                                   class="hr-input hr-num"
+                                   placeholder="1234"
+                                   @bind="botConfigDraft.AccessPin" />
+                            <span class="hr-meta" style="font-size:0.72rem;">من يرسل هذا الرمز للبوت يتم تفعيل حسابه تلقائياً</span>
+                        </div>
+
+                        <div class="hr-field" style="margin:0;">
+                            <label class="hr-label" for="tg-hour-input">ساعة الإشعار اليومي التلقائي (٠ - ٢٣)</label>
+                            <input id="tg-hour-input"
+                                   type="number"
+                                   min="0"
+                                   max="23"
+                                   dir="ltr"
+                                   class="hr-input hr-num"
+                                   @bind="botConfigDraft.DailyBroadcastHourLocal" />
+                            <span class="hr-meta" style="font-size:0.72rem;">مثال: 8 تعني الساعة 08:00 صباحاً</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pending Chats Requests -->
+                @if (botConfigDraft.PendingChats.Count > 0)
+                {
+                    <div class="hr-card" style="padding:var(--s-3);border:1px solid var(--series-4);">
+                        <h3 class="hr-eyebrow" style="margin-block-end:0.5rem;">طلبات بانتظار الموافقة (@botConfigDraft.PendingChats.Count)</h3>
+                        <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                            @foreach (var p in botConfigDraft.PendingChats.ToList())
+                            {
+                                <div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.75rem;background:var(--surface-sunken);border-radius:var(--r-md);">
+                                    <div>
+                                        <strong style="font-size:0.88rem;">@p.Title</strong>
+                                        @if (!string.IsNullOrWhiteSpace(p.Username))
+                                        {
+                                            <span class="hr-meta" dir="ltr"> (@($"@{p.Username}"))</span>
+                                        }
+                                        <span class="hr-badge hr-num" dir="ltr" style="margin-inline-start:0.4rem;">@p.ChatId</span>
+                                    </div>
+                                    <div style="display:flex;gap:0.4rem;">
+                                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="() => ApprovePendingChat(p)">
+                                            تفعيل وموافقة
+                                        </button>
+                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" @onclick="() => botConfigDraft.PendingChats.Remove(p)">
+                                            رفض
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <!-- Authorized Chats List -->
+                <div class="hr-card" style="padding:var(--s-3);display:flex;flex-direction:column;gap:0.65rem;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                        <h3 class="hr-eyebrow" style="margin:0;">المحادثات والمستخدمون المخولون (@botConfigDraft.AuthorizedChats.Count)</h3>
+                        <div style="display:flex;gap:0.4rem;align-items:center;">
+                            <input type="text"
+                                   dir="ltr"
+                                   class="hr-input hr-num"
+                                   style="width:140px;height:2rem;font-size:0.8rem;"
+                                   placeholder="Chat ID..."
+                                   @bind="manualChatIdInput" />
+                            <input type="text"
+                                   class="hr-input"
+                                   style="width:140px;height:2rem;font-size:0.8rem;"
+                                   placeholder="الاسم / الوصف..."
+                                   @bind="manualChatTitleInput" />
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="AddManualChatId">
+                                إضافة
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (botConfigDraft.AuthorizedChats.Count == 0)
+                    {
+                        <p class="hr-meta" style="margin:0;">
+                            لا توجد محادثات مضافة بعد. افتح البوت في تيليجرام وأرسل <code>/start</code> أو أرسل الرمز السري <code>@botConfigDraft.AccessPin</code> ليتم التفعيل تلقائياً.
+                        </p>
+                    }
+                    else
+                    {
+                        <div style="display:flex;flex-direction:column;gap:0.4rem;max-height:180px;overflow-y:auto;">
+                            @foreach (var chat in botConfigDraft.AuthorizedChats.ToList())
+                            {
+                                <div style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.7rem;background:var(--surface-sunken);border-radius:var(--r-md);font-size:0.84rem;">
+                                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                                        <strong>@chat.Title</strong>
+                                        @if (!string.IsNullOrWhiteSpace(chat.Username))
+                                        {
+                                            <span class="hr-meta" dir="ltr">@($"@{chat.Username}")</span>
+                                        }
+                                        <code style="font-size:0.75rem;opacity:0.75;" dir="ltr">@chat.ChatId</code>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:0.6rem;">
+                                        <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.76rem;cursor:pointer;">
+                                            <input type="checkbox" @bind="chat.ReceiveDailyBroadcast" />
+                                            <span>إشعار يومي</span>
+                                        </label>
+                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" style="padding:0.15rem 0.45rem;" @onclick="() => botConfigDraft.AuthorizedChats.Remove(chat)">
+                                            حذف
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="hr-modal-foot">
+                <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showTelegramModal = false">
+                    إغلاق
+                </button>
+                <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveTelegramBotSettingsAsync" disabled="@isTestingBot">
+                    <Icon Name="check" Size="xs" />
+                    <span>حفظ وتطبيق إعدادات البوت</span>
                 </button>
             </div>
         </div>
@@ -1601,6 +1833,131 @@
     private bool showGreetingModal = false;
     private EmployeeBirthdayItem? greetingTarget;
     private string greetingMessageText = "";
+    private bool isSendingTelegramCard = false;
+
+    // Telegram Bot Modal
+    private bool showTelegramModal = false;
+    private API.HR.Node.Services.Telegram.TelegramBirthdayBotConfig? botConfigDraft;
+    private bool isTestingBot = false;
+    private string manualChatIdInput = "";
+    private string manualChatTitleInput = "";
+
+    private void OpenTelegramBotModal()
+    {
+        botConfigDraft = TelegramBot.GetConfig();
+        showTelegramModal = true;
+    }
+
+    private async Task TestTelegramTokenAsync()
+    {
+        if (botConfigDraft is null) return;
+        isTestingBot = true;
+        try
+        {
+            var (ok, msg) = await TelegramBot.TestConnectionAsync(botConfigDraft.BotToken);
+            if (ok) Toast.Success(msg);
+            else Toast.Danger(msg);
+        }
+        finally
+        {
+            isTestingBot = false;
+        }
+    }
+
+    private async Task SaveTelegramBotSettingsAsync()
+    {
+        if (botConfigDraft is null) return;
+        isTestingBot = true;
+        try
+        {
+            await TelegramBot.SaveConfigAsync(botConfigDraft);
+            if (botConfigDraft.IsEnabled && !string.IsNullOrWhiteSpace(botConfigDraft.BotToken))
+            {
+                var (ok, msg) = await TelegramBot.TestConnectionAsync(botConfigDraft.BotToken);
+                if (ok) Toast.Success($"تم حفظ الإعدادات وتفعيل البوت: {msg}");
+                else Toast.Warning($"تم حفظ الإعدادات، ولكن تعذر الاتصال: {msg}");
+            }
+            else
+            {
+                Toast.Success("تم حفظ إعدادات بوت تيليجرام بنجاح.");
+            }
+            showTelegramModal = false;
+        }
+        finally
+        {
+            isTestingBot = false;
+        }
+    }
+
+    private void ApprovePendingChat(API.HR.Node.Services.Telegram.TelegramPendingChat pending)
+    {
+        if (botConfigDraft is null) return;
+        botConfigDraft.PendingChats.Remove(pending);
+        if (botConfigDraft.AuthorizedChats.All(c => c.ChatId != pending.ChatId))
+        {
+            botConfigDraft.AuthorizedChats.Add(new API.HR.Node.Services.Telegram.TelegramAuthorizedChat
+            {
+                ChatId = pending.ChatId,
+                Title = pending.Title,
+                Username = pending.Username,
+                AddedAtUtc = DateTimeOffset.UtcNow,
+                ReceiveDailyBroadcast = true
+            });
+        }
+    }
+
+    private void AddManualChatId()
+    {
+        if (botConfigDraft is null) return;
+        if (!long.TryParse(manualChatIdInput.Trim(), out var cid) || cid == 0)
+        {
+            Toast.Warning("يرجى إدخال رقم Chat ID صحيح.");
+            return;
+        }
+        if (botConfigDraft.AuthorizedChats.All(c => c.ChatId != cid))
+        {
+            botConfigDraft.AuthorizedChats.Add(new API.HR.Node.Services.Telegram.TelegramAuthorizedChat
+            {
+                ChatId = cid,
+                Title = string.IsNullOrWhiteSpace(manualChatTitleInput) ? $"Chat {cid}" : manualChatTitleInput.Trim(),
+                AddedAtUtc = DateTimeOffset.UtcNow,
+                ReceiveDailyBroadcast = true
+            });
+        }
+        manualChatIdInput = "";
+        manualChatTitleInput = "";
+    }
+
+    private async Task BroadcastTodayToTelegramAsync()
+    {
+        isTestingBot = true;
+        try
+        {
+            var (sent, msg) = await TelegramBot.BroadcastTodayBirthdaysNowAsync();
+            if (sent > 0) Toast.Success(msg);
+            else Toast.Warning(msg);
+        }
+        finally
+        {
+            isTestingBot = false;
+        }
+    }
+
+    private async Task SendGreetingTargetToTelegramAsync()
+    {
+        if (greetingTarget is null) return;
+        isSendingTelegramCard = true;
+        try
+        {
+            var (ok, msg) = await TelegramBot.SendEmployeeBirthdayToChatsAsync(greetingTarget.EmployeeID);
+            if (ok) Toast.Success(msg);
+            else Toast.Warning(msg);
+        }
+        finally
+        {
+            isSendingTelegramCard = false;
+        }
+    }
 
     private bool HasActiveFilters =>
         !string.IsNullOrWhiteSpace(searchQuery)

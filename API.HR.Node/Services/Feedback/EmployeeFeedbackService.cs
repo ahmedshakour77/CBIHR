@@ -122,21 +122,44 @@ public class EmployeeFeedbackService(
             string? submitterJob = null;
             string? submitterDept = null;
 
-            if (int.TryParse(user?.FindFirst("employee_id")?.Value, out var empIdClaim))
-            {
-                employeeId = empIdClaim;
-            }
+            var empCodeClaim = user?.FindFirst("employee_id")?.Value?.Trim();
 
-            // Look up employee record if exists
+            // Look up employee record if exists (Note: "employee_id" claim holds Employee.EmployeeID string job number, not Employee.Id PK)
             Employee? emp = null;
-            if (employeeId.HasValue)
+            if (!string.IsNullOrWhiteSpace(empCodeClaim))
             {
                 emp = await dbContext.Employees
                     .Include(e => e.JobTitle)
                     .Include(e => e.Formation)
-                    .FirstOrDefaultAsync(e => e.Id == employeeId.Value, cancellationToken);
+                    .FirstOrDefaultAsync(e => e.EmployeeID == empCodeClaim, cancellationToken);
+
+                if (emp == null && int.TryParse(empCodeClaim, out var parsedPkId))
+                {
+                    emp = await dbContext.Employees
+                        .Include(e => e.JobTitle)
+                        .Include(e => e.Formation)
+                        .FirstOrDefaultAsync(e => e.Id == parsedPkId, cancellationToken);
+                }
             }
-            else if (!string.IsNullOrWhiteSpace(userEmail))
+
+            if (emp == null && !string.IsNullOrWhiteSpace(userId))
+            {
+                var appUserEmpCode = await dbContext.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == userId && u.EmployeeID != null)
+                    .Select(u => u.EmployeeID)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(appUserEmpCode))
+                {
+                    emp = await dbContext.Employees
+                        .Include(e => e.JobTitle)
+                        .Include(e => e.Formation)
+                        .FirstOrDefaultAsync(e => e.EmployeeID == appUserEmpCode, cancellationToken);
+                }
+            }
+
+            if (emp == null && !string.IsNullOrWhiteSpace(userEmail))
             {
                 var matchedEmail = await dbContext.EmployeeEmails
                     .AsNoTracking()
@@ -315,15 +338,31 @@ public class EmployeeFeedbackService(
         string? userId,
         CancellationToken cancellationToken = default)
     {
+        int? resolvedPkId = employeeId;
+        if (employeeId.HasValue)
+        {
+            var codeStr = employeeId.Value.ToString();
+            var matchPk = await dbContext.Employees
+                .AsNoTracking()
+                .Where(e => e.Id == employeeId.Value || e.EmployeeID == codeStr)
+                .Select(e => (int?)e.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (matchPk.HasValue)
+            {
+                resolvedPkId = matchPk.Value;
+            }
+        }
+
         var query = dbContext.EmployeeFeedbacks.AsNoTracking().AsQueryable();
 
-        if (employeeId.HasValue && !string.IsNullOrWhiteSpace(userId))
+        if (resolvedPkId.HasValue && !string.IsNullOrWhiteSpace(userId))
         {
-            query = query.Where(f => f.EmployeeId == employeeId.Value || f.UserId == userId);
+            query = query.Where(f => f.EmployeeId == resolvedPkId.Value || f.UserId == userId);
         }
-        else if (employeeId.HasValue)
+        else if (resolvedPkId.HasValue)
         {
-            query = query.Where(f => f.EmployeeId == employeeId.Value);
+            query = query.Where(f => f.EmployeeId == resolvedPkId.Value);
         }
         else if (!string.IsNullOrWhiteSpace(userId))
         {
@@ -399,9 +438,13 @@ public class EmployeeFeedbackService(
         var authResult = await authorizationService.AuthorizeAsync(user, null, new PermissionRequirement(Permissions.FeedbackView));
         var isStaff = authResult.Succeeded;
         var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        int.TryParse(user.FindFirst("employee_id")?.Value, out var empId);
+        var empCode = user.FindFirst("employee_id")?.Value?.Trim();
+        int.TryParse(empCode, out var empId);
 
-        var isOwner = (userId != null && feedback.UserId == userId) || (empId > 0 && feedback.EmployeeId == empId);
+        var isOwner = (userId != null && feedback.UserId == userId)
+                   || (empId > 0 && feedback.EmployeeId == empId)
+                   || (!string.IsNullOrWhiteSpace(empCode) && feedback.EmployeeId.HasValue &&
+                       await dbContext.Employees.AsNoTracking().AnyAsync(e => e.Id == feedback.EmployeeId.Value && e.EmployeeID == empCode, cancellationToken));
 
         if (!isStaff && !isOwner)
         {

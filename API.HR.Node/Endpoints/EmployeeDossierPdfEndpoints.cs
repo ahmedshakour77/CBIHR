@@ -47,13 +47,9 @@ public static class EmployeeDossierPdfEndpoints
         if (user.Identity is not { IsAuthenticated: true })
             return Results.Unauthorized();
 
-        var isStaff = StaffRoles.IsStaff(user)
-            || PermissionResolver.HasPermission(user, Permissions.EmployeesView)
-            || PermissionResolver.HasPermission(user, Permissions.EmployeesEdit);
-
-        if (!isStaff)
+        if (!PermissionResolver.IsAdmin(user))
         {
-            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "تنزيل خط الخدمة والملف الوظيفي متاح للكادر الإداري والمخولين فقط.");
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "تنزيل الملف الوظيفي (PDF) متاح لمسؤول النظام (Admin) فقط.");
         }
 
         var claimEmpId = user.FindFirst("employee_id")?.Value;
@@ -82,13 +78,9 @@ public static class EmployeeDossierPdfEndpoints
         if (user.Identity is not { IsAuthenticated: true })
             return Results.Unauthorized();
 
-        var isStaff = StaffRoles.IsStaff(user)
-            || PermissionResolver.HasPermission(user, Permissions.EmployeesView)
-            || PermissionResolver.HasPermission(user, Permissions.EmployeesEdit);
-
-        if (!isStaff)
+        if (!PermissionResolver.IsAdmin(user))
         {
-            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "تنزيل خط الخدمة والملف الوظيفي متاح للكادر الإداري والمخولين فقط.");
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Forbidden", detail: "تنزيل الملف الوظيفي (PDF) متاح لمسؤول النظام (Admin) فقط.");
         }
 
         var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}{httpContext.Request.PathBase}";

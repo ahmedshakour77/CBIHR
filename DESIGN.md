@@ -315,6 +315,14 @@ list, full width (`is-static`). A session still running fades out at its open en
   Under 36rem the lanes stop scrolling: names stack above a full-width track and every other hour
   label hides. Under 40rem the range figures fall to two columns. From 62rem the paired panels
   (`.hr-ua-split`) sit side by side. Under a coarse pointer a lane is at least 44px tall.
+- Two more sizes of the same ribbon. `is-mini` (9rem × .375rem) sits under "آخر نشاط" in the
+  users table and opens that session. `.hr-ua-strip` spells a selected session out: the bar with
+  each page's title and time written under its part. Each part is a size container, and a part
+  narrower than 4.5rem keeps its label for screen readers only.
+- Live figures are keyed by their value (`.hr-ua-tick`), so only a figure that changed on a
+  refresh settles in, once. Under reduced motion it fades instead.
+- Steps read as sentences with the chosen or typed value inline ("اختيار «X» في Y"). They use
+  verbal nouns, so the sentence never has to guess the user's gender.
 
 ### Dashboard charts
 
