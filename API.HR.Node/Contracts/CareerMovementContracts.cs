@@ -45,11 +45,14 @@ public sealed record CareerMovementImportRow(
 
 public sealed record CareerMovementImportRequest(
     string Mode,
-    IReadOnlyList<CareerMovementImportRow> Movements);
+    IReadOnlyList<CareerMovementImportRow> Movements,
+    bool? DeleteMissing = null,
+    string? DeleteScope = null);
 
 public sealed record CareerMovementImportResponse(
     int TotalRows,
     int Inserted,
     int Updated,
     int Skipped,
-    IReadOnlyList<string> MissingEmployeeIDs);
+    IReadOnlyList<string> MissingEmployeeIDs,
+    int Deleted = 0);

@@ -423,6 +423,9 @@ public static class CourseEndpoints
         group.MapPost("/import/excel", async (
             IFormFile file,
             [FromForm] string? mode,
+            [FromQuery] string? queryMode,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
             IExcelImportService importService,
             CancellationToken ct) =>
         {
@@ -446,8 +449,10 @@ public static class CourseEndpoints
             try
             {
                 var request = new CourseImportRequest(
-                    Mode: mode ?? "upsert",
-                    Courses: parseResult.Rows);
+                    Mode: mode ?? queryMode ?? "upsert",
+                    Courses: parseResult.Rows,
+                    DeleteMissing: deleteMissing ?? false,
+                    DeleteScope: deleteScope);
 
                 var response = await importService.ImportCoursesAsync(request, ct);
                 return Results.Ok(response);
@@ -500,6 +505,8 @@ public static class CourseEndpoints
         }
 
         var isUpsert = mode == "upsert";
+        var deleteMissing = request.DeleteMissing ?? false;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
         var errors = new List<EmployeeImportError>();
         var requestedEmployeeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -601,17 +608,16 @@ public static class CourseEndpoints
         }
 
         var courseIndex = new Dictionary<(int EmployeeId, string CourseName, string StartDate), EmployeeCourse>();
+        var allExistingCoursesInScope = new List<EmployeeCourse>();
 
-        if (isUpsert)
+        if (isUpsert || deleteMissing)
         {
-            var empDbIds = employees.Values.Select(e => e.Id).Distinct().ToList();
-            foreach (var batch in empDbIds.Chunk(1000))
+            if (deleteMissing && deleteAllScope)
             {
-                var batchList = batch.ToList();
                 var existingCourses = await dbContext.EmployeeCourses
-                    .Where(c => batchList.Contains(c.EmployeeId))
                     .ToListAsync(cancellationToken);
 
+                allExistingCoursesInScope.AddRange(existingCourses);
                 foreach (var c in existingCourses)
                 {
                     var cNameKey = c.CourseName.Trim().ToLowerInvariant();
@@ -619,8 +625,28 @@ public static class CourseEndpoints
                     courseIndex[(c.EmployeeId, cNameKey, sDateKey)] = c;
                 }
             }
+            else
+            {
+                var empDbIds = employees.Values.Select(e => e.Id).Distinct().ToList();
+                foreach (var batch in empDbIds.Chunk(1000))
+                {
+                    var batchList = batch.ToList();
+                    var existingCourses = await dbContext.EmployeeCourses
+                        .Where(c => batchList.Contains(c.EmployeeId))
+                        .ToListAsync(cancellationToken);
+
+                    allExistingCoursesInScope.AddRange(existingCourses);
+                    foreach (var c in existingCourses)
+                    {
+                        var cNameKey = c.CourseName.Trim().ToLowerInvariant();
+                        var sDateKey = c.StartDate?.ToString("yyyy-MM-dd") ?? string.Empty;
+                        courseIndex[(c.EmployeeId, cNameKey, sDateKey)] = c;
+                    }
+                }
+            }
         }
 
+        var keptCourses = new HashSet<EmployeeCourse>(ReferenceEqualityComparer.Instance);
         var inserted = 0;
         var updated = 0;
         var skipped = 0;
@@ -664,8 +690,14 @@ public static class CourseEndpoints
 
                 EmployeeCourse? course = null;
 
-                if (isUpsert && courseIndex.TryGetValue(matchKey, out var existing))
+                if ((isUpsert || deleteMissing) && courseIndex.TryGetValue(matchKey, out var existing))
                 {
+                    keptCourses.Add(existing);
+                    if (!isUpsert)
+                    {
+                        skipped++;
+                        continue;
+                    }
                     course = existing;
                     updated++;
                 }
@@ -679,8 +711,9 @@ public static class CourseEndpoints
                     };
 
                     dbContext.EmployeeCourses.Add(course);
+                    keptCourses.Add(course);
 
-                    if (isUpsert)
+                    if (isUpsert || deleteMissing)
                     {
                         courseIndex[matchKey] = course;
                     }
@@ -706,6 +739,17 @@ public static class CourseEndpoints
             return (false, null, errors, null);
         }
 
+        var deleted = 0;
+        if (deleteMissing)
+        {
+            var toDelete = allExistingCoursesInScope.Where(c => !keptCourses.Contains(c)).ToList();
+            if (toDelete.Count > 0)
+            {
+                dbContext.EmployeeCourses.RemoveRange(toDelete);
+                deleted = toDelete.Count;
+            }
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (true, new CourseImportResponse(
@@ -713,7 +757,8 @@ public static class CourseEndpoints
             inserted,
             updated,
             skipped,
-            missingEmployeeIds.ToList()), null, null);
+            missingEmployeeIds.ToList(),
+            deleted), null, null);
     }
 
     private static bool TryParseDate(string? rawValue, out DateOnly? value)

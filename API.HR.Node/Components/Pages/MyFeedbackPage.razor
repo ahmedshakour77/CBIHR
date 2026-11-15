@@ -9,6 +9,7 @@
 @using API.HR.Node.Services.Features
 @using API.HR.Node.Services.Feedback
 @using API.HR.Node.Services.Localization
+@using Microsoft.AspNetCore.Components.Forms
 @inject IEmployeeFeedbackService FeedbackService
 @inject ISystemFeatureService FeatureService
 @inject ILanguageService Lang
@@ -207,11 +208,25 @@
                                         </p>
                                     </div>
 
-                                    <span class="hr-thread__status">
+                                    <span class="hr-thread__status" style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                                         @switch (fb.Status)
                                         {
                                             case FeedbackStatus.Pending:
                                                 <span class="hr-badge hr-badge-warn"><Icon Name="clock" Size="xs" /><span>بانتظار المراجعة</span></span>
+                                                <button type="button"
+                                                        class="hr-btn hr-btn-secondary hr-btn-xs"
+                                                        title="تعديل المشاركة (متاح قبل تغيير حالتها الأولى)"
+                                                        @onclick="() => OpenEditModal(fb)">
+                                                    <Icon Name="pencil-square" Size="xs" />
+                                                    <span>تعديل</span>
+                                                </button>
+                                                <button type="button"
+                                                        class="hr-btn hr-btn-danger-quiet hr-btn-xs"
+                                                        title="حذف المشاركة (متاح قبل تغيير حالتها الأولى)"
+                                                        @onclick="() => OpenDeleteConfirm(fb)">
+                                                    <Icon Name="trash" Size="xs" />
+                                                    <span>حذف</span>
+                                                </button>
                                                 break;
                                             case FeedbackStatus.InProgress:
                                                 <span class="hr-badge hr-badge-accent"><Icon Name="arrow-path" Size="xs" /><span>قيد المعالجة</span></span>
@@ -296,6 +311,136 @@
     </section>
 </div>
 
+<Modal IsOpen="@showEditModal"
+       Title="تعديل المشاركة"
+       Subtitle="@(editingItem == null ? null : $"رقم المتابعة: {editingItem.ReferenceNumber}")"
+       Icon="pencil-square"
+       Size="md"
+       OnClose="CloseEditModal">
+    <Body>
+        @if (editingItem != null)
+        {
+            <div class="hr-stack" style="gap: var(--s-3);">
+                @if (!string.IsNullOrWhiteSpace(editError))
+                {
+                    <div class="hr-alert hr-alert-danger" role="alert">
+                        <Icon Name="exclamation-triangle" Size="xs" />
+                        <span>@editError</span>
+                    </div>
+                }
+
+                <div class="hr-field">
+                    <label class="hr-field-label">نوع المشاركة</label>
+                    <select class="hr-select" @bind="editType">
+                        <option value="فكرة">فكرة أو مقترح</option>
+                        <option value="ملاحظة">ملاحظة عمل</option>
+                        <option value="استفسار">استفسار وظيفي</option>
+                        <option value="شكوى">شكوى إدارية</option>
+                        <option value="أخرى">أخرى / عام</option>
+                    </select>
+                </div>
+
+                <div class="hr-field">
+                    <label class="hr-field-label">عنوان مختصر للمشاركة</label>
+                    <input type="text" class="hr-input" maxlength="200" @bind="editTitle" @bind:event="oninput" />
+                </div>
+
+                <div class="hr-field">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem;">
+                        <label class="hr-field-label" style="margin:0;">تفاصيل ووصف المشاركة</label>
+                        <span class="hr-badge @(EditWordCount >= 5 && EditWordCount <= 500 ? "hr-badge-ok" : "hr-badge-warn")" style="font-size:var(--fs-caption);">
+                            <span class="hr-num">@EditWordCount</span> / 500 كلمة
+                        </span>
+                    </div>
+                    <textarea class="hr-textarea" rows="5" @bind="editDescription" @bind:event="oninput"></textarea>
+                    @if (EditWordCount < 5)
+                    {
+                        <small class="hr-text-warn">الحد الأدنى للوصف: 5 كلمات (متبقي @(5 - EditWordCount) كلمات).</small>
+                    }
+                    else if (EditWordCount > 500)
+                    {
+                        <small class="hr-text-danger">تجاوزت الحد الأقصى المسموح به (500 كلمة).</small>
+                    }
+                </div>
+
+                @if (featureSettings.AllowAttachments)
+                {
+                    <div class="hr-field">
+                        <label class="hr-field-label">المرفق الداعم (اختياري · أقل من 2 ميغابايت)</label>
+                        @if (!string.IsNullOrWhiteSpace(editingItem.AttachmentFileName) && !removeExistingAttachment && editFile == null)
+                        {
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.5rem 0.75rem; border:1px solid var(--border); border-radius:var(--r-md);">
+                                <span class="hr-truncate" style="font-size:0.9rem;">المرفق الحالي: <strong>@editingItem.AttachmentFileName</strong></span>
+                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" @onclick="() => removeExistingAttachment = true">
+                                    <Icon Name="trash" Size="xs" />
+                                    <span>إزالة المرفق</span>
+                                </button>
+                            </div>
+                        }
+                        else if (editFile != null)
+                        {
+                            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.5rem 0.75rem; border:1px solid var(--border); border-radius:var(--r-md);">
+                                <span class="hr-truncate" style="font-size:0.9rem;">ملف جديد: <strong>@editFile.Name</strong></span>
+                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" @onclick="() => { editFile = null; editFileError = null; }">
+                                    <Icon Name="trash" Size="xs" />
+                                    <span>إلغاء الملف</span>
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <InputFile OnChange="HandleEditFileSelected" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" class="hr-input" />
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(editFileError))
+                        {
+                            <small class="hr-text-danger">@editFileError</small>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseEditModal" disabled="@isSavingEdit">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveEditAsync" disabled="@(isSavingEdit || !IsEditValid)">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingEdit ? "جارٍ الحفظ..." : "حفظ التعديلات")</span>
+        </button>
+    </Footer>
+</Modal>
+
+<Modal IsOpen="@showDeleteModal"
+       Title="تأكيد حذف المشاركة"
+       Subtitle="@(deletingItem == null ? null : $"رقم المتابعة: {deletingItem.ReferenceNumber}")"
+       Icon="trash"
+       Size="sm"
+       OnClose="CloseDeleteModal">
+    <Body>
+        @if (deletingItem != null)
+        {
+            <div class="hr-stack" style="gap: var(--s-2);">
+                @if (!string.IsNullOrWhiteSpace(deleteError))
+                {
+                    <div class="hr-alert hr-alert-danger" role="alert">
+                        <Icon Name="exclamation-triangle" Size="xs" />
+                        <span>@deleteError</span>
+                    </div>
+                }
+                <p style="margin:0;">هل أنت متأكد من رغبتك في حذف المشاركة بعنوان <strong>"@deletingItem.Title"</strong> نهائياً؟</p>
+                <p class="hr-meta" style="margin:0;">لا يمكن التراجع عن هذا الإجراء بعد الحذف.</p>
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="CloseDeleteModal" disabled="@isDeleting">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-danger" @onclick="ConfirmDeleteAsync" disabled="@isDeleting">
+            <Icon Name="trash" Size="xs" />
+            <span>@(isDeleting ? "جارٍ الحذف..." : "نعم، حذف المشاركة")</span>
+        </button>
+    </Footer>
+</Modal>
+
 @code {
     private const int ClampChars = 280;
 
@@ -319,6 +464,156 @@
     private readonly HashSet<int> expanded = new();
     private bool modalWasOpen;
     private SystemFeatureSettings featureSettings = new();
+
+    // Employee Edit & Delete state (only while Status == Pending)
+    private bool showEditModal;
+    private bool isSavingEdit;
+    private EmployeeFeedback? editingItem;
+    private string editType = "فكرة";
+    private string editTitle = string.Empty;
+    private string editDescription = string.Empty;
+    private bool removeExistingAttachment;
+    private IBrowserFile? editFile;
+    private string? editFileError;
+    private string? editError;
+
+    private bool showDeleteModal;
+    private bool isDeleting;
+    private EmployeeFeedback? deletingItem;
+    private string? deleteError;
+
+    private int EditWordCount => EmployeeFeedbackService.CountWords(editDescription);
+    private bool IsEditValid => !string.IsNullOrWhiteSpace(editTitle?.Trim())
+                                && EditWordCount >= EmployeeFeedbackService.MinWordCount
+                                && EditWordCount <= EmployeeFeedbackService.MaxWordCount
+                                && string.IsNullOrWhiteSpace(editFileError);
+
+    private void OpenEditModal(EmployeeFeedback fb)
+    {
+        if (fb.Status != FeedbackStatus.Pending) return;
+        editingItem = fb;
+        editType = fb.FeedbackType;
+        editTitle = fb.Title;
+        editDescription = fb.Description;
+        removeExistingAttachment = false;
+        editFile = null;
+        editFileError = null;
+        editError = null;
+        showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        if (isSavingEdit) return;
+        showEditModal = false;
+        editingItem = null;
+    }
+
+    private void HandleEditFileSelected(InputFileChangeEventArgs e)
+    {
+        editFileError = null;
+        var file = e.File;
+        if (file == null) return;
+        if (file.Size > EmployeeFeedbackService.MaxFileSizeBytes)
+        {
+            editFileError = "حجم الملف يتجاوز الحد الأقصى المسموح (2 ميغابايت).";
+            editFile = null;
+            return;
+        }
+        editFile = file;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (editingItem == null || !IsEditValid || isSavingEdit) return;
+        isSavingEdit = true;
+        editError = null;
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            Stream? stream = null;
+            if (editFile != null)
+            {
+                stream = editFile.OpenReadStream(EmployeeFeedbackService.MaxFileSizeBytes);
+            }
+
+            var dto = new FeedbackSubmissionDto
+            {
+                FeedbackType = editType,
+                Title = editTitle.Trim(),
+                Description = editDescription.Trim(),
+                FileName = editFile?.Name,
+                ContentType = editFile?.ContentType,
+                FileStream = stream,
+                FileSize = editFile?.Size
+            };
+
+            var res = await FeedbackService.UpdateMyFeedbackAsync(editingItem.Id, dto, auth.User, removeExistingAttachment);
+            if (res.Success)
+            {
+                showEditModal = false;
+                editingItem = null;
+                await LoadFeedbacksAsync();
+            }
+            else
+            {
+                editError = res.ErrorMessage ?? "تعذر تعديل المشاركة.";
+            }
+        }
+        catch (Exception ex)
+        {
+            editError = $"خطأ: {ex.Message}";
+        }
+        finally
+        {
+            isSavingEdit = false;
+        }
+    }
+
+    private void OpenDeleteConfirm(EmployeeFeedback fb)
+    {
+        if (fb.Status != FeedbackStatus.Pending) return;
+        deletingItem = fb;
+        deleteError = null;
+        showDeleteModal = true;
+    }
+
+    private void CloseDeleteModal()
+    {
+        if (isDeleting) return;
+        showDeleteModal = false;
+        deletingItem = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (deletingItem == null || isDeleting) return;
+        isDeleting = true;
+        deleteError = null;
+        try
+        {
+            var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+            var res = await FeedbackService.DeleteMyFeedbackAsync(deletingItem.Id, auth.User);
+            if (res.Success)
+            {
+                showDeleteModal = false;
+                deletingItem = null;
+                await LoadFeedbacksAsync();
+            }
+            else
+            {
+                deleteError = res.ErrorMessage ?? "تعذر حذف المشاركة.";
+            }
+        }
+        catch (Exception ex)
+        {
+            deleteError = $"خطأ: {ex.Message}";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

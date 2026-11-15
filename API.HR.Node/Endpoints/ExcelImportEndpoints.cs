@@ -72,6 +72,8 @@ public static class ExcelImportEndpoints
             IFormFile file,
             [FromQuery] string? mode,
             [FromQuery] bool? createMissingLookups,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
             IExcelImportService importService,
             CancellationToken ct) =>
         {
@@ -108,7 +110,9 @@ public static class ExcelImportEndpoints
                 var request = new AppreciationLetterImportRequest(
                     Mode: mode ?? "upsert",
                     Letters: parseResult.Rows,
-                    CreateMissingLookups: createMissingLookups ?? true);
+                    CreateMissingLookups: createMissingLookups ?? true,
+                    DeleteMissing: deleteMissing ?? false,
+                    DeleteScope: deleteScope);
 
                 var response = await importService.ImportAppreciationLettersAsync(request, ct);
                 return Results.Ok(response);
@@ -120,8 +124,170 @@ public static class ExcelImportEndpoints
         })
         .DisableAntiforgery()
         .WithName("ImportAppreciationLettersFromExcel")
-        .WithSummary("استيراد كتب الشكر والتقدير عبر رفع ملف Excel (.xlsx)")
+        .WithSummary("استيراد كتب الشكر والتقدير عبر رفع ملف Excel (.xlsx) مع خيار حذف التفاصيل غير الموجودة بالملف")
         .RequireAuthorization(AuthorizationPolicies.ImportAppreciationLetters);
+
+        group.MapPost("/penalties/excel", async (
+            IFormFile file,
+            [FromQuery] string? mode,
+            [FromQuery] bool? createMissingLookups,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
+            IExcelImportService importService,
+            CancellationToken ct) =>
+        {
+            if (file is null || file.Length == 0)
+            {
+                return Results.BadRequest(new { message = "يرجى تحديد ملف إكسل صالح." });
+            }
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (extension is not (".xlsx" or ".xlsm"))
+            {
+                return Results.BadRequest(new { message = "الملف يجب أن يكون بصيغة Excel (.xlsx)." });
+            }
+
+            using var stream = file.OpenReadStream();
+            var parseResult = await importService.ParsePenaltiesExcelAsync(stream, ct);
+
+            if (parseResult.HasErrors)
+            {
+                return Results.BadRequest(new
+                {
+                    message = "فشل تحليل أعمدة أو بيانات ملف العقوبات.",
+                    errors = parseResult.ParseErrors
+                });
+            }
+
+            if (parseResult.Rows.Count == 0)
+            {
+                return Results.BadRequest(new { message = "لم يتم العثور على أي صفوف بيانات صالحة للاستيراد." });
+            }
+
+            try
+            {
+                var request = new EmployeePenaltyImportRequest(
+                    Mode: mode ?? "upsert",
+                    Penalties: parseResult.Rows,
+                    CreateMissingLookups: createMissingLookups ?? true,
+                    DeleteMissing: deleteMissing ?? false,
+                    DeleteScope: deleteScope);
+
+                var response = await importService.ImportPenaltiesAsync(request, ct);
+                return Results.Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        })
+        .DisableAntiforgery()
+        .WithName("ImportPenaltiesFromExcel")
+        .WithSummary("استيراد العقوبات الانضباطية عبر رفع ملف Excel (.xlsx) مع خيار حذف التفاصيل غير الموجودة بالملف")
+        .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+
+        group.MapPost("/penalties/json", async (
+            [FromBody] EmployeePenaltyImportRequest request,
+            IExcelImportService importService,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var response = await importService.ImportPenaltiesAsync(request, ct);
+                return Results.Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
+        })
+        .WithName("ImportPenaltiesFromJson")
+        .WithSummary("استيراد العقوبات الانضباطية عبر JSON مع خيار حذف التفاصيل غير الموجودة")
+        .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+
+        group.MapPost("/email-accounts/excel", async (
+            IFormFile file,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
+            IExcelImportService importService,
+            CancellationToken ct) =>
+        {
+            if (file is null || file.Length == 0)
+            {
+                return Results.BadRequest(new { message = "يرجى تحديد ملف إكسل صالح." });
+            }
+
+            using var stream = file.OpenReadStream();
+            var parseResult = await importService.ParseEmailAccountsExcelAsync(stream, ct);
+            if (parseResult.HasErrors)
+            {
+                return Results.BadRequest(new
+                {
+                    message = "فشل تحليل أعمدة أو بيانات ملف البريد الإلكتروني.",
+                    errors = parseResult.ParseErrors
+                });
+            }
+
+            var request = new EmployeeEmailAccountImportRequest(
+                Rows: parseResult.Rows,
+                DeleteMissing: deleteMissing ?? false,
+                DeleteScope: deleteScope);
+
+            var response = await importService.ImportEmailAccountsAsync(request, ct);
+            return Results.Ok(response);
+        })
+        .DisableAntiforgery()
+        .WithName("ImportEmailAccountsFromExcel")
+        .WithSummary("استيراد البريد الإلكتروني للموظفين عبر رفع ملف Excel مع خيار حذف البريد غير الموجود بالملف")
+        .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+
+        group.MapPost("/email-accounts/json", async (
+            [FromBody] EmployeeEmailAccountImportRequest request,
+            IExcelImportService importService,
+            CancellationToken ct) =>
+        {
+            var response = await importService.ImportEmailAccountsAsync(request, ct);
+            return Results.Ok(response);
+        })
+        .WithName("ImportEmailAccountsFromJson")
+        .WithSummary("استيراد البريد الإلكتروني للموظفين عبر JSON مع خيار حذف البريد غير الموجود")
+        .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+
+        group.MapPost("/martyrs/excel", async (
+            IFormFile file,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
+            HttpContext httpContext,
+            IExcelImportService importService,
+            CancellationToken ct) =>
+        {
+            if (file is null || file.Length == 0)
+            {
+                return Results.BadRequest(new { message = "يرجى تحديد ملف إكسل صالح." });
+            }
+
+            using var stream = file.OpenReadStream();
+            var parseResult = await importService.ParseMartyrsExcelAsync(stream, ct);
+            if (parseResult.ValidRows == 0)
+            {
+                return Results.BadRequest(new { message = "لم يتم العثور على صفوف صالحة للاستيراد." });
+            }
+
+            var req = new MartyrsImportRequest
+            {
+                Rows = parseResult.Rows.Where(r => r.IsValid).ToList(),
+                ReplaceExisting = deleteMissing ?? false,
+                DeleteScope = deleteScope ?? "file_employees"
+            };
+
+            var username = httpContext.User.Identity?.Name ?? "HR_Admin";
+            var response = await importService.ImportMartyrsAsync(req, username, ct);
+            return Results.Ok(response);
+        })
+        .DisableAntiforgery()
+        .WithName("ImportMartyrsFromExcel")
+        .WithSummary("استيراد ذوي الشهداء عبر رفع ملف Excel مع خيار حذف السجلات غير الموجودة بالملف")
+        .RequireAuthorization(AuthorizationPolicies.AdminOnly);
 
         group.MapGet("/template/employees", (IExcelImportService importService) =>
         {

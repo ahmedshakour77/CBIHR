@@ -3,7 +3,9 @@ namespace API.HR.Node.Contracts;
 public sealed record AppreciationLetterImportRequest(
     string Mode,
     IReadOnlyList<AppreciationLetterImportRow> Letters,
-    bool? CreateMissingLookups = null);
+    bool? CreateMissingLookups = null,
+    bool? DeleteMissing = null,
+    string? DeleteScope = null);
 
 public sealed record AppreciationLetterImportRow(
     string EmployeeID,   // رقم الموظف
@@ -20,4 +22,5 @@ public sealed record AppreciationLetterImportResponse(
     int Updated,
     // Rows whose employee is not on file: skipped, not imported.
     int Skipped,
-    IReadOnlyList<string> MissingEmployeeIDs);
+    IReadOnlyList<string> MissingEmployeeIDs,
+    int Deleted = 0);

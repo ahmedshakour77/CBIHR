@@ -84,4 +84,16 @@ public interface IEmployeeFeedbackService
         int id,
         ClaimsPrincipal user,
         CancellationToken cancellationToken = default);
+
+    Task<FeedbackSubmissionResult> UpdateMyFeedbackAsync(
+        int id,
+        FeedbackSubmissionDto dto,
+        ClaimsPrincipal user,
+        bool removeAttachment = false,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Success, string? ErrorMessage)> DeleteMyFeedbackAsync(
+        int id,
+        ClaimsPrincipal user,
+        CancellationToken cancellationToken = default);
 }

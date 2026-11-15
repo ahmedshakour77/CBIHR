@@ -50,8 +50,10 @@ public sealed class MartyrsImportPreviewResponse
 public sealed class MartyrsImportRequest
 {
     public List<MartyrImportRow> Rows { get; set; } = [];
-    /// <summary>هل يتم استبدال السجلات السابقة لذوي الشهداء لنفس الموظفين أم الإضافة عليها؟</summary>
+    /// <summary>هل يتم حذف / استبدال السجلات السابقة لذوي الشهداء التي لم ترد في الملف أو الـ API؟</summary>
     public bool ReplaceExisting { get; set; } = false;
+    /// <summary>نطاق الحذف عند تفعيل حذف المفقود: file_employees أو all</summary>
+    public string DeleteScope { get; set; } = "file_employees";
 }
 
 public sealed class MartyrsImportResult
@@ -59,5 +61,6 @@ public sealed class MartyrsImportResult
     public bool Success { get; set; }
     public int ImportedCount { get; set; }
     public int SkippedCount { get; set; }
+    public int DeletedCount { get; set; }
     public List<string> Messages { get; set; } = [];
 }

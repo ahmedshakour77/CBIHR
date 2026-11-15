@@ -221,6 +221,8 @@ public static class AppreciationLetterImportEndpoints
         }
 
         var isUpsert = mode == "upsert";
+        var deleteMissing = request.DeleteMissing ?? false;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
         var errors = new List<EmployeeImportError>();
         var requestedEmployeeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -288,17 +290,26 @@ public static class AppreciationLetterImportEndpoints
         var titles = await LoadTitles(dbContext, cancellationToken);
         var types = await LoadTypes(dbContext, cancellationToken);
 
-        // Existing letters for the referenced employees for upsert resolution
+        // Existing letters for the referenced employees (or all employees if full-sync delete scope)
         List<AppreciationLetter> existingLetters = [];
-        if (isUpsert)
+        if (isUpsert || deleteMissing)
         {
-            var employeeIds = employees.Values.Select(employee => employee.Id).ToList();
+            if (deleteMissing && deleteAllScope)
+            {
+                existingLetters = await dbContext.AppreciationLetters
+                    .ToListAsync(cancellationToken);
+            }
+            else
+            {
+                var employeeIds = employees.Values.Select(employee => employee.Id).ToList();
 
-            existingLetters = await dbContext.AppreciationLetters
-                .Where(letter => employeeIds.Contains(letter.EmployeeId))
-                .ToListAsync(cancellationToken);
+                existingLetters = await dbContext.AppreciationLetters
+                    .Where(letter => employeeIds.Contains(letter.EmployeeId))
+                    .ToListAsync(cancellationToken);
+            }
         }
 
+        var keptLetters = new HashSet<AppreciationLetter>(ReferenceEqualityComparer.Instance);
         var inserted = 0;
         var updated = 0;
         var skipped = 0;
@@ -324,12 +335,13 @@ public static class AppreciationLetterImportEndpoints
             var titleNorm = LookupNormalization.Normalize(row.Title);
             AppreciationLetter? letter = null;
 
-            if (isUpsert)
+            if (isUpsert || deleteMissing)
             {
                 // Priority 1: Match by (EmployeeId + LetterNumber) if letter number is present
                 if (!string.IsNullOrWhiteSpace(letterNum))
                 {
                     letter = existingLetters.FirstOrDefault(l =>
+                        !keptLetters.Contains(l) &&
                         l.EmployeeId == employee.Id &&
                         string.Equals(l.LetterNumber?.Trim(), letterNum, StringComparison.OrdinalIgnoreCase));
                 }
@@ -338,14 +350,33 @@ public static class AppreciationLetterImportEndpoints
                 if (letter is null && letterDate.HasValue && !string.IsNullOrWhiteSpace(titleNorm))
                 {
                     letter = existingLetters.FirstOrDefault(l =>
+                        !keptLetters.Contains(l) &&
                         l.EmployeeId == employee.Id &&
                         l.LetterDate == letterDate &&
+                        string.Equals(LookupNormalization.Normalize(l.Title), titleNorm, StringComparison.OrdinalIgnoreCase));
+                }
+
+                // Priority 3: Match by (EmployeeId + Title) when date & number are empty
+                if (letter is null && !letterDate.HasValue && string.IsNullOrWhiteSpace(letterNum) && !string.IsNullOrWhiteSpace(titleNorm))
+                {
+                    letter = existingLetters.FirstOrDefault(l =>
+                        !keptLetters.Contains(l) &&
+                        l.EmployeeId == employee.Id &&
+                        !l.LetterDate.HasValue &&
+                        string.IsNullOrWhiteSpace(l.LetterNumber) &&
                         string.Equals(LookupNormalization.Normalize(l.Title), titleNorm, StringComparison.OrdinalIgnoreCase));
                 }
             }
 
             if (letter != null)
             {
+                keptLetters.Add(letter);
+                if (!isUpsert)
+                {
+                    // In insert mode with deleteMissing: keep existing matched letter as-is
+                    skipped++;
+                    continue;
+                }
                 updated++;
             }
             else
@@ -356,8 +387,9 @@ public static class AppreciationLetterImportEndpoints
                 };
 
                 dbContext.AppreciationLetters.Add(letter);
+                keptLetters.Add(letter);
 
-                if (isUpsert)
+                if (isUpsert || deleteMissing)
                 {
                     existingLetters.Add(letter);
                 }
@@ -387,6 +419,17 @@ public static class AppreciationLetterImportEndpoints
             return (false, null, errors, null);
         }
 
+        var deleted = 0;
+        if (deleteMissing)
+        {
+            var toDelete = existingLetters.Where(l => !keptLetters.Contains(l)).ToList();
+            if (toDelete.Count > 0)
+            {
+                dbContext.AppreciationLetters.RemoveRange(toDelete);
+                deleted = toDelete.Count;
+            }
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (true, new AppreciationLetterImportResponse(
@@ -394,7 +437,8 @@ public static class AppreciationLetterImportEndpoints
             inserted,
             updated,
             skipped,
-            missingEmployeeIds.ToList()), null, null);
+            missingEmployeeIds.ToList(),
+            deleted), null, null);
     }
 
     private static async Task<Dictionary<string, AppreciationLetterTitle>> LoadTitles(

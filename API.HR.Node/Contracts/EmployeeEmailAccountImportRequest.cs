@@ -1,7 +1,9 @@
 namespace API.HR.Node.Contracts;
 
 public sealed record EmployeeEmailAccountImportRequest(
-    IReadOnlyList<EmployeeEmailAccountImportRow> Rows);
+    IReadOnlyList<EmployeeEmailAccountImportRow> Rows,
+    bool? DeleteMissing = null,
+    string? DeleteScope = null);
 
 public sealed record EmployeeEmailAccountImportRow(
     string EmployeeID,
@@ -13,4 +15,5 @@ public sealed record EmployeeEmailAccountImportResponse(
     int Inserted,
     int Updated,
     int Skipped,
-    IReadOnlyList<string> Details);
+    IReadOnlyList<string> Details,
+    int Deleted = 0);

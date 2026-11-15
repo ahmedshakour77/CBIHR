@@ -713,10 +713,13 @@ public sealed class ExcelImportService : IExcelImportService
         var totalRows = request.Penalties.Count;
         if (totalRows == 0)
         {
-            return new EmployeePenaltyImportResponse(0, 0, 0, 0, Array.Empty<string>());
+            return new EmployeePenaltyImportResponse(0, 0, 0, 0, Array.Empty<string>(), 0);
         }
 
-        var isUpsert = request.Mode != "insertOnly";
+        var isUpsert = request.Mode != "insertOnly" && request.Mode != "insert";
+        var deleteMissing = request.DeleteMissing ?? false;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+
         var requestedEmpIds = request.Penalties
             .Select(p => p.EmployeeID?.Trim())
             .Where(id => !string.IsNullOrEmpty(id))
@@ -731,12 +734,22 @@ public sealed class ExcelImportService : IExcelImportService
             .ToDictionaryAsync(t => t.Name.Trim(), StringComparer.OrdinalIgnoreCase, cancellationToken);
 
         var employeeDbIds = employees.Values.Select(e => e.Id).ToList();
-        var existingPenalties = isUpsert
-            ? await _dbContext.EmployeePenalties
-                .Where(p => employeeDbIds.Contains(p.EmployeeId))
-                .ToListAsync(cancellationToken)
-            : new List<EmployeePenalty>();
+        List<EmployeePenalty> existingPenalties = [];
+        if (isUpsert || deleteMissing)
+        {
+            if (deleteMissing && deleteAllScope)
+            {
+                existingPenalties = await _dbContext.EmployeePenalties.ToListAsync(cancellationToken);
+            }
+            else
+            {
+                existingPenalties = await _dbContext.EmployeePenalties
+                    .Where(p => employeeDbIds.Contains(p.EmployeeId))
+                    .ToListAsync(cancellationToken);
+            }
+        }
 
+        var keptPenalties = new HashSet<EmployeePenalty>(ReferenceEqualityComparer.Instance);
         var inserted = 0;
         var updated = 0;
         var skipped = 0;
@@ -757,8 +770,6 @@ public sealed class ExcelImportService : IExcelImportService
             var orderNo = string.IsNullOrWhiteSpace(row.OrderNumber) ? null : row.OrderNumber.Trim();
             var penaltyName = string.IsNullOrWhiteSpace(row.PenaltyName) ? null : row.PenaltyName.Trim();
             var notes = string.IsNullOrWhiteSpace(row.Notes) ? null : row.Notes.Trim();
-            var directorate = string.IsNullOrWhiteSpace(row.Directorate) ? null : row.Directorate.Trim();
-            var jobTitle = string.IsNullOrWhiteSpace(row.JobTitle) ? null : row.JobTitle.Trim();
 
             // Resolve or create PenaltyType lookup
             int? penaltyTypeId = null;
@@ -778,9 +789,10 @@ public sealed class ExcelImportService : IExcelImportService
                 penaltyTypeId = pType.Id;
             }
 
-            if (isUpsert)
+            if (isUpsert || deleteMissing)
             {
                 var existing = existingPenalties.FirstOrDefault(p =>
+                    !keptPenalties.Contains(p) &&
                     p.EmployeeId == emp.Id &&
                     (
                         (!string.IsNullOrEmpty(orderNo) && string.Equals(p.OrderNumber, orderNo, StringComparison.OrdinalIgnoreCase)) ||
@@ -789,6 +801,12 @@ public sealed class ExcelImportService : IExcelImportService
 
                 if (existing != null)
                 {
+                    keptPenalties.Add(existing);
+                    if (!isUpsert)
+                    {
+                        skipped++;
+                        continue;
+                    }
                     existing.PenaltyTypeId = penaltyTypeId ?? existing.PenaltyTypeId;
                     existing.PenaltyDate = penaltyDate ?? existing.PenaltyDate;
                     existing.OrderNumber = orderNo ?? existing.OrderNumber;
@@ -810,7 +828,19 @@ public sealed class ExcelImportService : IExcelImportService
 
             _dbContext.EmployeePenalties.Add(newPenalty);
             existingPenalties.Add(newPenalty);
+            keptPenalties.Add(newPenalty);
             inserted++;
+        }
+
+        var deleted = 0;
+        if (deleteMissing)
+        {
+            var toDelete = existingPenalties.Where(p => !keptPenalties.Contains(p)).ToList();
+            if (toDelete.Count > 0)
+            {
+                _dbContext.EmployeePenalties.RemoveRange(toDelete);
+                deleted = toDelete.Count;
+            }
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -820,7 +850,8 @@ public sealed class ExcelImportService : IExcelImportService
             Inserted: inserted,
             Updated: updated,
             Skipped: skipped,
-            MissingEmployeeIDs: missingEmployeeIds.ToList()
+            MissingEmployeeIDs: missingEmployeeIds.ToList(),
+            Deleted: deleted
         );
     }
 
@@ -1313,12 +1344,15 @@ public sealed class ExcelImportService : IExcelImportService
         var inserted = 0;
         var updated = 0;
         var skipped = 0;
+        var deleted = 0;
         var details = new List<string>();
+        var deleteMissing = request.DeleteMissing ?? false;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
 
         var rows = request.Rows;
         if (rows.Count == 0)
         {
-            return new EmployeeEmailAccountImportResponse(0, 0, 0, 0, details);
+            return new EmployeeEmailAccountImportResponse(0, 0, 0, 0, details, 0);
         }
 
         var empIds = rows.Select(r => r.EmployeeID.Trim()).Where(s => !string.IsNullOrEmpty(s)).Distinct().ToList();
@@ -1326,9 +1360,13 @@ public sealed class ExcelImportService : IExcelImportService
             .Where(e => empIds.Contains(e.EmployeeID))
             .ToDictionaryAsync(e => e.EmployeeID, StringComparer.OrdinalIgnoreCase, cancellationToken);
 
-        var existingEmails = await _dbContext.EmployeeEmails
-            .Where(e => empIds.Contains(e.EmployeeID))
-            .ToListAsync(cancellationToken);
+        var existingEmails = (deleteMissing && deleteAllScope)
+            ? await _dbContext.EmployeeEmails.ToListAsync(cancellationToken)
+            : await _dbContext.EmployeeEmails
+                .Where(e => empIds.Contains(e.EmployeeID))
+                .ToListAsync(cancellationToken);
+
+        var keptEmails = new HashSet<EmployeeEmail>(ReferenceEqualityComparer.Instance);
 
         var emailsByEmpId = existingEmails
             .GroupBy(e => e.EmployeeID, StringComparer.OrdinalIgnoreCase)
@@ -1373,6 +1411,7 @@ public sealed class ExcelImportService : IExcelImportService
                     CreatedAt = DateTimeOffset.UtcNow
                 };
                 _dbContext.EmployeeEmails.Add(newEmailRecord);
+                keptEmails.Add(newEmailRecord);
 
                 inserted++;
                 details.Add($"إضافة جديدة: {empId} - {employee.Name} ({email})");
@@ -1388,6 +1427,7 @@ public sealed class ExcelImportService : IExcelImportService
                 if (matchingEmail != null && matchingEmail.IsPrimary)
                 {
                     // Existing and already primary - do not touch
+                    keptEmails.Add(matchingEmail);
                     skipped++;
                 }
                 else
@@ -1397,10 +1437,12 @@ public sealed class ExcelImportService : IExcelImportService
                     {
                         if (primaryEmail != null && primaryEmail != matchingEmail) primaryEmail.IsPrimary = false;
                         matchingEmail.IsPrimary = true;
+                        keptEmails.Add(matchingEmail);
                     }
                     else if (primaryEmail != null)
                     {
                         primaryEmail.Email = email;
+                        keptEmails.Add(primaryEmail);
                     }
                     else
                     {
@@ -1414,6 +1456,7 @@ public sealed class ExcelImportService : IExcelImportService
                         };
                         _dbContext.EmployeeEmails.Add(newEmailRec);
                         empEmailList.Add(newEmailRec);
+                        keptEmails.Add(newEmailRec);
                     }
 
                     if (!string.IsNullOrWhiteSpace(name) && employee!.Name != name)
@@ -1457,9 +1500,20 @@ public sealed class ExcelImportService : IExcelImportService
             }
         }
 
+        if (deleteMissing)
+        {
+            var toDelete = existingEmails.Where(e => !keptEmails.Contains(e)).ToList();
+            if (toDelete.Count > 0)
+            {
+                _dbContext.EmployeeEmails.RemoveRange(toDelete);
+                deleted = toDelete.Count;
+                details.Add($"تم حذف {deleted} بريد إلكتروني سابق غير موجود في الملف.");
+            }
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return new EmployeeEmailAccountImportResponse(rows.Count, inserted, updated, skipped, details);
+        return new EmployeeEmailAccountImportResponse(rows.Count, inserted, updated, skipped, details, deleted);
     }
 
     // ==========================================
@@ -3976,15 +4030,17 @@ public sealed class ExcelImportService : IExcelImportService
         var allKinships = await _dbContext.MartyrKinships.ToListAsync(cancellationToken);
         var kinshipDict = allKinships.ToDictionary(k => k.Name.Trim(), StringComparer.OrdinalIgnoreCase);
 
-        if (request.ReplaceExisting && employees.Count > 0)
-        {
-            var empDbIds = employees.Select(e => e.Id).ToList();
-            var oldRecords = await _dbContext.EmployeeMartyrs
+        var deletedCount = 0;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+        var empDbIds = employees.Select(e => e.Id).ToList();
+
+        var existingMartyrs = (request.ReplaceExisting && deleteAllScope)
+            ? await _dbContext.EmployeeMartyrs.ToListAsync(cancellationToken)
+            : await _dbContext.EmployeeMartyrs
                 .Where(m => empDbIds.Contains(m.EmployeeId))
                 .ToListAsync(cancellationToken);
-            _dbContext.EmployeeMartyrs.RemoveRange(oldRecords);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-        }
+
+        var keptMartyrs = new HashSet<EmployeeMartyr>(ReferenceEqualityComparer.Instance);
 
         var importedCount = 0;
         var skippedCount = 0;
@@ -4042,34 +4098,66 @@ public sealed class ExcelImportService : IExcelImportService
                 }
             }
 
-            var record = new EmployeeMartyr
-            {
-                EmployeeId = emp.Id,
-                EmployeeIdNumber = emp.EmployeeID,
-                MartyrName = row.MartyrName.Trim(),
-                MartyrdomTypeId = typeId,
-                KinshipId = kinshipId,
-                DecisionNumber = !string.IsNullOrWhiteSpace(row.DecisionNumber) ? row.DecisionNumber.Trim() : null,
-                Notes = !string.IsNullOrWhiteSpace(row.Notes) ? row.Notes.Trim() : null,
-                CreatedAt = DateTime.UtcNow
-            };
+            var cleanMartyrName = row.MartyrName.Trim();
+            var existingRecord = existingMartyrs.FirstOrDefault(m =>
+                !keptMartyrs.Contains(m) &&
+                m.EmployeeId == emp.Id &&
+                string.Equals(m.MartyrName.Trim(), cleanMartyrName, StringComparison.OrdinalIgnoreCase));
 
-            _dbContext.EmployeeMartyrs.Add(record);
-            importedCount++;
+            if (existingRecord != null)
+            {
+                existingRecord.MartyrdomTypeId = typeId ?? existingRecord.MartyrdomTypeId;
+                existingRecord.KinshipId = kinshipId ?? existingRecord.KinshipId;
+                existingRecord.DecisionNumber = !string.IsNullOrWhiteSpace(row.DecisionNumber) ? row.DecisionNumber.Trim() : existingRecord.DecisionNumber;
+                existingRecord.Notes = !string.IsNullOrWhiteSpace(row.Notes) ? row.Notes.Trim() : existingRecord.Notes;
+                keptMartyrs.Add(existingRecord);
+                importedCount++;
+            }
+            else
+            {
+                var record = new EmployeeMartyr
+                {
+                    EmployeeId = emp.Id,
+                    EmployeeIdNumber = emp.EmployeeID,
+                    MartyrName = cleanMartyrName,
+                    MartyrdomTypeId = typeId,
+                    KinshipId = kinshipId,
+                    DecisionNumber = !string.IsNullOrWhiteSpace(row.DecisionNumber) ? row.DecisionNumber.Trim() : null,
+                    Notes = !string.IsNullOrWhiteSpace(row.Notes) ? row.Notes.Trim() : null,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _dbContext.EmployeeMartyrs.Add(record);
+                existingMartyrs.Add(record);
+                keptMartyrs.Add(record);
+                importedCount++;
+            }
         }
 
-        if (importedCount > 0)
+        if (request.ReplaceExisting)
+        {
+            var toDelete = existingMartyrs.Where(m => !keptMartyrs.Contains(m)).ToList();
+            if (toDelete.Count > 0)
+            {
+                _dbContext.EmployeeMartyrs.RemoveRange(toDelete);
+                deletedCount = toDelete.Count;
+            }
+        }
+
+        if (importedCount > 0 || deletedCount > 0)
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        messages.Add($"تم إنجاز استيراد ذوي الشهداء بنجاح: تم حفظ ({importedCount}) سجلاً، وتخطي ({skippedCount}) سجلاً.");
+        messages.Add($"تم إنجاز استيراد ذوي الشهداء بنجاح: تم حفظ ({importedCount}) سجلاً، وتخطي ({skippedCount}) سجلاً" +
+                     (deletedCount > 0 ? $"، وحذف ({deletedCount}) سجلاً سابقاً غير مشمول." : "."));
 
         return new MartyrsImportResult
         {
             Success = true,
             ImportedCount = importedCount,
             SkippedCount = skippedCount,
+            DeletedCount = deletedCount,
             Messages = messages
         };
     }

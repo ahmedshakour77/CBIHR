@@ -38,6 +38,16 @@ public static class EmployeeFeedbackEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
+        // Mobile: Edit own pending feedback before initial status changes
+        group.MapPut("/{id:int}", UpdateMyFeedback)
+            .WithName("UpdateEmployeeFeedback")
+            .WithSummary("تعديل مشاركة الموظف قبل تغيير حالتها الأولى.");
+
+        // Mobile: Delete own pending feedback before initial status changes
+        group.MapDelete("/{id:int}", DeleteMyFeedback)
+            .WithName("DeleteEmployeeFeedback")
+            .WithSummary("حذف مشاركة الموظف إذا لم يتم تغيير حالتها الأولى.");
+
         return endpoints;
     }
 
@@ -133,5 +143,54 @@ public static class EmployeeFeedbackEndpoints
             result.Value.ContentType,
             result.Value.FileName,
             enableRangeProcessing: true);
+    }
+
+    private static async Task<IResult> UpdateMyFeedback(
+        int id,
+        [FromBody] MobileFeedbackRequest req,
+        IEmployeeFeedbackService feedbackService,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Description))
+        {
+            return Results.BadRequest(new { message = "عنوان وتفاصيل المشاركة مطلوبة." });
+        }
+
+        var dto = new FeedbackSubmissionDto
+        {
+            Title = req.Title.Trim(),
+            Description = req.Description.Trim(),
+            FeedbackType = !string.IsNullOrWhiteSpace(req.FeedbackType) ? req.FeedbackType.Trim() : "فكرة"
+        };
+
+        var result = await feedbackService.UpdateMyFeedbackAsync(id, dto, httpContext.User, removeAttachment: false, cancellationToken);
+        if (!result.Success)
+        {
+            return Results.BadRequest(new { message = result.ErrorMessage ?? "تعذر تعديل المشاركة." });
+        }
+
+        return Results.Ok(new
+        {
+            message = "تم تحديث المشاركة بنجاح.",
+            referenceNumber = result.ReferenceNumber,
+            id = result.Feedback?.Id,
+            status = result.Feedback?.Status.ToString()
+        });
+    }
+
+    private static async Task<IResult> DeleteMyFeedback(
+        int id,
+        IEmployeeFeedbackService feedbackService,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        var result = await feedbackService.DeleteMyFeedbackAsync(id, httpContext.User, cancellationToken);
+        if (!result.Success)
+        {
+            return Results.BadRequest(new { message = result.ErrorMessage ?? "تعذر حذف المشاركة." });
+        }
+
+        return Results.Ok(new { message = "تم حذف المشاركة بنجاح." });
     }
 }

@@ -463,4 +463,180 @@ public class EmployeeFeedbackService(
 
         return (stream, fileName, contentType);
     }
+
+    public async Task<FeedbackSubmissionResult> UpdateMyFeedbackAsync(
+        int id,
+        FeedbackSubmissionDto dto,
+        ClaimsPrincipal user,
+        bool removeAttachment = false,
+        CancellationToken cancellationToken = default)
+    {
+        var feedback = await dbContext.EmployeeFeedbacks.FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (feedback == null)
+        {
+            return new(false, ErrorMessage: "المشاركة المطلوبة غير موجودة.");
+        }
+
+        var (isOwner, isStaff) = await CheckOwnershipOrStaffAsync(feedback, user, cancellationToken);
+        if (!isOwner && !isStaff)
+        {
+            logger.LogWarning("Unauthorized attempt to edit feedback: FeedbackId={Id}, User={User}", id, user.Identity?.Name);
+            return new(false, ErrorMessage: "ليس لديك صلاحية لتعديل هذه المشاركة.");
+        }
+
+        // Only allow employee self-edit while status is still in its initial state (Pending)
+        if (feedback.Status != FeedbackStatus.Pending && !isStaff)
+        {
+            return new(false, ErrorMessage: "لا يمكن تعديل المشاركة بعد تغيير حالتها الأولى من قِبل الإدارة.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Title))
+        {
+            return new(false, ErrorMessage: "يرجى إدخال عنوان للمشاركة.");
+        }
+
+        var title = dto.Title.Trim();
+        if (title.Length > 200)
+        {
+            return new(false, ErrorMessage: "عنوان المشاركة يجب ألا يتجاوز 200 حرف.");
+        }
+
+        var wordCount = CountWords(dto.Description);
+        if (wordCount < MinWordCount)
+        {
+            return new(false, ErrorMessage: $"يجب أن يحتوي الوصف على {MinWordCount} كلمات على الأقل (المدخل حالياً: {wordCount} كلمة).");
+        }
+
+        if (wordCount > MaxWordCount)
+        {
+            return new(false, ErrorMessage: $"يجب ألا يتجاوز الوصف {MaxWordCount} كلمة (المدخل حالياً: {wordCount} كلمة).");
+        }
+
+        var feedbackType = string.IsNullOrWhiteSpace(dto.FeedbackType) ? feedback.FeedbackType : dto.FeedbackType.Trim();
+        var validTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "فكرة", "ملاحظة", "استفسار", "شكوى", "أخرى" };
+        if (!validTypes.Contains(feedbackType))
+        {
+            feedbackType = "فكرة";
+        }
+
+        // Attachment handling
+        if (dto.FileStream != null && !string.IsNullOrWhiteSpace(dto.FileName))
+        {
+            var settings = await featureService.GetSettingsAsync(cancellationToken);
+            if (!settings.AllowAttachments)
+            {
+                return new(false, ErrorMessage: "إرفاق الملفات مع المشاركات غير متاح حالياً.");
+            }
+
+            if (dto.FileSize.HasValue && dto.FileSize.Value > MaxFileSizeBytes)
+            {
+                return new(false, ErrorMessage: "حجم الملف المرفق يتجاوز الحد الأقصى المسموح به (2 ميغابايت).");
+            }
+
+            var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".doc", ".docx", ".png", ".jpg", ".jpeg", ".webp" };
+            var ext = Path.GetExtension(dto.FileName);
+            if (string.IsNullOrWhiteSpace(ext) || !allowedExtensions.Contains(ext))
+            {
+                return new(false, ErrorMessage: "صيغة الملف غير مدعومة. الصيغ المسموحة: PDF, Word, صور (JPG/PNG).");
+            }
+
+            var safeExt = ext.ToLowerInvariant();
+            var newKey = $"feedback/{DateTime.UtcNow:yyyy/MM}/{feedback.ReferenceNumber}_{Guid.NewGuid():N}{safeExt}";
+
+            using var ms = new MemoryStream();
+            await dto.FileStream.CopyToAsync(ms, cancellationToken);
+            if (ms.Length > MaxFileSizeBytes)
+            {
+                return new(false, ErrorMessage: "حجم الملف المرفق يتجاوز الحد الأقصى المسموح به (2 ميغابايت).");
+            }
+
+            ms.Position = 0;
+            await fileStorage.SaveAsync(ms, newKey, cancellationToken);
+
+            // Delete previous attachment if existed
+            if (!string.IsNullOrWhiteSpace(feedback.AttachmentStorageKey))
+            {
+                try { await fileStorage.DeleteAsync(feedback.AttachmentStorageKey, cancellationToken); } catch { }
+            }
+
+            feedback.AttachmentStorageKey = newKey;
+            feedback.AttachmentFileName = Path.GetFileName(dto.FileName);
+            feedback.AttachmentSizeBytes = ms.Length;
+            feedback.AttachmentContentType = dto.ContentType ?? "application/octet-stream";
+        }
+        else if (removeAttachment && !string.IsNullOrWhiteSpace(feedback.AttachmentStorageKey))
+        {
+            try { await fileStorage.DeleteAsync(feedback.AttachmentStorageKey, cancellationToken); } catch { }
+            feedback.AttachmentStorageKey = null;
+            feedback.AttachmentFileName = null;
+            feedback.AttachmentSizeBytes = null;
+            feedback.AttachmentContentType = null;
+        }
+
+        feedback.FeedbackType = feedbackType;
+        feedback.Title = title;
+        feedback.Description = dto.Description.Trim();
+        feedback.WordCount = wordCount;
+        feedback.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Feedback {Ref} updated by owner {User}", feedback.ReferenceNumber, user.Identity?.Name);
+
+        return new(true, feedback.ReferenceNumber, null, feedback);
+    }
+
+    public async Task<(bool Success, string? ErrorMessage)> DeleteMyFeedbackAsync(
+        int id,
+        ClaimsPrincipal user,
+        CancellationToken cancellationToken = default)
+    {
+        var feedback = await dbContext.EmployeeFeedbacks.FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
+        if (feedback == null)
+        {
+            return (false, "المشاركة المطلوبة غير موجودة.");
+        }
+
+        var (isOwner, isStaff) = await CheckOwnershipOrStaffAsync(feedback, user, cancellationToken);
+        if (!isOwner && !isStaff)
+        {
+            logger.LogWarning("Unauthorized attempt to delete feedback: FeedbackId={Id}, User={User}", id, user.Identity?.Name);
+            return (false, "ليس لديك صلاحية لحذف هذه المشاركة.");
+        }
+
+        if (feedback.Status != FeedbackStatus.Pending && !isStaff)
+        {
+            return (false, "لا يمكن حذف المشاركة بعد تغيير حالتها الأولى من قِبل الإدارة.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(feedback.AttachmentStorageKey))
+        {
+            try { await fileStorage.DeleteAsync(feedback.AttachmentStorageKey, cancellationToken); } catch { }
+        }
+
+        dbContext.EmployeeFeedbacks.Remove(feedback);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Feedback {Ref} deleted by {User}", feedback.ReferenceNumber, user.Identity?.Name);
+
+        return (true, null);
+    }
+
+    private async Task<(bool IsOwner, bool IsStaff)> CheckOwnershipOrStaffAsync(
+        EmployeeFeedback feedback,
+        ClaimsPrincipal user,
+        CancellationToken cancellationToken)
+    {
+        var authResult = await authorizationService.AuthorizeAsync(user, null, new PermissionRequirement(Permissions.FeedbackEdit));
+        var isStaff = authResult.Succeeded || user.IsInRole("Admin");
+
+        var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var empCode = user.FindFirst("employee_id")?.Value?.Trim();
+        int.TryParse(empCode, out var empId);
+
+        var isOwner = (userId != null && feedback.UserId == userId)
+                   || (empId > 0 && feedback.EmployeeId == empId)
+                   || (!string.IsNullOrWhiteSpace(empCode) && feedback.EmployeeId.HasValue &&
+                       await dbContext.Employees.AsNoTracking().AnyAsync(e => e.Id == feedback.EmployeeId.Value && e.EmployeeID == empCode, cancellationToken));
+
+        return (isOwner, isStaff);
+    }
 }

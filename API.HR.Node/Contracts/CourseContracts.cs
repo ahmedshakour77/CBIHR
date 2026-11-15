@@ -59,11 +59,14 @@ public sealed record CourseImportRow(
 public sealed record CourseImportRequest(
     string Mode,
     IReadOnlyList<CourseImportRow> Courses,
-    bool? CreateMissingLookups = null);
+    bool? CreateMissingLookups = null,
+    bool? DeleteMissing = null,
+    string? DeleteScope = null);
 
 public sealed record CourseImportResponse(
     int TotalRows,
     int Inserted,
     int Updated,
     int Skipped,
-    IReadOnlyList<string> MissingEmployeeIDs);
+    IReadOnlyList<string> MissingEmployeeIDs,
+    int Deleted = 0);

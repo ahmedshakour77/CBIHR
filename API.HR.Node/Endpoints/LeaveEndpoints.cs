@@ -584,6 +584,8 @@ public static class LeaveEndpoints
             IFormFile file,
             [FromQuery] string? mode,
             [FromQuery] bool? createMissingLookups,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
             IExcelImportService importService,
             CancellationToken ct) =>
         {
@@ -620,7 +622,9 @@ public static class LeaveEndpoints
                 var request = new LeaveImportRequest(
                     Mode: mode ?? "upsert",
                     Leaves: parseResult.Rows,
-                    CreateMissingLookups: createMissingLookups ?? true);
+                    CreateMissingLookups: createMissingLookups ?? true,
+                    DeleteMissing: deleteMissing ?? false,
+                    DeleteScope: deleteScope);
 
                 var response = await importService.ImportLeavesAsync(request, ct);
                 return Results.Ok(response);
@@ -662,6 +666,8 @@ public static class LeaveEndpoints
         }
 
         var isUpsert = mode == "upsert";
+        var deleteMissing = request.DeleteMissing ?? false;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
         var errors = new List<EmployeeImportError>();
         var requestedEmployeeIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -778,18 +784,17 @@ public static class LeaveEndpoints
         var types = await LoadLeaveTypes(dbContext, cancellationToken);
         var leaveIndex = new Dictionary<(int EmployeeId, DateOnly StartDate, DateOnly EndDate, string Type), EmployeeLeave>();
         var leaveTypeDateIndex = new Dictionary<(int EmployeeId, DateOnly StartDate, string Type), EmployeeLeave>();
+        var allExistingLeavesInScope = new List<EmployeeLeave>();
 
-        if (isUpsert)
+        if (isUpsert || deleteMissing)
         {
-            var empDbIds = employees.Values.Select(e => e.Id).Distinct().ToList();
-            foreach (var batch in empDbIds.Chunk(1000))
+            if (deleteMissing && deleteAllScope)
             {
-                var batchList = batch.ToList();
                 var existingLeaves = await dbContext.EmployeeLeaves
                     .Include(l => l.LeaveType)
-                    .Where(l => batchList.Contains(l.EmployeeId))
                     .ToListAsync(cancellationToken);
 
+                allExistingLeavesInScope.AddRange(existingLeaves);
                 foreach (var leave in existingLeaves)
                 {
                     var typeKey = leave.LeaveType != null ? (LookupNormalization.Normalize(leave.LeaveType.Name) ?? string.Empty) : string.Empty;
@@ -797,8 +802,29 @@ public static class LeaveEndpoints
                     leaveTypeDateIndex[(leave.EmployeeId, leave.StartDate, typeKey)] = leave;
                 }
             }
+            else
+            {
+                var empDbIds = employees.Values.Select(e => e.Id).Distinct().ToList();
+                foreach (var batch in empDbIds.Chunk(1000))
+                {
+                    var batchList = batch.ToList();
+                    var existingLeaves = await dbContext.EmployeeLeaves
+                        .Include(l => l.LeaveType)
+                        .Where(l => batchList.Contains(l.EmployeeId))
+                        .ToListAsync(cancellationToken);
+
+                    allExistingLeavesInScope.AddRange(existingLeaves);
+                    foreach (var leave in existingLeaves)
+                    {
+                        var typeKey = leave.LeaveType != null ? (LookupNormalization.Normalize(leave.LeaveType.Name) ?? string.Empty) : string.Empty;
+                        leaveIndex[(leave.EmployeeId, leave.StartDate, leave.EndDate, typeKey)] = leave;
+                        leaveTypeDateIndex[(leave.EmployeeId, leave.StartDate, typeKey)] = leave;
+                    }
+                }
+            }
         }
 
+        var keptLeaves = new HashSet<EmployeeLeave>(ReferenceEqualityComparer.Instance);
         var inserted = 0;
         var updated = 0;
         var skipped = 0;
@@ -842,9 +868,15 @@ public static class LeaveEndpoints
 
                 EmployeeLeave? leave = null;
 
-                if (isUpsert && (leaveIndex.TryGetValue(matchKey, out var existing) ||
+                if ((isUpsert || deleteMissing) && (leaveIndex.TryGetValue(matchKey, out var existing) ||
                                  leaveTypeDateIndex.TryGetValue(typeDateKey, out existing)))
                 {
+                    keptLeaves.Add(existing);
+                    if (!isUpsert)
+                    {
+                        skipped++;
+                        continue;
+                    }
                     // Exact match or match on (Employee + StartDate + LeaveType) -> Update existing record
                     leave = existing;
                     updated++;
@@ -860,8 +892,9 @@ public static class LeaveEndpoints
                     };
 
                     dbContext.EmployeeLeaves.Add(leave);
+                    keptLeaves.Add(leave);
 
-                    if (isUpsert)
+                    if (isUpsert || deleteMissing)
                     {
                         leaveIndex[matchKey] = leave;
                         leaveTypeDateIndex[typeDateKey] = leave;
@@ -889,6 +922,17 @@ public static class LeaveEndpoints
             return (false, null, errors, null);
         }
 
+        var deleted = 0;
+        if (deleteMissing)
+        {
+            var toDelete = allExistingLeavesInScope.Where(l => !keptLeaves.Contains(l)).ToList();
+            if (toDelete.Count > 0)
+            {
+                dbContext.EmployeeLeaves.RemoveRange(toDelete);
+                deleted = toDelete.Count;
+            }
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (true, new LeaveImportResponse(
@@ -896,7 +940,8 @@ public static class LeaveEndpoints
             inserted,
             updated,
             skipped,
-            missingEmployeeIds.ToList()), null, null);
+            missingEmployeeIds.ToList(),
+            deleted), null, null);
     }
 
     private static async Task<Dictionary<string, LeaveType>> LoadLeaveTypes(ApplicationDbContext db, CancellationToken ct)

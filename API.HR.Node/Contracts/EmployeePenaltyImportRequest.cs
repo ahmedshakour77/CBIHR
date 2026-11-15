@@ -3,7 +3,9 @@ namespace API.HR.Node.Contracts;
 public sealed record EmployeePenaltyImportRequest(
     string Mode,
     IReadOnlyList<EmployeePenaltyImportRow> Penalties,
-    bool? CreateMissingLookups = null);
+    bool? CreateMissingLookups = null,
+    bool? DeleteMissing = null,
+    string? DeleteScope = null);
 
 public sealed record EmployeePenaltyImportRow(
     string EmployeeID,         // رقم الموظف (الرقم الوظيفي)
@@ -20,4 +22,5 @@ public sealed record EmployeePenaltyImportResponse(
     int Inserted,
     int Updated,
     int Skipped,
-    IReadOnlyList<string> MissingEmployeeIDs);
+    IReadOnlyList<string> MissingEmployeeIDs,
+    int Deleted = 0);

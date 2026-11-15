@@ -66,14 +66,17 @@ public sealed record LeaveImportRow(
 public sealed record LeaveImportRequest(
     string Mode,
     IReadOnlyList<LeaveImportRow> Leaves,
-    bool? CreateMissingLookups = null);
+    bool? CreateMissingLookups = null,
+    bool? DeleteMissing = null,
+    string? DeleteScope = null);
 
 public sealed record LeaveImportResponse(
     int TotalRows,
     int Inserted,
     int Updated,
     int Skipped,
-    IReadOnlyList<string> MissingEmployeeIDs);
+    IReadOnlyList<string> MissingEmployeeIDs,
+    int Deleted = 0);
 
 public sealed record LeaveBalanceImportRow(
     string EmployeeID,

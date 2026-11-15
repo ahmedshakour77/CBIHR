@@ -243,9 +243,31 @@ public static class CareerMovementEndpoints
         })
         .RequireAuthorization(AuthorizationPolicies.AdminOnly);
 
+        // 4b. Bulk import JSON
+        group.MapPost("/import/json", async (
+            [FromBody] CareerMovementImportRequest req,
+            ApplicationDbContext db,
+            CancellationToken ct) =>
+        {
+            var (success, response, errors, message) = await ExecuteImportAsync(req, db, ct);
+            if (!success)
+            {
+                if (errors is { Count: > 0 })
+                    return Results.BadRequest(new { errors });
+                return Results.BadRequest(new { message });
+            }
+            return Results.Ok(response);
+        })
+        .RequireAuthorization(AuthorizationPolicies.AdminOnly)
+        .WithName("ImportCareerMovementsFromJson")
+        .WithSummary("استيراد حركات الخدمة والتنقلات عبر JSON");
+
         // 5. Excel Import Endpoint
         endpoints.MapPost("/api/import/career-movements/excel", async (
             IFormFile file,
+            [FromQuery] string? mode,
+            [FromQuery] bool? deleteMissing,
+            [FromQuery] string? deleteScope,
             IExcelImportService importService,
             ApplicationDbContext db,
             CancellationToken ct) =>
@@ -273,8 +295,10 @@ public static class CareerMovementEndpoints
             try
             {
                 var request = new CareerMovementImportRequest(
-                    Mode: "upsert",
-                    Movements: parseResult.Rows);
+                    Mode: mode ?? "upsert",
+                    Movements: parseResult.Rows,
+                    DeleteMissing: deleteMissing ?? false,
+                    DeleteScope: deleteScope);
 
                 var response = await importService.ImportCareerMovementsAsync(request, ct);
                 return Results.Ok(response);
@@ -348,22 +372,33 @@ public static class CareerMovementEndpoints
         var skipped = 0;
         var errors = new List<EmployeeImportError>();
 
-        // Load existing movements for matched employees
+        var deleteMissing = request.DeleteMissing ?? false;
+        var deleteAllScope = string.Equals(request.DeleteScope?.Trim(), "all", StringComparison.OrdinalIgnoreCase);
+
+        // Load existing movements for matched employees (or all employees if full-sync delete scope)
         var matchedEmployeePks = employeeDict.Values.ToList();
         var existingMovements = new List<EmployeeCareerMovement>();
-        for (var i = 0; i < matchedEmployeePks.Count; i += batchSize)
+        if (deleteMissing && deleteAllScope)
         {
-            var chunk = matchedEmployeePks.Skip(i).Take(batchSize).ToList();
-            var chunkMovements = await db.EmployeeCareerMovements
-                .Where(m => chunk.Contains(m.EmployeeId))
-                .ToListAsync(ct);
-            existingMovements.AddRange(chunkMovements);
+            existingMovements = await db.EmployeeCareerMovements.ToListAsync(ct);
+        }
+        else
+        {
+            for (var i = 0; i < matchedEmployeePks.Count; i += batchSize)
+            {
+                var chunk = matchedEmployeePks.Skip(i).Take(batchSize).ToList();
+                var chunkMovements = await db.EmployeeCareerMovements
+                    .Where(m => chunk.Contains(m.EmployeeId))
+                    .ToListAsync(ct);
+                existingMovements.AddRange(chunkMovements);
+            }
         }
 
         var existingMap = existingMovements
             .GroupBy(m => (m.EmployeeId, m.MovementDate))
             .ToDictionary(g => g.Key, g => g.First());
 
+        var keptMovements = new HashSet<EmployeeCareerMovement>(ReferenceEqualityComparer.Instance);
         var rowNum = 1;
         var newMovementsToAdd = new List<EmployeeCareerMovement>();
 
@@ -401,6 +436,7 @@ public static class CareerMovementEndpoints
 
             if (existingMap.TryGetValue(key, out var existing))
             {
+                keptMovements.Add(existing);
                 if (request.Mode == "insert")
                 {
                     skipped++;
@@ -433,6 +469,7 @@ public static class CareerMovementEndpoints
 
                 newMovementsToAdd.Add(newMov);
                 existingMap[key] = newMov;
+                keptMovements.Add(newMov);
                 inserted++;
             }
         }
@@ -440,6 +477,17 @@ public static class CareerMovementEndpoints
         if (newMovementsToAdd.Count > 0)
         {
             await db.EmployeeCareerMovements.AddRangeAsync(newMovementsToAdd, ct);
+        }
+
+        var deleted = 0;
+        if (deleteMissing)
+        {
+            var toDelete = existingMovements.Where(m => !keptMovements.Contains(m)).ToList();
+            if (toDelete.Count > 0)
+            {
+                db.EmployeeCareerMovements.RemoveRange(toDelete);
+                deleted = toDelete.Count;
+            }
         }
 
         db.ChangeTracker.AutoDetectChangesEnabled = false;
@@ -457,7 +505,8 @@ public static class CareerMovementEndpoints
             Inserted: inserted,
             Updated: updated,
             Skipped: skipped,
-            MissingEmployeeIDs: missingEmpIds);
+            MissingEmployeeIDs: missingEmpIds,
+            Deleted: deleted);
 
         return (true, response, errors, null);
     }

@@ -90,6 +90,14 @@
             <div class="hr-pagehead-actions">
                 @if (employee is not null)
                 {
+                    @if (canEditEmployees)
+                    {
+                        <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenEditBasicEmployeeModalAsync">
+                            <Icon Name="pencil-square" Size="xs" />
+                            <span>تعديل البيانات الأساسية والوظيفية</span>
+                        </button>
+                    }
+
                     @if (canViewContacts)
                     {
                         <a href="employee-contacts/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
@@ -668,6 +676,13 @@
                             <h2 class="hr-h2">البيانات الشخصية</h2>
                         </div>
                     </div>
+                    @if (canEditEmployees)
+                    {
+                        <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="OpenEditBasicEmployeeModalAsync">
+                            <Icon Name="pencil-square" Size="xs" />
+                            <span>تعديل البيانات</span>
+                        </button>
+                    }
                 </div>
 
                 <div class="hr-card-body">
@@ -816,6 +831,13 @@
                                     <h2 class="hr-h2">تفاصيل الوظيفة</h2>
                                 </div>
                             </div>
+                            @if (canEditEmployees)
+                            {
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="OpenEditBasicEmployeeModalAsync">
+                                    <Icon Name="pencil-square" Size="xs" />
+                                    <span>تعديل الوظيفة والدرجة</span>
+                                </button>
+                            }
                         </div>
 
                         <div class="hr-card-body">
@@ -1063,6 +1085,13 @@
                                 <h2 class="hr-h2">المؤهلات العلمية والتخصص</h2>
                             </div>
                         </div>
+                        @if (canEditEmployees)
+                        {
+                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="OpenEditBasicEmployeeModalAsync">
+                                <Icon Name="pencil-square" Size="xs" />
+                                <span>تعديل المؤهل</span>
+                            </button>
+                        }
                     </div>
 
                     <div class="hr-card-body">
@@ -1400,14 +1429,37 @@
                             </div>
                         </div>
 
-                        @if (nationalCard != null && !string.IsNullOrWhiteSpace(nationalCard.NationalIdNumber))
-                        {
-                            <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
-                                    @onclick='() => CopyToClipboard(nationalCard.NationalIdNumber, "الرقم الوطني الموحد")'>
-                                <Icon Name="clipboard-document" Size="xs" />
-                                <span>نسخ الرقم الوطني</span>
-                            </button>
-                        }
+                        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;" class="hr-no-print">
+                            @if (nationalCard != null && !string.IsNullOrWhiteSpace(nationalCard.NationalIdNumber))
+                            {
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm"
+                                        @onclick='() => CopyToClipboard(nationalCard.NationalIdNumber, "الرقم الوطني الموحد")'>
+                                    <Icon Name="clipboard-document" Size="xs" />
+                                    <span>نسخ الرقم الوطني</span>
+                                </button>
+                            }
+                            @if (canEditNationalCards)
+                            {
+                                @if (nationalCard != null)
+                                {
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="OpenEditNationalCardModal">
+                                        <Icon Name="pencil-square" Size="xs" />
+                                        <span>تعديل البطاقة</span>
+                                    </button>
+                                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" @onclick="DeleteNationalCardAsync" title="حذف سجل البطاقة الوطنية">
+                                        <Icon Name="trash" Size="xs" />
+                                        <span>حذف</span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="hr-btn hr-btn-primary hr-btn-sm" @onclick="OpenAddNationalCardModal">
+                                        <Icon Name="plus" Size="xs" />
+                                        <span>إضافة بطاقة وطنية</span>
+                                    </button>
+                                }
+                            }
+                        </div>
                     </div>
 
                     <div class="hr-card-body">
@@ -1621,10 +1673,16 @@
 
                             @if (canEditResidences)
                             {
-                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="() => OpenEditResidenceModal(docRes)">
-                                    <Icon Name="pencil-square" Size="xs" />
-                                    <span>تعديل بيانات / رفع صور البطاقة</span>
-                                </button>
+                                <div style="display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;" class="hr-no-print">
+                                    <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm" @onclick="() => OpenEditResidenceModal(docRes)">
+                                        <Icon Name="pencil-square" Size="xs" />
+                                        <span>تعديل بيانات / رفع صور البطاقة</span>
+                                    </button>
+                                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" @onclick="() => DeleteResidenceAsync(docRes.Id)" title="حذف سجل بطاقة السكن">
+                                        <Icon Name="trash" Size="xs" />
+                                        <span>حذف</span>
+                                    </button>
+                                </div>
                             }
                         </div>
 
@@ -1840,6 +1898,10 @@
                                     <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="() => OpenEditPassportModal(employeePassport)">
                                         <Icon Name="pencil-square" Size="xs" />
                                         <span>تعديل بيانات / رفع صورة الجواز</span>
+                                    </button>
+                                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm hr-no-print" @onclick="() => DeletePassportAsync(employeePassport.Id)" title="حذف سجل جواز السفر">
+                                        <Icon Name="trash" Size="xs" />
+                                        <span>حذف</span>
                                     </button>
                                 }
                             </div>
@@ -2698,6 +2760,10 @@
                                                     <th scope="col">رقم الإشعار / المرجع</th>
                                                     <th scope="col">البيان والملاحظات</th>
                                                     <th scope="col">المنفذ</th>
+                                                    @if (canEditSalaries)
+                                                    {
+                                                        <th scope="col" class="hr-no-print" style="width:70px;text-align:center;">حذف</th>
+                                                    }
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -2779,6 +2845,14 @@
                                                         <td>
                                                             <span class="hr-meta" style="font-size:var(--fs-label);">@(tx.CreatedBy ?? "النظام")</span>
                                                         </td>
+                                                        @if (canEditSalaries)
+                                                        {
+                                                            <td class="hr-no-print" style="text-align:center;">
+                                                                <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف هذه الحركة المالية" @onclick="() => DeleteFinancialTransactionAsync(tx.Id)">
+                                                                    <Icon Name="trash" Size="xs" />
+                                                                </button>
+                                                            </td>
+                                                        }
                                                     </tr>
                                                     txIdx++;
                                                 }
@@ -2821,6 +2895,13 @@
                                     <span class="hr-num">@N(servicePeriods.Count)</span> تنقل
                                 </span>
                             }
+                            @if (canEditMovements)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddMovementModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة محطة تنقل / خدمة</span>
+                                </button>
+                            }
                         </div>
                     </div>
 
@@ -2832,8 +2913,15 @@
                                 <p class="hr-h3">لا توجد حركات تنقل مفصلة مسجلة</p>
                                 <p class="hr-sub hr-measure-sm">
                                     الخدمة تحتسب حالياً تلقائياً من تاريخ المباشرة (@D(employee.HireDate)) وحتى اليوم كفترة مستمرة واحدة لجميع الأغراض (علاوة، ترفيع، تقاعد).
-                                    يمكن إدراج حركات الخدمة والتنقلات من صفحة استيراد البيانات (Excel).
+                                    يمكن إدراج حركات الخدمة والتنقلات مباشرة أو من صفحة استيراد البيانات (Excel).
                                 </p>
+                                @if (canEditMovements)
+                                {
+                                    <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddMovementModal">
+                                        <Icon Name="plus" Size="xs" />
+                                        <span>إضافة أول محطة تنقل</span>
+                                    </button>
+                                }
                             </div>
                         }
                         else
@@ -2862,18 +2950,34 @@
                                         </span>
 
                                         <article class="hr-move-card">
-                                            <header class="hr-move-head">
-                                                <h3 class="hr-move-title">@period.FormationName</h3>
-                                                @if (period.IsCurrent)
+                                            <header class="hr-move-head" style="justify-content:space-between;">
+                                                <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                                    <h3 class="hr-move-title">@period.FormationName</h3>
+                                                    @if (period.IsCurrent)
+                                                    {
+                                                        <span class="hr-badge hr-badge-ok">التنقل الحالي</span>
+                                                    }
+                                                    @if (isOut)
+                                                    {
+                                                        <span class="hr-badge hr-badge-warn">
+                                                            <Icon Name="exclamation-triangle" Size="xs" />
+                                                            <span>خارج الخدمة</span>
+                                                        </span>
+                                                    }
+                                                </div>
+
+                                                @if (canEditMovements && period.Id > 0)
                                                 {
-                                                    <span class="hr-badge hr-badge-ok">التنقل الحالي</span>
-                                                }
-                                                @if (isOut)
-                                                {
-                                                    <span class="hr-badge hr-badge-warn">
-                                                        <Icon Name="exclamation-triangle" Size="xs" />
-                                                        <span>خارج الخدمة</span>
-                                                    </span>
+                                                    <div style="display:flex;align-items:center;gap:0.35rem;" class="hr-no-print">
+                                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" title="تعديل بيانات الحركة" @onclick="() => OpenEditMovementModal(period.Id)">
+                                                            <Icon Name="pencil-square" Size="xs" />
+                                                            <span>تعديل</span>
+                                                        </button>
+                                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف الحركة" @onclick="() => DeleteMovementAsync(period.Id)">
+                                                            <Icon Name="trash" Size="xs" />
+                                                            <span>حذف</span>
+                                                        </button>
+                                                    </div>
                                                 }
                                             </header>
 
@@ -2902,15 +3006,24 @@
                                             }
 
                                             <ul class="hr-move-counts" aria-label="احتساب المدة">
-                                                <li class="@(period.CountForAllowance ? "is-ok" : "is-dim")">
+                                                <li class="@(period.CountForAllowance ? "is-ok" : "is-dim")"
+                                                    style="@(isAdmin && period.Id > 0 ? "cursor:pointer;" : "")"
+                                                    title="@(isAdmin && period.Id > 0 ? "انقر لتغيير احتساب العلاوة" : "")"
+                                                    @onclick='() => { if (isAdmin && period.Id > 0) _ = ToggleMovementFlag(period.Id, "allowance"); }'>
                                                     <Icon Name="@(period.CountForAllowance ? "check" : "x-mark")" Size="xs" />
                                                     <span>علاوة @(period.CountForAllowance ? "محتسبة" : "مستثناة")</span>
                                                 </li>
-                                                <li class="@(period.CountForPromotion ? "is-ok" : "is-dim")">
+                                                <li class="@(period.CountForPromotion ? "is-ok" : "is-dim")"
+                                                    style="@(isAdmin && period.Id > 0 ? "cursor:pointer;" : "")"
+                                                    title="@(isAdmin && period.Id > 0 ? "انقر لتغيير احتساب الترفيع" : "")"
+                                                    @onclick='() => { if (isAdmin && period.Id > 0) _ = ToggleMovementFlag(period.Id, "promotion"); }'>
                                                     <Icon Name="@(period.CountForPromotion ? "check" : "x-mark")" Size="xs" />
                                                     <span>ترفيع @(period.CountForPromotion ? "محتسب" : "مستثنى")</span>
                                                 </li>
-                                                <li class="@(period.CountForPension ? "is-ok" : "is-dim")">
+                                                <li class="@(period.CountForPension ? "is-ok" : "is-dim")"
+                                                    style="@(isAdmin && period.Id > 0 ? "cursor:pointer;" : "")"
+                                                    title="@(isAdmin && period.Id > 0 ? "انقر لتغيير احتساب التقاعد" : "")"
+                                                    @onclick='() => { if (isAdmin && period.Id > 0) _ = ToggleMovementFlag(period.Id, "pension"); }'>
                                                     <Icon Name="@(period.CountForPension ? "check" : "x-mark")" Size="xs" />
                                                     <span>تقاعد @(period.CountForPension ? "محتسب" : "مستثنى")</span>
                                                 </li>
@@ -2969,6 +3082,13 @@
                                     <span>إجمالي القِدم: @FormatTotalSeniority()</span>
                                 </span>
                             }
+                            @if (canEditLetters)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddLetterModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة كتاب شكر</span>
+                                </button>
+                            }
                         </div>
                     </div>
 
@@ -2981,6 +3101,13 @@
                                 ستظهر هنا كتب الشكر الممنوحة من الوزير أو الوكيل أو المدير العام فور إضافتها،
                                 ومعها القِدم المحتسب عن كل كتاب وفق الضوابط.
                             </p>
+                            @if (canEditLetters)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddLetterModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة كتاب شكر جديد</span>
+                                </button>
+                            }
                         </div>
                     }
                     else
@@ -2997,6 +3124,10 @@
                                         <th scope="col">الموضوع / العنوان</th>
                                         <th scope="col">القِدم المكتسب</th>
                                         <th scope="col">الملاحظات</th>
+                                        @if (canEditLetters)
+                                        {
+                                            <th scope="col" class="hr-no-print" style="width:110px;text-align:center;">الإجراءات</th>
+                                        }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3051,6 +3182,20 @@
                                                     @Or(letter.Notes)
                                                 </span>
                                             </td>
+
+                                            @if (canEditLetters)
+                                            {
+                                                <td class="hr-no-print" style="text-align:center;">
+                                                    <div style="display:flex;gap:0.35rem;justify-content:center;">
+                                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" title="تعديل كتاب الشكر" @onclick="() => OpenEditLetterModal(letter)">
+                                                            <Icon Name="pencil-square" Size="xs" />
+                                                        </button>
+                                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف كتاب الشكر" @onclick="() => DeleteLetterAsync(letter.Id)">
+                                                            <Icon Name="trash" Size="xs" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
@@ -3093,6 +3238,13 @@
                                     <span>السجل نظيف (خالٍ من العقوبات)</span>
                                 </span>
                             }
+                            @if (canEditPenalties)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddPenaltyModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة عقوبة</span>
+                                </button>
+                            }
                         </div>
                     </div>
 
@@ -3104,6 +3256,13 @@
                             <p class="hr-sub hr-measure-sm">
                                 السجل الوظيفي للموظف خالٍ من أي عقوبات أو إنذارات انضباطية رسمية مسجلة بالنظام.
                             </p>
+                            @if (canEditPenalties)
+                            {
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="OpenAddPenaltyModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>تسجيل عقوبة انضباطية</span>
+                                </button>
+                            }
                         </div>
                     }
                     else
@@ -3120,6 +3279,10 @@
                                         <th scope="col">رقم وتاريخ الكتاب</th>
                                         <th scope="col">الجهة / التشكيل</th>
                                         <th scope="col">الملاحظات</th>
+                                        @if (canEditPenalties)
+                                        {
+                                            <th scope="col" class="hr-no-print" style="width:110px;text-align:center;">الإجراءات</th>
+                                        }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3155,6 +3318,20 @@
                                                     @Or(pen.Notes)
                                                 </span>
                                             </td>
+
+                                            @if (canEditPenalties)
+                                            {
+                                                <td class="hr-no-print" style="text-align:center;">
+                                                    <div style="display:flex;gap:0.35rem;justify-content:center;">
+                                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" title="تعديل العقوبة" @onclick="() => OpenEditPenaltyModal(pen)">
+                                                            <Icon Name="pencil-square" Size="xs" />
+                                                        </button>
+                                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف العقوبة" @onclick="() => DeletePenaltyAsync(pen.Id)">
+                                                            <Icon Name="trash" Size="xs" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
@@ -3200,6 +3377,17 @@
                                     <span>مستمر بالدوام</span>
                                 </span>
                             }
+                            @if (canEditLeaves)
+                            {
+                                <button type="button" class="hr-btn hr-btn-secondary hr-btn-sm hr-no-print" @onclick="OpenEditLeaveBalanceModal">
+                                    <Icon Name="pencil-square" Size="xs" />
+                                    <span>تعديل الرصيد</span>
+                                </button>
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddLeaveModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة إجازة</span>
+                                </button>
+                            }
                         </div>
                     </div>
 
@@ -3207,9 +3395,17 @@
                         @* ---------- DEDICATED LEAVE BALANCE HERO WIDGET ---------- *@
                         <div class="hr-leave-hero">
                             <div class="hr-leave-hero-primary">
-                                <div class="hr-leave-hero-title">
-                                    <Icon Name="calendar-days" Size="sm" />
-                                    <span>رصيد الإجازات المتبقي</span>
+                                <div class="hr-leave-hero-title" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;">
+                                    <span style="display:inline-flex;align-items:center;gap:0.4rem;">
+                                        <Icon Name="calendar-days" Size="sm" />
+                                        <span>رصيد الإجازات المتبقي</span>
+                                    </span>
+                                    @if (canEditLeaves)
+                                    {
+                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs hr-no-print" @onclick="OpenEditLeaveBalanceModal" title="تعديل رصيد الإجازات">
+                                            <Icon Name="pencil-square" Size="xs" />
+                                        </button>
+                                    }
                                 </div>
                                 <div class="hr-leave-hero-valrow">
                                     <strong class="hr-leave-hero-val @(employee.LeaveBalance.GetValueOrDefault(0) > 0 ? "is-positive" : "")">
@@ -3291,6 +3487,13 @@
                             <p class="hr-sub hr-measure-sm">
                                 لم يتم تسجيل أي حركات إجازة رسمية لهذا الموظف حتى الآن. تظهر هنا الإجازات المعتمدة وعدد أيامها وأوامرها الإدارية فور تسجيلها.
                             </p>
+                            @if (canEditLeaves)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddLeaveModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>تسجيل إجازة جديدة</span>
+                                </button>
+                            }
                         </div>
                     }
                     else
@@ -3308,6 +3511,10 @@
                                         <th scope="col">الأمر الإداري وتاريخه</th>
                                         <th scope="col">الحالة التنفيذية</th>
                                         <th scope="col">الملاحظات</th>
+                                        @if (canEditLeaves)
+                                        {
+                                            <th scope="col" class="hr-no-print" style="width:110px;text-align:center;">الإجراءات</th>
+                                        }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3388,6 +3595,20 @@
                                                     @Or(leave.Notes)
                                                 </span>
                                             </td>
+
+                                            @if (canEditLeaves)
+                                            {
+                                                <td class="hr-no-print" style="text-align:center;">
+                                                    <div style="display:flex;gap:0.35rem;justify-content:center;">
+                                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" title="تعديل الإجازة" @onclick="() => OpenEditLeaveModal(leave)">
+                                                            <Icon Name="pencil-square" Size="xs" />
+                                                        </button>
+                                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف الإجازة" @onclick="() => DeleteLeaveAsync(leave.Id)">
+                                                            <Icon Name="trash" Size="xs" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
@@ -3426,6 +3647,13 @@
                                     <span class="hr-num">@N(GetTotalCourseDays())</span> يوم تدريبي
                                 </span>
                             }
+                            @if (canEditCourses)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddCourseModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>إضافة دورة تدريبية</span>
+                                </button>
+                            }
                         </div>
                     </div>
 
@@ -3437,6 +3665,13 @@
                             <p class="hr-sub hr-measure-sm">
                                 لم يتم تسجيل أي دورات تدريبية لهذا الموظف حتى الآن. تظهر هنا الدورات التخصصية وورش العمل المسجلة أو المستوردة عبر النظام فور إضافتها.
                             </p>
+                            @if (canEditCourses)
+                            {
+                                <button type="button" class="hr-btn hr-btn-primary hr-btn-sm hr-no-print" @onclick="OpenAddCourseModal">
+                                    <Icon Name="plus" Size="xs" />
+                                    <span>تسجيل دورة تدريبية</span>
+                                </button>
+                            }
                         </div>
                     }
                     else
@@ -3455,6 +3690,10 @@
                                         <th scope="col">الجهة المنظمة</th>
                                         <th scope="col">الحالة</th>
                                         <th scope="col">الملاحظات</th>
+                                        @if (canEditCourses)
+                                        {
+                                            <th scope="col" class="hr-no-print" style="width:110px;text-align:center;">الإجراءات</th>
+                                        }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3501,6 +3740,19 @@
                                             <td>
                                                 <span class="hr-cell-sub hr-cell-wide">@Or(course.Notes)</span>
                                             </td>
+                                            @if (canEditCourses)
+                                            {
+                                                <td class="hr-no-print" style="text-align:center;">
+                                                    <div style="display:flex;gap:0.35rem;justify-content:center;">
+                                                        <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" title="تعديل الدورة" @onclick="() => OpenEditCourseModal(course)">
+                                                            <Icon Name="pencil-square" Size="xs" />
+                                                        </button>
+                                                        <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف الدورة" @onclick="() => DeleteCourseAsync(course.Id)">
+                                                            <Icon Name="trash" Size="xs" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
@@ -3571,6 +3823,10 @@
                                         <th scope="col">التاريخ</th>
                                         <th scope="col">الحالة التنفيذية</th>
                                         <th scope="col">رد وتوجيهات الإدارة</th>
+                                        @if (isAdmin || isOwnProfile)
+                                        {
+                                            <th scope="col" class="hr-no-print" style="width:110px;text-align:center;">إجراءات</th>
+                                        }
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3628,6 +3884,26 @@
                                                     <span class="hr-meta">بانتظار الرد</span>
                                                 }
                                             </td>
+                                            @if (isAdmin || isOwnProfile)
+                                            {
+                                                <td class="hr-no-print" style="text-align:center;">
+                                                    @if (isAdmin || (isOwnProfile && fb.Status == FeedbackStatus.Pending))
+                                                    {
+                                                        <div style="display:flex;gap:0.35rem;justify-content:center;">
+                                                            <button type="button" class="hr-btn hr-btn-quiet hr-btn-xs" title="@(isAdmin ? "تعديل المشاركة أو الرد عليها" : "تعديل المشاركة")" @onclick="() => OpenEditFeedbackModal(fb)">
+                                                                <Icon Name="pencil-square" Size="xs" />
+                                                            </button>
+                                                            <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-xs" title="حذف المشاركة" @onclick="() => DeleteFeedbackInProfileAsync(fb.Id)">
+                                                                <Icon Name="trash" Size="xs" />
+                                                            </button>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="hr-meta" title="لا يمكن التعديل أو الحذف بعد تغيير الحالة الأولى">—</span>
+                                                    }
+                                                </td>
+                                            }
                                         </tr>
                                     }
                                 </tbody>
@@ -3789,17 +4065,22 @@
 
                                         @if (canEditVehicles)
                                         {
-                                            <div class="hr-card-foot" style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 1rem;background:var(--surface-sunken);border-top:1px solid var(--line-soft);">
+                                            <div class="hr-card-foot" style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 1rem;background:var(--surface-sunken);border-top:1px solid var(--line-soft);flex-wrap:wrap;gap:0.4rem;">
                                                 <button type="button" class="hr-btn @(v.IsAuthorized ? "hr-btn-warn" : "hr-btn-ok") hr-btn-sm"
                                                         @onclick="() => ToggleVehicleAuthInProfile(v)">
                                                     <Icon Name="@(v.IsAuthorized ? "no-symbol" : "check")" Size="xs" />
                                                     <span>@(v.IsAuthorized ? "تعطيل التخويل" : "تفعيل التخويل")</span>
                                                 </button>
 
-                                                <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
-                                                    <Icon Name="pencil-square" Size="xs" />
-                                                    <span>إدارة</span>
-                                                </a>
+                                                <div style="display:flex;align-items:center;gap:0.35rem;">
+                                                    <a href="employee-vehicles/@employee.EmployeeID" class="hr-btn hr-btn-secondary hr-btn-sm">
+                                                        <Icon Name="pencil-square" Size="xs" />
+                                                        <span>إدارة</span>
+                                                    </a>
+                                                    <button type="button" class="hr-btn hr-btn-danger-quiet hr-btn-sm" title="حذف المركبة" @onclick="() => DeleteVehicleInProfileAsync(v.Id)">
+                                                        <Icon Name="trash" Size="xs" />
+                                                    </button>
+                                                </div>
                                             </div>
                                         }
                                     </div>
@@ -5295,6 +5576,713 @@
     </Footer>
 </Modal>
 
+@* ==================== ADMIN MODAL 1: EDIT BASIC EMPLOYEE INFO ==================== *@
+<Modal IsOpen="@showEditBasicEmployeeModal"
+       Title="تعديل البيانات الأساسية والوظيفية للموظف"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · الرقم الوظيفي: {employee.EmployeeID}")"
+       Icon="pencil-square"
+       Size="lg"
+       OnClose="() => { if (!isSavingBasicEmployee) showEditBasicEmployeeModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(basicEmployeeModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@basicEmployeeModalError</div>
+            </div>
+        }
+
+        <div class="hr-stack">
+            @* 1. الاسم والبيانات الشخصية *@
+            <div style="padding:var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);border:1px solid var(--line);">
+                <h4 class="hr-h4" style="margin:0 0 var(--s-2) 0;">البيانات الشخصية والأحوال المدنية</h4>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));gap:var(--s-2);">
+                    <div class="hr-field" style="grid-column:1 / -1;">
+                        <label class="hr-field-label">الاسم الكامل المعتمد <span style="color:var(--danger);">*</span></label>
+                        <input type="text" class="hr-input" @bind="editEmpName" placeholder="الاسم الكامل للموظف..." />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الاسم الأول</label>
+                        <input type="text" class="hr-input" @bind="editEmpFirstName" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">اسم الأب</label>
+                        <input type="text" class="hr-input" @bind="editEmpSecondName" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">اسم الجد</label>
+                        <input type="text" class="hr-input" @bind="editEmpThirdName" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الاسم الرابع / اللقب</label>
+                        <input type="text" class="hr-input" @bind="editEmpFourthName" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">اسم الأم الثلاثي</label>
+                        <input type="text" class="hr-input" @bind="editEmpMotherName" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">تاريخ الميلاد</label>
+                        <input type="date" class="hr-input" @bind="editEmpBirthDate" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الرقم الوطني الموحد (12 رقماً)</label>
+                        <input type="text" class="hr-input hr-num" dir="ltr" maxlength="12" @bind="editEmpNationalId" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">النوع الاجتماعي</label>
+                        <select class="hr-select" @bind="editEmpGenderId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var g in allGenders)
+                            {
+                                <option value="@g.Id">@g.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الحالة الاجتماعية</label>
+                        <select class="hr-select" @bind="editEmpMaritalStatusId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var ms in allMaritalStatuses)
+                            {
+                                <option value="@ms.Id">@ms.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الديانة</label>
+                        <select class="hr-select" @bind="editEmpReligionId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var r in allReligions)
+                            {
+                                <option value="@r.Id">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الجنسية</label>
+                        <select class="hr-select" @bind="editEmpNationalityId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var n in allNationalities)
+                            {
+                                <option value="@n.Id">@n.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            @* 2. البيانات الوظيفية والدرجة والمرحلة *@
+            <div style="padding:var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);border:1px solid var(--line);">
+                <h4 class="hr-h4" style="margin:0 0 var(--s-2) 0;">البيانات الوظيفية والتشكيل والدرجة</h4>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));gap:var(--s-2);">
+                    <div class="hr-field">
+                        <label class="hr-field-label">الرقم الوظيفي الموحد</label>
+                        <input type="text" class="hr-input hr-num" dir="ltr" @bind="editEmpUnifiedNumber" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">التشكيل الإداري</label>
+                        <select class="hr-select" @bind="editEmpFormationId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var f in allFormations)
+                            {
+                                <option value="@f.Id">@f.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field" style="grid-column:1 / -1;">
+                        <label class="hr-field-label">الوحدة الإدارية في الهيكل التنظيمي</label>
+                        <select class="hr-select" @bind="editEmpAdminUnitId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var u in allAdminUnits)
+                            {
+                                <option value="@u.Id">@u.Name @(u.UnitType != null ? $"({u.UnitType.Name})" : "")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">العنوان الوظيفي</label>
+                        <select class="hr-select" @bind="editEmpJobTitleId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var jt in allJobTitles)
+                            {
+                                <option value="@jt.Id">@jt.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">المنصب الإداري</label>
+                        <select class="hr-select" @bind="editEmpPositionTitleId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var pt in allPositionTitles)
+                            {
+                                <option value="@pt.Id">@pt.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الدرجة الوظيفية</label>
+                        <select class="hr-select" @bind="editEmpGradeId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var gr in allGrades)
+                            {
+                                <option value="@gr.Id">@gr.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">المرحلة الوظيفية</label>
+                        <select class="hr-select" @bind="editEmpStageId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var st in allStages)
+                            {
+                                <option value="@st.Id">@st.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">حالة الموظف</label>
+                        <select class="hr-select" @bind="editEmpStatusId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var es in allEmployeeStatuses)
+                            {
+                                <option value="@es.Id">@es.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">تاريخ التعيين والمباشرة</label>
+                        <input type="date" class="hr-input" @bind="editEmpHireDate" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">تاريخ الحصول على آخر عنوان</label>
+                        <input type="date" class="hr-input" @bind="editEmpLastJobTitleDate" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">تاريخ آخر علاوة سنوية</label>
+                        <input type="date" class="hr-input" @bind="editEmpLastAllowanceDate" />
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">رصيد الإجازات الاعتيادية (يوم)</label>
+                        <input type="number" class="hr-input hr-num" @bind="editEmpLeaveBalance" />
+                    </div>
+                </div>
+            </div>
+
+            @* 3. المؤهل العلمي والتخصص *@
+            <div style="padding:var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);border:1px solid var(--line);">
+                <h4 class="hr-h4" style="margin:0 0 var(--s-2) 0;">المؤهلات العلمية والتخصص</h4>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:var(--s-2);">
+                    <div class="hr-field">
+                        <label class="hr-field-label">التحصيل الدراسي</label>
+                        <select class="hr-select" @bind="editEmpEducationLevelId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var ed in allEducationLevels)
+                            {
+                                <option value="@ed.Id">@ed.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">الاختصاص</label>
+                        <select class="hr-select" @bind="editEmpSpecializationId">
+                            <option value="">— غير محدد —</option>
+                            @foreach (var sp in allSpecializations)
+                            {
+                                <option value="@sp.Id">@sp.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="hr-field" style="grid-column:1 / -1;">
+                        <label class="hr-field-label">أول دائرة تعيين (اختياري)</label>
+                        <input type="text" class="hr-input" @bind="editEmpFirstDepartment" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showEditBasicEmployeeModal = false" disabled="@isSavingBasicEmployee">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveBasicEmployeeAsync" disabled="@isSavingBasicEmployee">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingBasicEmployee ? "جارٍ الحفظ..." : "حفظ التعديلات")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 2: CAREER MOVEMENT (حركة التنقلات والخدمة) ==================== *@
+<Modal IsOpen="@showMovementModal"
+       Title="@(editingMovement == null ? "إضافة محطة تنقل / فترة خدمة" : "تعديل محطة التنقل / فترة الخدمة")"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="arrows-right-left"
+       Size="md"
+       OnClose="() => { if (!isSavingMovement) showMovementModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(movementModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@movementModalError</div>
+            </div>
+        }
+        <div class="hr-stack">
+            <div class="hr-field">
+                <label class="hr-field-label">اسم الدائرة / التشكيل / حالة الخدمة <span style="color:var(--danger);">*</span></label>
+                <input type="text" class="hr-input" list="formations-datalist" @bind="modalMovementFormationName" placeholder="مثال: مكتب مكافحة غسل الأموال وتمويل الإرهاب..." />
+                <datalist id="formations-datalist">
+                    @foreach (var f in allFormations)
+                    {
+                        <option value="@f.Name" />
+                    }
+                </datalist>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">تاريخ المباشرة / بدء الفترة <span style="color:var(--danger);">*</span></label>
+                <input type="date" class="hr-input" @bind="modalMovementDate" />
+            </div>
+            <div style="padding:var(--s-3);background:var(--surface-sunken);border-radius:var(--r-md);border:1px solid var(--line);display:flex;flex-direction:column;gap:0.5rem;">
+                <span class="hr-field-label" style="margin-bottom:0.25rem;">أغراض احتساب هذه الفترة:</span>
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" @bind="modalMovementCountAllowance" />
+                    <span>تُحتسب لأغراض العلاوة السنوية</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" @bind="modalMovementCountPromotion" />
+                    <span>تُحتسب لأغراض الترفيع</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" @bind="modalMovementCountPension" />
+                    <span>تُحتسب لأغراض التقاعد</span>
+                </label>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">الملاحظات / رقم وتاريخ الأمر الإداري</label>
+                <textarea class="hr-textarea" rows="3" @bind="modalMovementNotes" placeholder="أية تفاصيل أو إشارات للأوامر الإدارية..."></textarea>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showMovementModal = false" disabled="@isSavingMovement">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveMovementAsync" disabled="@isSavingMovement">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingMovement ? "جارٍ الحفظ..." : "حفظ التنقل")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 3: APPRECIATION LETTER (كتاب شكر وتقدير) ==================== *@
+<Modal IsOpen="@showLetterModal"
+       Title="@(editingLetter == null ? "إضافة كتاب شكر وتقدير" : "تعديل كتاب الشكر والتقدير")"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="award"
+       Size="md"
+       OnClose="() => { if (!isSavingLetter) showLetterModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(letterModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@letterModalError</div>
+            </div>
+        }
+        <div class="hr-stack">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">رقم الكتاب / الأمر الإداري</label>
+                    <input type="text" class="hr-input hr-num" @bind="modalLetterNumber" placeholder="مثال: 1450" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ الكتاب</label>
+                    <input type="date" class="hr-input" @bind="modalLetterDate" />
+                </div>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">نوع الكتاب / القِدم الممنوح</label>
+                <select class="hr-select" @bind="modalLetterTypeId">
+                    <option value="">— اختر نوع كتاب الشكر —</option>
+                    @foreach (var lt in allLetterTypes)
+                    {
+                        <option value="@lt.Id">@lt.Name (@(lt.SeniorityMonths > 0 ? $"{lt.SeniorityMonths} شهر" : lt.SeniorityYears > 0 ? $"{lt.SeniorityYears} سنة" : "بدون قدم"))</option>
+                    }
+                </select>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">الجهة المانحة / عنوان الكتاب (من القائمة)</label>
+                <select class="hr-select" @bind="modalLetterTitleId">
+                    <option value="">— اختر من القائمة أو اكتب عنواناً مخصصاً أدناه —</option>
+                    @foreach (var tt in allLetterTitles)
+                    {
+                        <option value="@tt.Id">@tt.Name</option>
+                    }
+                </select>
+            </div>
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">عنوان الكتاب / البيان (نص مخصص)</label>
+                    <input type="text" class="hr-input" @bind="modalLetterCustomTitle" placeholder="مثال: شكر وتقدير للجهود المتميزة..." />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">العدد المحتسب</label>
+                    <input type="number" min="1" max="20" class="hr-input hr-num" @bind="modalLetterCount" />
+                </div>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">الملاحظات</label>
+                <textarea class="hr-textarea" rows="2" @bind="modalLetterNotes"></textarea>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showLetterModal = false" disabled="@isSavingLetter">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveLetterAsync" disabled="@isSavingLetter">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingLetter ? "جارٍ الحفظ..." : "حفظ كتاب الشكر")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 4: DISCIPLINARY PENALTY (عقوبة انضباطية) ==================== *@
+<Modal IsOpen="@showPenaltyModal"
+       Title="@(editingPenalty == null ? "إضافة عقوبة انضباطية" : "تعديل بيانات العقوبة الانضباطية")"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="exclamation-triangle"
+       Size="md"
+       OnClose="() => { if (!isSavingPenalty) showPenaltyModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(penaltyModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@penaltyModalError</div>
+            </div>
+        }
+        <div class="hr-stack">
+            <div class="hr-field">
+                <label class="hr-field-label">نوع العقوبة الانضباطية <span style="color:var(--danger);">*</span></label>
+                <select class="hr-select" @bind="modalPenaltyTypeId">
+                    <option value="">— اختر نوع العقوبة —</option>
+                    @foreach (var pt in allPenaltyTypes)
+                    {
+                        <option value="@pt.Id">@pt.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">أو إضافة نوع عقوبة جديد (في حال عدم وجوده بالقائمة أعلاه)</label>
+                <input type="text" class="hr-input" @bind="modalCustomPenaltyTypeName" placeholder="مثال: لفت نظر / إنذار / قطع راتب..." />
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">رقم الأمر الإداري</label>
+                    <input type="text" class="hr-input hr-num" @bind="modalPenaltyOrderNumber" placeholder="رقم الأمر..." />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ العقوبة</label>
+                    <input type="date" class="hr-input" @bind="modalPenaltyDate" />
+                </div>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">السبب / الملاحظات والتفاصيل</label>
+                <textarea class="hr-textarea" rows="3" @bind="modalPenaltyNotes" placeholder="تفاصيل العقوبة أو قرار الإلغاء..."></textarea>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showPenaltyModal = false" disabled="@isSavingPenalty">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SavePenaltyAsync" disabled="@isSavingPenalty">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingPenalty ? "جارٍ الحفظ..." : "حفظ العقوبة")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 5: LEAVE RECORD (إجازة) ==================== *@
+<Modal IsOpen="@showLeaveModal"
+       Title="@(editingLeave == null ? "إضافة إجازة للموظف" : "تعديل بيانات الإجازة")"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="calendar"
+       Size="md"
+       OnClose="() => { if (!isSavingLeave) showLeaveModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(leaveModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@leaveModalError</div>
+            </div>
+        }
+        <div class="hr-stack">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">نوع الإجازة <span style="color:var(--danger);">*</span></label>
+                    <select class="hr-select" @bind="modalLeaveTypeId">
+                        <option value="">— اختر نوع الإجازة —</option>
+                        @foreach (var lt in allLeaveTypes)
+                        {
+                            <option value="@lt.Id">@lt.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">حالة الإجازة</label>
+                    <select class="hr-select" @bind="modalLeaveStatus">
+                        <option value="معتمدة">معتمدة</option>
+                        <option value="قيد الإجراء">قيد الإجراء</option>
+                        <option value="مكتملة">مكتملة</option>
+                        <option value="ملغاة">ملغاة</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ الانفكاك / البدء <span style="color:var(--danger);">*</span></label>
+                    <input type="date" class="hr-input" @bind="modalLeaveStartDate" @bind:after="RecalculateLeaveModalDays" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ المباشرة / الانتهاء <span style="color:var(--danger);">*</span></label>
+                    <input type="date" class="hr-input" @bind="modalLeaveEndDate" @bind:after="RecalculateLeaveModalDays" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">عدد الأيام</label>
+                    <input type="number" min="1" class="hr-input hr-num" @bind="modalLeaveDaysCount" />
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">رقم الأمر الإداري</label>
+                    <input type="text" class="hr-input hr-num" @bind="modalLeaveOrderNumber" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ الأمر الإداري</label>
+                    <input type="date" class="hr-input" @bind="modalLeaveOrderDate" />
+                </div>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">الملاحظات</label>
+                <textarea class="hr-textarea" rows="2" @bind="modalLeaveNotes"></textarea>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showLeaveModal = false" disabled="@isSavingLeave">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveLeaveAsync" disabled="@isSavingLeave">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingLeave ? "جارٍ الحفظ..." : "حفظ الإجازة")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 6: EDIT LEAVE BALANCE (رصيد الإجازات) ==================== *@
+<Modal IsOpen="@showLeaveBalanceModal"
+       Title="تعديل الرصيد التراكمي للإجازات الاعتيادية"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="calendar"
+       Size="sm"
+       OnClose="() => { if (!isSavingLeaveBalance) showLeaveBalanceModal = false; }">
+    <Body>
+        <div class="hr-stack">
+            <div class="hr-field">
+                <label class="hr-field-label">رصيد الإجازات الاعتيادية المتبقي (بالأيام)</label>
+                <input type="number" class="hr-input hr-num" @bind="modalLeaveBalanceValue" placeholder="مثال: 120" />
+                <span class="hr-meta" style="font-size:0.78rem;">اترك الحقل فارغاً إذا كان الرصيد غير محدد بالسجلات.</span>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showLeaveBalanceModal = false" disabled="@isSavingLeaveBalance">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveLeaveBalanceAsync" disabled="@isSavingLeaveBalance">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingLeaveBalance ? "جارٍ الحفظ..." : "حفظ الرصيد")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 7: TRAINING COURSE (دورة تدريبية) ==================== *@
+<Modal IsOpen="@showCourseModal"
+       Title="@(editingCourse == null ? "إضافة دورة تدريبية أو ورشة" : "تعديل بيانات الدورة التدريبية")"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="academic-cap"
+       Size="md"
+       OnClose="() => { if (!isSavingCourse) showCourseModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(courseModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@courseModalError</div>
+            </div>
+        }
+        <div class="hr-stack">
+            <div class="hr-field">
+                <label class="hr-field-label">اسم الدورة التدريبية / البرنامج <span style="color:var(--danger);">*</span></label>
+                <input type="text" class="hr-input" @bind="modalCourseName" placeholder="اسم الدورة..." />
+            </div>
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">الجهة المنظمة / مكان الانعقاد</label>
+                    <input type="text" class="hr-input" @bind="modalCourseInstitution" placeholder="مثال: البنك المركزي العراقي..." />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">حالة المشاركة</label>
+                    <select class="hr-select" @bind="modalCourseStatus">
+                        <option value="مكتملة">مكتملة</option>
+                        <option value="مجتاز">مجتاز</option>
+                        <option value="قيد الانعقاد">قيد الانعقاد</option>
+                        <option value="مشارك">مشارك</option>
+                        <option value="ملغاة">ملغاة</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ البدء</label>
+                    <input type="date" class="hr-input" @bind="modalCourseStartDate" @bind:after="RecalculateCourseModalDays" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ الانتهاء</label>
+                    <input type="date" class="hr-input" @bind="modalCourseEndDate" @bind:after="RecalculateCourseModalDays" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">المدة (أيام)</label>
+                    <input type="number" min="1" class="hr-input hr-num" @bind="modalCourseDaysCount" />
+                </div>
+            </div>
+            <div class="hr-field">
+                <label class="hr-field-label">الملاحظات / التقدير</label>
+                <textarea class="hr-textarea" rows="2" @bind="modalCourseNotes"></textarea>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showCourseModal = false" disabled="@isSavingCourse">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveCourseAsync" disabled="@isSavingCourse">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingCourse ? "جارٍ الحفظ..." : "حفظ الدورة")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 8: FEEDBACK EDIT / REPLY (تعديل مشاركة الموظف أو الرد) ==================== *@
+<Modal IsOpen="@showFeedbackReplyModal"
+       Title="@(isAdmin ? "تعديل المشاركة أو الرد الإداري" : "تعديل مشاركتي")"
+       Subtitle="@(editingFeedback == null ? null : $"{editingFeedback.ReferenceNumber} · {editingFeedback.FeedbackType}")"
+       Icon="chat-bubble-left-right"
+       Size="md"
+       OnClose="() => { if (!isSavingFeedbackReply) showFeedbackReplyModal = false; }">
+    <Body>
+        @if (editingFeedback != null)
+        {
+            <div class="hr-stack">
+                <div class="hr-field">
+                    <label class="hr-field-label">الموضوع</label>
+                    <input type="text" class="hr-input" @bind="modalFeedbackTitle" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">نص المشاركة / المقترح</label>
+                    <textarea class="hr-textarea" rows="3" @bind="modalFeedbackDescription"></textarea>
+                </div>
+                @if (isAdmin)
+                {
+                    <div class="hr-field">
+                        <label class="hr-field-label">الحالة التنفيذية</label>
+                        <select class="hr-select" @bind="modalFeedbackStatus">
+                            <option value="@FeedbackStatus.Pending">بانتظار المراجعة</option>
+                            <option value="@FeedbackStatus.InProgress">قيد المعالجة</option>
+                            <option value="@FeedbackStatus.Resolved">تمت المعالجة</option>
+                            <option value="@FeedbackStatus.Rejected">محفوظة</option>
+                        </select>
+                    </div>
+                    <div class="hr-field">
+                        <label class="hr-field-label">رد وتوجيهات الإدارة</label>
+                        <textarea class="hr-textarea" rows="3" @bind="modalFeedbackAdminNotes" placeholder="اكتب رد الإدارة أو الإجراء المتخذ..."></textarea>
+                    </div>
+                }
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showFeedbackReplyModal = false" disabled="@isSavingFeedbackReply">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveFeedbackReplyAsync" disabled="@isSavingFeedbackReply">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingFeedbackReply ? "جارٍ الحفظ..." : "حفظ التعديلات")</span>
+        </button>
+    </Footer>
+</Modal>
+
+@* ==================== ADMIN MODAL 9: NATIONAL CARD (البطاقة الوطنية الموحدة) ==================== *@
+<Modal IsOpen="@showNationalCardModal"
+       Title="@(nationalCard == null ? "إضافة بيانات البطاقة الوطنية الموحدة" : "تعديل بيانات البطاقة الوطنية الموحدة")"
+       Subtitle="@(employee == null ? null : $"{employee.Name} · {employee.EmployeeID}")"
+       Icon="identification"
+       Size="md"
+       OnClose="() => { if (!isSavingNationalCard) showNationalCardModal = false; }">
+    <Body>
+        @if (!string.IsNullOrEmpty(nationalCardModalError))
+        {
+            <div class="hr-alert hr-alert-danger" style="margin-block-end:var(--s-3);">
+                <Icon Name="exclamation-triangle" Size="sm" />
+                <div class="hr-alert-grow">@nationalCardModalError</div>
+            </div>
+        }
+        <div class="hr-stack">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">الرقم الوطني الموحد (12 رقماً) <span style="color:var(--danger);">*</span></label>
+                    <input type="text" class="hr-input hr-num" dir="ltr" maxlength="12" @bind="modalNatCardNumber" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">رقم الوثيقة (Document Number) <span style="color:var(--danger);">*</span></label>
+                    <input type="text" class="hr-input hr-num" dir="ltr" maxlength="18" @bind="modalNatCardDocNumber" />
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">الاسم الكامل (عربي)</label>
+                    <input type="text" class="hr-input" @bind="modalNatCardFullNameAr" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">الاسم باللاتينية (إنكليزي)</label>
+                    <input type="text" class="hr-input" dir="ltr" @bind="modalNatCardFullNameEn" />
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ الولادة</label>
+                    <input type="date" class="hr-input" @bind="modalNatCardBirthDate" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ الإصدار</label>
+                    <input type="date" class="hr-input" @bind="modalNatCardIssueDate" />
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">تاريخ النفاذ</label>
+                    <input type="date" class="hr-input" @bind="modalNatCardExpiryDate" />
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);">
+                <div class="hr-field">
+                    <label class="hr-field-label">الجنس</label>
+                    <select class="hr-select" @bind="modalNatCardGender">
+                        <option value="ذكر">ذكر</option>
+                        <option value="أنثى">أنثى</option>
+                    </select>
+                </div>
+                <div class="hr-field">
+                    <label class="hr-field-label">الجنسية</label>
+                    <input type="text" class="hr-input" @bind="modalNatCardNationality" />
+                </div>
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button type="button" class="hr-btn hr-btn-secondary" @onclick="() => showNationalCardModal = false" disabled="@isSavingNationalCard">إلغاء</button>
+        <button type="button" class="hr-btn hr-btn-primary" @onclick="SaveNationalCardAsync" disabled="@isSavingNationalCard">
+            <Icon Name="check" Size="xs" />
+            <span>@(isSavingNationalCard ? "جارٍ الحفظ..." : "حفظ البطاقة الوطنية")</span>
+        </button>
+    </Footer>
+</Modal>
+
 @code {
     [Parameter] public string? EmployeeId { get; set; }
 
@@ -5593,6 +6581,7 @@
     private bool canViewContacts;
     private bool canEditContacts;
     private bool canViewNationalCards;
+    private bool canEditNationalCards;
     private bool canViewResidences;
     private bool canEditResidences;
     private bool canViewPassports;
@@ -5601,9 +6590,14 @@
     private bool canViewSalaries;
     private bool canEditSalaries;
     private bool canViewMovements;
+    private bool canEditMovements;
     private bool canViewLetters;
+    private bool canEditLetters;
+    private bool canEditPenalties;
     private bool canViewLeaves;
+    private bool canEditLeaves;
     private bool canViewCourses;
+    private bool canEditCourses;
     private bool canViewFeedback;
     private bool canViewVehicles;
     private bool canEditVehicles;
@@ -5815,6 +6809,8 @@
             canViewNationalCards = isOwnProfile || isAdmin
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.NationalCardsView)
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.NationalCardsEdit);
+            canEditNationalCards = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.NationalCardsEdit);
 
             canViewResidences = isOwnProfile || isAdmin
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.ResidencesView)
@@ -5841,17 +6837,27 @@
             canViewMovements = isOwnProfile || isAdmin || canViewEmployees
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PromotionsView)
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PromotionsEdit);
+            canEditMovements = isAdmin || canEditEmployees
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.PromotionsEdit);
 
             canViewLetters = isOwnProfile || isAdmin
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.AppreciationLettersView)
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.AppreciationLettersEdit);
+            canEditLetters = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.AppreciationLettersEdit);
+
+            canEditPenalties = isAdmin || canEditEmployees;
 
             canViewLeaves = isOwnProfile || isAdmin
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.LeavesView)
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.LeavesEdit);
+            canEditLeaves = isAdmin
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.LeavesEdit);
 
             canViewCourses = isOwnProfile || isAdmin
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.CoursesView)
+                || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.CoursesEdit);
+            canEditCourses = isAdmin
                 || API.HR.Node.Security.PermissionResolver.HasPermission(currentUser, API.HR.Node.Security.Permissions.CoursesEdit);
 
             canViewFeedback = systemFeatures.EnableMyFeedback && (isOwnProfile || isAdmin
@@ -5949,9 +6955,15 @@
 
             allMartyrdomTypes = await db.MartyrdomTypes.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
             allMartyrKinships = await db.MartyrKinships.AsNoTracking().OrderBy(k => k.Degree).ThenBy(k => k.Id).ToListAsync();
+            allLetterTypes = await db.AppreciationLetterTypes.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
+            allLetterTitles = await db.AppreciationLetterTitles.AsNoTracking().OrderBy(t => t.Name).ToListAsync();
+            allPenaltyTypes = await db.PenaltyTypes.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
+            allLeaveTypes = await db.LeaveTypes.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
+            allFormations = await db.Formations.AsNoTracking().OrderBy(f => f.Name).ToListAsync();
 
             // Load National Identity Card
-            nationalCard = await NationalCardService.GetByEmployeeIdAsync(employee.Id);
+            var scopedNatCardService = scope.ServiceProvider.GetRequiredService<INationalCardService>();
+            nationalCard = await scopedNatCardService.GetByEmployeeIdAsync(employee.Id);
 
             // Load Employee Residences & Governorates
             employeeResidences = await db.EmployeeResidences.AsNoTracking()
@@ -9018,6 +10030,1236 @@
             vehicle.IsAuthorized = newStatus;
             Toast.Success(newStatus ? "تم تفعيل تخويل دخول المركبة" : "تم إيقاف تخويل دخول المركبة");
             StateHasChanged();
+        }
+    }
+
+    // ==================== ADMIN FULL CRUD METHODS ====================
+
+    // Lookups
+    private List<AppreciationLetterType> allLetterTypes = [];
+    private List<AppreciationLetterTitle> allLetterTitles = [];
+    private List<PenaltyType> allPenaltyTypes = [];
+    private List<LeaveType> allLeaveTypes = [];
+    private List<Formation> allFormations = [];
+    private List<AdministrativeUnit> allAdminUnits = [];
+    private List<JobTitle> allJobTitles = [];
+    private List<PositionTitle> allPositionTitles = [];
+    private List<Grade> allGrades = [];
+    private List<Stage> allStages = [];
+    private List<EducationLevel> allEducationLevels = [];
+    private List<Specialization> allSpecializations = [];
+    private List<Gender> allGenders = [];
+    private List<MaritalStatus> allMaritalStatuses = [];
+    private List<Religion> allReligions = [];
+    private List<Nationality> allNationalities = [];
+    private List<EmployeeStatus> allEmployeeStatuses = [];
+
+    // 1. Basic Employee Edit State
+    private bool showEditBasicEmployeeModal = false;
+    private bool isSavingBasicEmployee = false;
+    private string? basicEmployeeModalError;
+    private string editEmpName = "";
+    private string? editEmpFirstName;
+    private string? editEmpSecondName;
+    private string? editEmpThirdName;
+    private string? editEmpFourthName;
+    private string? editEmpMotherName;
+    private DateOnly? editEmpBirthDate;
+    private string? editEmpNationalId;
+    private int? editEmpGenderId;
+    private int? editEmpMaritalStatusId;
+    private int? editEmpReligionId;
+    private int? editEmpNationalityId;
+    private string? editEmpUnifiedNumber;
+    private int? editEmpFormationId;
+    private int? editEmpAdminUnitId;
+    private int? editEmpJobTitleId;
+    private int? editEmpPositionTitleId;
+    private int? editEmpGradeId;
+    private int? editEmpStageId;
+    private int? editEmpStatusId;
+    private DateOnly? editEmpHireDate;
+    private DateOnly? editEmpLastJobTitleDate;
+    private DateOnly? editEmpLastAllowanceDate;
+    private decimal? editEmpLeaveBalance;
+    private int? editEmpEducationLevelId;
+    private int? editEmpSpecializationId;
+    private string? editEmpFirstDepartment;
+
+    private async Task OpenEditBasicEmployeeModalAsync()
+    {
+        if (employee == null || !canEditEmployees) return;
+        basicEmployeeModalError = null;
+
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            if (allJobTitles.Count == 0)
+            {
+                allJobTitles = await db.JobTitles.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                allPositionTitles = await db.PositionTitles.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                allGrades = await db.Grades.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allStages = await db.Stages.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allEducationLevels = await db.EducationLevels.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allSpecializations = await db.Specializations.AsNoTracking().OrderBy(x => x.Name).ToListAsync();
+                allGenders = await db.Genders.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allMaritalStatuses = await db.MaritalStatuses.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allReligions = await db.Religions.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allNationalities = await db.Nationalities.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allEmployeeStatuses = await db.EmployeeStatuses.AsNoTracking().OrderBy(x => x.Id).ToListAsync();
+                allAdminUnits = await db.AdministrativeUnits.AsNoTracking().Include(u => u.UnitType).OrderBy(x => x.Name).ToListAsync();
+            }
+            if (allFormations.Count == 0)
+            {
+                allFormations = await db.Formations.AsNoTracking().OrderBy(f => f.Name).ToListAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading lookups for basic employee edit modal");
+        }
+
+        editEmpName = employee.Name;
+        editEmpFirstName = employee.FirstName;
+        editEmpSecondName = employee.SecondName;
+        editEmpThirdName = employee.ThirdName;
+        editEmpFourthName = employee.FourthName;
+        editEmpMotherName = employee.MotherName;
+        editEmpBirthDate = employee.BirthDate;
+        editEmpNationalId = employee.NationalId;
+        editEmpGenderId = employee.GenderId;
+        editEmpMaritalStatusId = employee.MaritalStatusId;
+        editEmpReligionId = employee.ReligionId;
+        editEmpNationalityId = employee.NationalityId;
+        editEmpUnifiedNumber = employee.UnifiedEmployeeNumber;
+        editEmpFormationId = employee.FormationId;
+        editEmpAdminUnitId = employee.AdministrativeUnitId;
+        editEmpJobTitleId = employee.JobTitleId;
+        editEmpPositionTitleId = employee.PositionTitleId;
+        editEmpGradeId = employee.GradeId;
+        editEmpStageId = employee.StageId;
+        editEmpStatusId = employee.EmployeeStatusId;
+        editEmpHireDate = employee.HireDate;
+        editEmpLastJobTitleDate = employee.LastJobTitleDate;
+        editEmpLastAllowanceDate = employee.LastAllowanceDate;
+        editEmpLeaveBalance = employee.LeaveBalance;
+        editEmpEducationLevelId = employee.EducationLevelId;
+        editEmpSpecializationId = employee.SpecializationId;
+        editEmpFirstDepartment = employee.FirstDepartment;
+
+        showEditBasicEmployeeModal = true;
+    }
+
+    private async Task SaveBasicEmployeeAsync()
+    {
+        if (employee == null || !canEditEmployees) return;
+        basicEmployeeModalError = null;
+
+        if (string.IsNullOrWhiteSpace(editEmpName))
+        {
+            basicEmployeeModalError = "يرجى إدخال الاسم الكامل للموظف.";
+            return;
+        }
+
+        isSavingBasicEmployee = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var emp = await db.Employees.IgnoreQueryFilters().FirstOrDefaultAsync(e => e.Id == employee.Id);
+            if (emp == null)
+            {
+                basicEmployeeModalError = "لم يتم العثور على سجل الموظف.";
+                return;
+            }
+
+            emp.Name = editEmpName.Trim();
+            emp.FirstName = string.IsNullOrWhiteSpace(editEmpFirstName) ? null : editEmpFirstName.Trim();
+            emp.SecondName = string.IsNullOrWhiteSpace(editEmpSecondName) ? null : editEmpSecondName.Trim();
+            emp.ThirdName = string.IsNullOrWhiteSpace(editEmpThirdName) ? null : editEmpThirdName.Trim();
+            emp.FourthName = string.IsNullOrWhiteSpace(editEmpFourthName) ? null : editEmpFourthName.Trim();
+            emp.MotherName = string.IsNullOrWhiteSpace(editEmpMotherName) ? null : editEmpMotherName.Trim();
+            emp.BirthDate = editEmpBirthDate;
+            emp.NationalId = string.IsNullOrWhiteSpace(editEmpNationalId) ? null : editEmpNationalId.Trim();
+            emp.GenderId = editEmpGenderId;
+            emp.MaritalStatusId = editEmpMaritalStatusId;
+            emp.ReligionId = editEmpReligionId;
+            emp.NationalityId = editEmpNationalityId;
+            emp.UnifiedEmployeeNumber = string.IsNullOrWhiteSpace(editEmpUnifiedNumber) ? null : editEmpUnifiedNumber.Trim();
+            emp.FormationId = editEmpFormationId;
+            emp.AdministrativeUnitId = editEmpAdminUnitId;
+            emp.JobTitleId = editEmpJobTitleId;
+            emp.PositionTitleId = editEmpPositionTitleId;
+            emp.GradeId = editEmpGradeId;
+            emp.StageId = editEmpStageId;
+            emp.EmployeeStatusId = editEmpStatusId;
+            emp.HireDate = editEmpHireDate;
+            emp.LastJobTitleDate = editEmpLastJobTitleDate;
+            emp.LastAllowanceDate = editEmpLastAllowanceDate;
+            emp.LeaveBalance = editEmpLeaveBalance;
+            emp.EducationLevelId = editEmpEducationLevelId;
+            emp.SpecializationId = editEmpSpecializationId;
+            emp.FirstDepartment = string.IsNullOrWhiteSpace(editEmpFirstDepartment) ? null : editEmpFirstDepartment.Trim();
+
+            await db.SaveChangesAsync();
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            try
+            {
+                await AuditLogger.LogAsync(
+                    "EMPLOYEE_BASIC_UPDATED",
+                    employee.EmployeeID,
+                    null,
+                    true,
+                    authState.User,
+                    null,
+                    null,
+                    $"Updated basic/job/education fields for employee {employee.EmployeeID}");
+            }
+            catch { }
+
+            showEditBasicEmployeeModal = false;
+            await LoadDossier();
+            ShowToast("تم تحديث البيانات الأساسية والوظيفية للموظف بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving basic employee fields");
+            basicEmployeeModalError = $"حدث خطأ أثناء حفظ البيانات: {ex.Message}";
+        }
+        finally
+        {
+            isSavingBasicEmployee = false;
+        }
+    }
+
+    // 2. Career Movements CRUD
+    private bool showMovementModal = false;
+    private bool isSavingMovement = false;
+    private string? movementModalError;
+    private EmployeeCareerMovement? editingMovement;
+    private string modalMovementFormationName = "";
+    private DateOnly modalMovementDate = DateOnly.FromDateTime(DateTime.Today);
+    private bool modalMovementCountAllowance = true;
+    private bool modalMovementCountPromotion = true;
+    private bool modalMovementCountPension = true;
+    private string? modalMovementNotes;
+
+    private void OpenAddMovementModal()
+    {
+        if (!canEditMovements || employee == null) return;
+        editingMovement = null;
+        movementModalError = null;
+        modalMovementFormationName = employee.Formation?.Name ?? "";
+        modalMovementDate = DateOnly.FromDateTime(DateTime.Today);
+        modalMovementCountAllowance = true;
+        modalMovementCountPromotion = true;
+        modalMovementCountPension = true;
+        modalMovementNotes = null;
+        showMovementModal = true;
+    }
+
+    private void OpenEditMovementModal(int movementId)
+    {
+        if (!canEditMovements || employee == null) return;
+        var mov = careerMovements.FirstOrDefault(m => m.Id == movementId);
+        if (mov == null) return;
+        editingMovement = mov;
+        movementModalError = null;
+        modalMovementFormationName = mov.FormationName;
+        modalMovementDate = mov.MovementDate;
+        modalMovementCountAllowance = mov.CountForAllowance;
+        modalMovementCountPromotion = mov.CountForPromotion;
+        modalMovementCountPension = mov.CountForPension;
+        modalMovementNotes = mov.Notes;
+        showMovementModal = true;
+    }
+
+    private async Task SaveMovementAsync()
+    {
+        if (employee == null || !canEditMovements) return;
+        movementModalError = null;
+
+        if (string.IsNullOrWhiteSpace(modalMovementFormationName))
+        {
+            movementModalError = "يرجى إدخال اسم الدائرة أو التشكيل أو حالة الخدمة.";
+            return;
+        }
+
+        isSavingMovement = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            EmployeeCareerMovement mov;
+            if (editingMovement == null)
+            {
+                mov = new EmployeeCareerMovement
+                {
+                    EmployeeId = employee.Id,
+                    FormationName = modalMovementFormationName.Trim()
+                };
+                db.EmployeeCareerMovements.Add(mov);
+            }
+            else
+            {
+                mov = await db.EmployeeCareerMovements.FirstOrDefaultAsync(m => m.Id == editingMovement.Id)
+                      ?? throw new InvalidOperationException("لم يتم العثور على سجل التنقل المطلوب تعديله.");
+            }
+
+            mov.FormationName = modalMovementFormationName.Trim();
+            mov.MovementDate = modalMovementDate;
+            mov.CountForAllowance = modalMovementCountAllowance;
+            mov.CountForPromotion = modalMovementCountPromotion;
+            mov.CountForPension = modalMovementCountPension;
+            mov.Notes = string.IsNullOrWhiteSpace(modalMovementNotes) ? null : modalMovementNotes.Trim();
+
+            await db.SaveChangesAsync();
+
+            careerMovements = await db.EmployeeCareerMovements.AsNoTracking()
+                .Where(m => m.EmployeeId == employee.Id)
+                .OrderBy(m => m.MovementDate)
+                .ToListAsync();
+
+            showMovementModal = false;
+            ShowToast("تم حفظ بيانات محطة التنقل والخدمة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            movementModalError = $"حدث خطأ أثناء الحفظ: {ex.Message}";
+        }
+        finally
+        {
+            isSavingMovement = false;
+        }
+    }
+
+    private async Task DeleteMovementAsync(int movementId)
+    {
+        if (employee == null || !canEditMovements || movementId <= 0) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var mov = await db.EmployeeCareerMovements.FirstOrDefaultAsync(m => m.Id == movementId);
+            if (mov != null)
+            {
+                db.EmployeeCareerMovements.Remove(mov);
+                await db.SaveChangesAsync();
+            }
+
+            careerMovements = await db.EmployeeCareerMovements.AsNoTracking()
+                .Where(m => m.EmployeeId == employee.Id)
+                .OrderBy(m => m.MovementDate)
+                .ToListAsync();
+
+            ShowToast("تم حذف محطة التنقل بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف التنقل: {ex.Message}", false);
+        }
+    }
+
+    // 3. Appreciation Letters CRUD
+    private bool showLetterModal = false;
+    private bool isSavingLetter = false;
+    private string? letterModalError;
+    private AppreciationLetter? editingLetter;
+    private string? modalLetterNumber;
+    private DateOnly? modalLetterDate;
+    private int? modalLetterTypeId;
+    private int? modalLetterTitleId;
+    private string? modalLetterCustomTitle;
+    private int modalLetterCount = 1;
+    private string? modalLetterNotes;
+
+    private void OpenAddLetterModal()
+    {
+        if (!canEditLetters || employee == null) return;
+        editingLetter = null;
+        letterModalError = null;
+        modalLetterNumber = null;
+        modalLetterDate = DateOnly.FromDateTime(DateTime.Today);
+        modalLetterTypeId = allLetterTypes.FirstOrDefault()?.Id;
+        modalLetterTitleId = null;
+        modalLetterCustomTitle = null;
+        modalLetterCount = 1;
+        modalLetterNotes = null;
+        showLetterModal = true;
+    }
+
+    private void OpenEditLetterModal(AppreciationLetter letter)
+    {
+        if (!canEditLetters || employee == null) return;
+        editingLetter = letter;
+        letterModalError = null;
+        modalLetterNumber = letter.LetterNumber;
+        modalLetterDate = letter.LetterDate;
+        modalLetterTypeId = letter.TypeId;
+        modalLetterTitleId = letter.TitleId;
+        modalLetterCustomTitle = letter.Title;
+        modalLetterCount = letter.Count ?? 1;
+        modalLetterNotes = letter.Notes;
+        showLetterModal = true;
+    }
+
+    private async Task SaveLetterAsync()
+    {
+        if (employee == null || !canEditLetters) return;
+        letterModalError = null;
+
+        if (!modalLetterTitleId.HasValue && string.IsNullOrWhiteSpace(modalLetterCustomTitle))
+        {
+            letterModalError = "يرجى اختيار الجهة المانحة من القائمة أو كتابة عنوان كتاب الشكر.";
+            return;
+        }
+
+        isSavingLetter = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            AppreciationLetter rec;
+            if (editingLetter == null)
+            {
+                rec = new AppreciationLetter
+                {
+                    EmployeeId = employee.Id
+                };
+                db.AppreciationLetters.Add(rec);
+            }
+            else
+            {
+                rec = await db.AppreciationLetters.FirstOrDefaultAsync(l => l.Id == editingLetter.Id)
+                      ?? throw new InvalidOperationException("لم يتم العثور على كتاب الشكر المطلوب تعديله.");
+            }
+
+            rec.LetterNumber = string.IsNullOrWhiteSpace(modalLetterNumber) ? null : modalLetterNumber.Trim();
+            rec.LetterDate = modalLetterDate;
+            rec.TypeId = modalLetterTypeId;
+            rec.TitleId = modalLetterTitleId;
+            rec.Title = string.IsNullOrWhiteSpace(modalLetterCustomTitle)
+                ? allLetterTitles.FirstOrDefault(t => t.Id == modalLetterTitleId)?.Name
+                : modalLetterCustomTitle.Trim();
+            rec.Count = modalLetterCount > 0 ? modalLetterCount : 1;
+            rec.Notes = string.IsNullOrWhiteSpace(modalLetterNotes) ? null : modalLetterNotes.Trim();
+
+            await db.SaveChangesAsync();
+
+            appreciationLetters = await db.AppreciationLetters.AsNoTracking()
+                .Include(a => a.Type)
+                .Include(a => a.TitleLookup)
+                .Where(a => a.EmployeeId == employee.Id)
+                .OrderByDescending(a => a.LetterDate)
+                .ToListAsync();
+
+            showLetterModal = false;
+            ShowToast("تم حفظ كتاب الشكر والتقدير بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            letterModalError = $"حدث خطأ أثناء حفظ كتاب الشكر: {ex.Message}";
+        }
+        finally
+        {
+            isSavingLetter = false;
+        }
+    }
+
+    private async Task DeleteLetterAsync(int letterId)
+    {
+        if (employee == null || !canEditLetters) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.AppreciationLetters.FirstOrDefaultAsync(l => l.Id == letterId);
+            if (existing != null)
+            {
+                db.AppreciationLetters.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+
+            appreciationLetters = await db.AppreciationLetters.AsNoTracking()
+                .Include(a => a.Type)
+                .Include(a => a.TitleLookup)
+                .Where(a => a.EmployeeId == employee.Id)
+                .OrderByDescending(a => a.LetterDate)
+                .ToListAsync();
+
+            ShowToast("تم حذف كتاب الشكر والتقدير بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف كتاب الشكر: {ex.Message}", false);
+        }
+    }
+
+    // 4. Penalties CRUD
+    private bool showPenaltyModal = false;
+    private bool isSavingPenalty = false;
+    private string? penaltyModalError;
+    private EmployeePenalty? editingPenalty;
+    private int? modalPenaltyTypeId;
+    private string? modalCustomPenaltyTypeName;
+    private string? modalPenaltyOrderNumber;
+    private DateOnly? modalPenaltyDate;
+    private string? modalPenaltyNotes;
+
+    private void OpenAddPenaltyModal()
+    {
+        if (!canEditPenalties || employee == null) return;
+        editingPenalty = null;
+        penaltyModalError = null;
+        modalPenaltyTypeId = allPenaltyTypes.FirstOrDefault()?.Id;
+        modalCustomPenaltyTypeName = null;
+        modalPenaltyOrderNumber = null;
+        modalPenaltyDate = DateOnly.FromDateTime(DateTime.Today);
+        modalPenaltyNotes = null;
+        showPenaltyModal = true;
+    }
+
+    private void OpenEditPenaltyModal(EmployeePenalty pen)
+    {
+        if (!canEditPenalties || employee == null) return;
+        editingPenalty = pen;
+        penaltyModalError = null;
+        modalPenaltyTypeId = pen.PenaltyTypeId;
+        modalCustomPenaltyTypeName = null;
+        modalPenaltyOrderNumber = pen.OrderNumber;
+        modalPenaltyDate = pen.PenaltyDate;
+        modalPenaltyNotes = pen.Notes;
+        showPenaltyModal = true;
+    }
+
+    private async Task SavePenaltyAsync()
+    {
+        if (employee == null || !canEditPenalties) return;
+        penaltyModalError = null;
+
+        isSavingPenalty = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            int? resolvedTypeId = modalPenaltyTypeId;
+            if (!string.IsNullOrWhiteSpace(modalCustomPenaltyTypeName))
+            {
+                var customName = modalCustomPenaltyTypeName.Trim();
+                var existingType = await db.PenaltyTypes.FirstOrDefaultAsync(t => t.Name == customName);
+                if (existingType == null)
+                {
+                    existingType = new PenaltyType { Name = customName };
+                    db.PenaltyTypes.Add(existingType);
+                    await db.SaveChangesAsync();
+                    allPenaltyTypes = await db.PenaltyTypes.AsNoTracking().OrderBy(t => t.Id).ToListAsync();
+                }
+                resolvedTypeId = existingType.Id;
+            }
+
+            if (!resolvedTypeId.HasValue)
+            {
+                penaltyModalError = "يرجى اختيار نوع العقوبة أو كتابة نوع عقوبة جديد.";
+                return;
+            }
+
+            EmployeePenalty pen;
+            if (editingPenalty == null)
+            {
+                pen = new EmployeePenalty
+                {
+                    EmployeeId = employee.Id
+                };
+                db.EmployeePenalties.Add(pen);
+            }
+            else
+            {
+                pen = await db.EmployeePenalties.FirstOrDefaultAsync(p => p.Id == editingPenalty.Id)
+                      ?? throw new InvalidOperationException("لم يتم العثور على العقوبة المطلوب تعديلها.");
+            }
+
+            pen.PenaltyTypeId = resolvedTypeId.Value;
+            pen.OrderNumber = string.IsNullOrWhiteSpace(modalPenaltyOrderNumber) ? null : modalPenaltyOrderNumber.Trim();
+            pen.PenaltyDate = modalPenaltyDate;
+            pen.Notes = string.IsNullOrWhiteSpace(modalPenaltyNotes) ? null : modalPenaltyNotes.Trim();
+
+            await db.SaveChangesAsync();
+
+            employeePenalties = await db.EmployeePenalties.AsNoTracking()
+                .Include(p => p.PenaltyType)
+                .Where(p => p.EmployeeId == employee.Id)
+                .OrderByDescending(p => p.PenaltyDate)
+                .ToListAsync();
+
+            showPenaltyModal = false;
+            ShowToast("تم حفظ بيانات العقوبة الانضباطية بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            penaltyModalError = $"حدث خطأ أثناء حفظ العقوبة: {ex.Message}";
+        }
+        finally
+        {
+            isSavingPenalty = false;
+        }
+    }
+
+    private async Task DeletePenaltyAsync(int penaltyId)
+    {
+        if (employee == null || !canEditPenalties) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.EmployeePenalties.FirstOrDefaultAsync(p => p.Id == penaltyId);
+            if (existing != null)
+            {
+                db.EmployeePenalties.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+
+            employeePenalties = await db.EmployeePenalties.AsNoTracking()
+                .Include(p => p.PenaltyType)
+                .Where(p => p.EmployeeId == employee.Id)
+                .OrderByDescending(p => p.PenaltyDate)
+                .ToListAsync();
+
+            ShowToast("تم حذف العقوبة الانضباطية بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف العقوبة: {ex.Message}", false);
+        }
+    }
+
+    // 5. Leaves & Leave Balance CRUD
+    private bool showLeaveBalanceModal = false;
+    private bool isSavingLeaveBalance = false;
+    private decimal? modalLeaveBalanceValue;
+
+    private void OpenEditLeaveBalanceModal()
+    {
+        if (!canEditLeaves || employee == null) return;
+        modalLeaveBalanceValue = employee.LeaveBalance;
+        showLeaveBalanceModal = true;
+    }
+
+    private async Task SaveLeaveBalanceAsync()
+    {
+        if (employee == null || !canEditLeaves) return;
+        isSavingLeaveBalance = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var emp = await db.Employees.IgnoreQueryFilters().FirstOrDefaultAsync(e => e.Id == employee.Id);
+            if (emp != null)
+            {
+                emp.LeaveBalance = modalLeaveBalanceValue;
+                await db.SaveChangesAsync();
+                employee.LeaveBalance = modalLeaveBalanceValue;
+            }
+            showLeaveBalanceModal = false;
+            ShowToast("تم تحديث رصيد الإجازات بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر تحديث رصيد الإجازات: {ex.Message}", false);
+        }
+        finally
+        {
+            isSavingLeaveBalance = false;
+        }
+    }
+
+    private bool showLeaveModal = false;
+    private bool isSavingLeave = false;
+    private string? leaveModalError;
+    private EmployeeLeave? editingLeave;
+    private int? modalLeaveTypeId;
+    private string modalLeaveStatus = "معتمدة";
+    private DateOnly modalLeaveStartDate = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly modalLeaveEndDate = DateOnly.FromDateTime(DateTime.Today);
+    private int modalLeaveDaysCount = 1;
+    private string? modalLeaveOrderNumber;
+    private DateOnly? modalLeaveOrderDate;
+    private string? modalLeaveNotes;
+
+    private void OpenAddLeaveModal()
+    {
+        if (!canEditLeaves || employee == null) return;
+        editingLeave = null;
+        leaveModalError = null;
+        modalLeaveTypeId = allLeaveTypes.FirstOrDefault()?.Id;
+        modalLeaveStatus = "معتمدة";
+        modalLeaveStartDate = DateOnly.FromDateTime(DateTime.Today);
+        modalLeaveEndDate = DateOnly.FromDateTime(DateTime.Today);
+        modalLeaveDaysCount = 1;
+        modalLeaveOrderNumber = null;
+        modalLeaveOrderDate = DateOnly.FromDateTime(DateTime.Today);
+        modalLeaveNotes = null;
+        showLeaveModal = true;
+    }
+
+    private void OpenEditLeaveModal(EmployeeLeave leave)
+    {
+        if (!canEditLeaves || employee == null) return;
+        editingLeave = leave;
+        leaveModalError = null;
+        modalLeaveTypeId = leave.LeaveTypeId;
+        modalLeaveStatus = string.IsNullOrWhiteSpace(leave.Status) ? "معتمدة" : leave.Status;
+        modalLeaveStartDate = leave.StartDate;
+        modalLeaveEndDate = leave.EndDate;
+        modalLeaveDaysCount = leave.DaysCount > 0 ? leave.DaysCount : Math.Max(1, leave.EndDate.DayNumber - leave.StartDate.DayNumber + 1);
+        modalLeaveOrderNumber = leave.OrderNumber;
+        modalLeaveOrderDate = leave.OrderDate;
+        modalLeaveNotes = leave.Notes;
+        showLeaveModal = true;
+    }
+
+    private void RecalculateLeaveModalDays()
+    {
+        if (modalLeaveEndDate >= modalLeaveStartDate)
+        {
+            modalLeaveDaysCount = modalLeaveEndDate.DayNumber - modalLeaveStartDate.DayNumber + 1;
+        }
+    }
+
+    private async Task SaveLeaveAsync()
+    {
+        if (employee == null || !canEditLeaves) return;
+        leaveModalError = null;
+
+        if (!modalLeaveTypeId.HasValue)
+        {
+            leaveModalError = "يرجى اختيار نوع الإجازة.";
+            return;
+        }
+        if (modalLeaveEndDate < modalLeaveStartDate)
+        {
+            leaveModalError = "تاريخ انتهاء الإجازة لا يمكن أن يكون قبل تاريخ البدء.";
+            return;
+        }
+
+        isSavingLeave = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            EmployeeLeave lv;
+            if (editingLeave == null)
+            {
+                lv = new EmployeeLeave
+                {
+                    EmployeeId = employee.Id
+                };
+                db.EmployeeLeaves.Add(lv);
+            }
+            else
+            {
+                lv = await db.EmployeeLeaves.FirstOrDefaultAsync(l => l.Id == editingLeave.Id)
+                     ?? throw new InvalidOperationException("لم يتم العثور على سجل الإجازة المطلوب تعديله.");
+            }
+
+            lv.LeaveTypeId = modalLeaveTypeId.Value;
+            lv.Status = string.IsNullOrWhiteSpace(modalLeaveStatus) ? "معتمدة" : modalLeaveStatus.Trim();
+            lv.StartDate = modalLeaveStartDate;
+            lv.EndDate = modalLeaveEndDate;
+            lv.DaysCount = modalLeaveDaysCount > 0 ? modalLeaveDaysCount : Math.Max(1, modalLeaveEndDate.DayNumber - modalLeaveStartDate.DayNumber + 1);
+            lv.OrderNumber = string.IsNullOrWhiteSpace(modalLeaveOrderNumber) ? null : modalLeaveOrderNumber.Trim();
+            lv.OrderDate = modalLeaveOrderDate;
+            lv.Notes = string.IsNullOrWhiteSpace(modalLeaveNotes) ? null : modalLeaveNotes.Trim();
+
+            await db.SaveChangesAsync();
+
+            employeeLeaves = await db.EmployeeLeaves.AsNoTracking()
+                .Include(l => l.LeaveType)
+                .Where(l => l.EmployeeId == employee.Id)
+                .OrderByDescending(l => l.StartDate)
+                .ToListAsync();
+
+            showLeaveModal = false;
+            ShowToast("تم حفظ بيانات الإجازة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            leaveModalError = $"حدث خطأ أثناء حفظ الإجازة: {ex.Message}";
+        }
+        finally
+        {
+            isSavingLeave = false;
+        }
+    }
+
+    private async Task DeleteLeaveAsync(int leaveId)
+    {
+        if (employee == null || !canEditLeaves) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.EmployeeLeaves.FirstOrDefaultAsync(l => l.Id == leaveId);
+            if (existing != null)
+            {
+                db.EmployeeLeaves.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+
+            employeeLeaves = await db.EmployeeLeaves.AsNoTracking()
+                .Include(l => l.LeaveType)
+                .Where(l => l.EmployeeId == employee.Id)
+                .OrderByDescending(l => l.StartDate)
+                .ToListAsync();
+
+            ShowToast("تم حذف سجل الإجازة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف الإجازة: {ex.Message}", false);
+        }
+    }
+
+    // 6. Courses CRUD
+    private bool showCourseModal = false;
+    private bool isSavingCourse = false;
+    private string? courseModalError;
+    private EmployeeCourse? editingCourse;
+    private string modalCourseName = "";
+    private string? modalCourseInstitution;
+    private string modalCourseStatus = "مكتملة";
+    private DateOnly? modalCourseStartDate;
+    private DateOnly? modalCourseEndDate;
+    private int? modalCourseDaysCount;
+    private string? modalCourseNotes;
+
+    private void OpenAddCourseModal()
+    {
+        if (!canEditCourses || employee == null) return;
+        editingCourse = null;
+        courseModalError = null;
+        modalCourseName = "";
+        modalCourseInstitution = null;
+        modalCourseStatus = "مكتملة";
+        modalCourseStartDate = DateOnly.FromDateTime(DateTime.Today);
+        modalCourseEndDate = DateOnly.FromDateTime(DateTime.Today);
+        modalCourseDaysCount = 1;
+        modalCourseNotes = null;
+        showCourseModal = true;
+    }
+
+    private void OpenEditCourseModal(EmployeeCourse course)
+    {
+        if (!canEditCourses || employee == null) return;
+        editingCourse = course;
+        courseModalError = null;
+        modalCourseName = course.CourseName;
+        modalCourseInstitution = course.Institution;
+        modalCourseStatus = string.IsNullOrWhiteSpace(course.Status) ? "مكتملة" : course.Status;
+        modalCourseStartDate = course.StartDate;
+        modalCourseEndDate = course.EndDate;
+        modalCourseDaysCount = course.DaysCount;
+        modalCourseNotes = course.Notes;
+        showCourseModal = true;
+    }
+
+    private void RecalculateCourseModalDays()
+    {
+        if (modalCourseStartDate.HasValue && modalCourseEndDate.HasValue && modalCourseEndDate.Value >= modalCourseStartDate.Value)
+        {
+            modalCourseDaysCount = modalCourseEndDate.Value.DayNumber - modalCourseStartDate.Value.DayNumber + 1;
+        }
+    }
+
+    private async Task SaveCourseAsync()
+    {
+        if (employee == null || !canEditCourses) return;
+        courseModalError = null;
+
+        if (string.IsNullOrWhiteSpace(modalCourseName))
+        {
+            courseModalError = "يرجى إدخال اسم الدورة التدريبية.";
+            return;
+        }
+
+        isSavingCourse = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            EmployeeCourse crs;
+            if (editingCourse == null)
+            {
+                crs = new EmployeeCourse
+                {
+                    EmployeeId = employee.Id,
+                    CourseName = modalCourseName.Trim()
+                };
+                db.EmployeeCourses.Add(crs);
+            }
+            else
+            {
+                crs = await db.EmployeeCourses.FirstOrDefaultAsync(c => c.Id == editingCourse.Id)
+                      ?? throw new InvalidOperationException("لم يتم العثور على الدورة المطلوب تعديلها.");
+            }
+
+            crs.CourseName = modalCourseName.Trim();
+            crs.Institution = string.IsNullOrWhiteSpace(modalCourseInstitution) ? null : modalCourseInstitution.Trim();
+            crs.Status = string.IsNullOrWhiteSpace(modalCourseStatus) ? "مكتملة" : modalCourseStatus.Trim();
+            crs.StartDate = modalCourseStartDate;
+            crs.EndDate = modalCourseEndDate;
+            crs.DaysCount = modalCourseDaysCount;
+            crs.Notes = string.IsNullOrWhiteSpace(modalCourseNotes) ? null : modalCourseNotes.Trim();
+
+            await db.SaveChangesAsync();
+
+            employeeCourses = await db.EmployeeCourses.AsNoTracking()
+                .Where(c => c.EmployeeId == employee.Id)
+                .OrderByDescending(c => c.StartDate)
+                .ToListAsync();
+
+            showCourseModal = false;
+            ShowToast("تم حفظ بيانات الدورة التدريبية بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            courseModalError = $"حدث خطأ أثناء حفظ الدورة: {ex.Message}";
+        }
+        finally
+        {
+            isSavingCourse = false;
+        }
+    }
+
+    private async Task DeleteCourseAsync(int courseId)
+    {
+        if (employee == null || !canEditCourses) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.EmployeeCourses.FirstOrDefaultAsync(c => c.Id == courseId);
+            if (existing != null)
+            {
+                db.EmployeeCourses.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+
+            employeeCourses = await db.EmployeeCourses.AsNoTracking()
+                .Where(c => c.EmployeeId == employee.Id)
+                .OrderByDescending(c => c.StartDate)
+                .ToListAsync();
+
+            ShowToast("تم حذف الدورة التدريبية بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف الدورة: {ex.Message}", false);
+        }
+    }
+
+    // 7. Feedback Edit / Delete in Profile
+    private bool showFeedbackReplyModal = false;
+    private bool isSavingFeedbackReply = false;
+    private EmployeeFeedback? editingFeedback;
+    private string modalFeedbackTitle = "";
+    private string modalFeedbackDescription = "";
+    private FeedbackStatus modalFeedbackStatus = FeedbackStatus.Pending;
+    private string? modalFeedbackAdminNotes;
+
+    private void OpenEditFeedbackModal(EmployeeFeedback fb)
+    {
+        if (!isAdmin && (!isOwnProfile || fb.Status != FeedbackStatus.Pending)) return;
+        editingFeedback = fb;
+        modalFeedbackTitle = fb.Title;
+        modalFeedbackDescription = fb.Description;
+        modalFeedbackStatus = fb.Status;
+        modalFeedbackAdminNotes = fb.AdminNotes;
+        showFeedbackReplyModal = true;
+    }
+
+    private async Task SaveFeedbackReplyAsync()
+    {
+        if (editingFeedback == null || employee == null) return;
+        if (!isAdmin && !isOwnProfile) return;
+        isSavingFeedbackReply = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var fb = await db.EmployeeFeedbacks.FirstOrDefaultAsync(f => f.Id == editingFeedback.Id);
+            if (fb != null)
+            {
+                if (!isAdmin && fb.Status != FeedbackStatus.Pending)
+                {
+                    ShowToast("لا يمكن تعديل المشاركة بعد تغيير حالتها الأولى من قِبل الإدارة.", false);
+                    showFeedbackReplyModal = false;
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(modalFeedbackTitle))
+                    fb.Title = modalFeedbackTitle.Trim();
+                if (!string.IsNullOrWhiteSpace(modalFeedbackDescription))
+                {
+                    fb.Description = modalFeedbackDescription.Trim();
+                    fb.WordCount = API.HR.Node.Services.Feedback.EmployeeFeedbackService.CountWords(fb.Description);
+                }
+                if (isAdmin)
+                {
+                    fb.Status = modalFeedbackStatus;
+                    fb.AdminNotes = string.IsNullOrWhiteSpace(modalFeedbackAdminNotes) ? null : modalFeedbackAdminNotes.Trim();
+                }
+                fb.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
+
+            employeeFeedbacks = await db.EmployeeFeedbacks.AsNoTracking()
+                .Where(f => f.EmployeeId == employee.Id)
+                .OrderByDescending(f => f.CreatedAt)
+                .ToListAsync();
+            showFeedbackReplyModal = false;
+            ShowToast(isAdmin ? "تم حفظ تعديلات المشاركة والرد الإداري بنجاح." : "تم حفظ تعديلات المشاركة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر تحديث المشاركة: {ex.Message}", false);
+        }
+        finally
+        {
+            isSavingFeedbackReply = false;
+        }
+    }
+
+    private async Task DeleteFeedbackInProfileAsync(int feedbackId)
+    {
+        if (employee == null || (!isAdmin && !isOwnProfile)) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.EmployeeFeedbacks.FirstOrDefaultAsync(f => f.Id == feedbackId);
+            if (existing != null)
+            {
+                if (!isAdmin && existing.Status != FeedbackStatus.Pending)
+                {
+                    ShowToast("لا يمكن حذف المشاركة بعد تغيير حالتها الأولى من قِبل الإدارة.", false);
+                    return;
+                }
+
+                db.EmployeeFeedbacks.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+            employeeFeedbacks = await db.EmployeeFeedbacks.AsNoTracking()
+                .Where(f => f.EmployeeId == employee.Id)
+                .OrderByDescending(f => f.CreatedAt)
+                .ToListAsync();
+            ShowToast("تم حذف المشاركة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف المشاركة: {ex.Message}", false);
+        }
+    }
+
+    // 8. National Card Edit / Delete in Profile
+    private bool showNationalCardModal = false;
+    private bool isSavingNationalCard = false;
+    private string? nationalCardModalError;
+    private string modalNatCardNumber = "";
+    private string modalNatCardDocNumber = "";
+    private string? modalNatCardFullNameAr;
+    private string? modalNatCardFullNameEn;
+    private DateOnly? modalNatCardBirthDate;
+    private DateOnly? modalNatCardIssueDate;
+    private DateOnly? modalNatCardExpiryDate;
+    private string modalNatCardGender = "ذكر";
+    private string modalNatCardNationality = "عراقي";
+
+    private void OpenAddNationalCardModal()
+    {
+        if (!canEditNationalCards || employee == null) return;
+        nationalCardModalError = null;
+        modalNatCardNumber = employee.NationalId ?? "";
+        modalNatCardDocNumber = "";
+        modalNatCardFullNameAr = employee.Name;
+        modalNatCardFullNameEn = "";
+        modalNatCardBirthDate = employee.BirthDate;
+        modalNatCardIssueDate = DateOnly.FromDateTime(DateTime.Today);
+        modalNatCardExpiryDate = DateOnly.FromDateTime(DateTime.Today.AddYears(10));
+        modalNatCardGender = employee.Gender?.Name ?? "ذكر";
+        modalNatCardNationality = employee.Nationality?.Name ?? "عراقي";
+        showNationalCardModal = true;
+    }
+
+    private void OpenEditNationalCardModal()
+    {
+        if (!canEditNationalCards || employee == null || nationalCard == null) return;
+        nationalCardModalError = null;
+        modalNatCardNumber = nationalCard.NationalIdNumber;
+        modalNatCardDocNumber = nationalCard.DocumentNumber;
+        modalNatCardFullNameAr = nationalCard.FullNameAr ?? employee.Name;
+        modalNatCardFullNameEn = nationalCard.FullNameEn;
+        modalNatCardBirthDate = nationalCard.DateOfBirth ?? employee.BirthDate;
+        modalNatCardIssueDate = nationalCard.IssueDate;
+        modalNatCardExpiryDate = nationalCard.ExpiryDate;
+        modalNatCardGender = nationalCard.Gender ?? "ذكر";
+        modalNatCardNationality = nationalCard.Nationality ?? "عراقي";
+        showNationalCardModal = true;
+    }
+
+    private async Task SaveNationalCardAsync()
+    {
+        if (employee == null || !canEditNationalCards) return;
+        nationalCardModalError = null;
+
+        var cleanNatId = (modalNatCardNumber ?? "").Trim();
+        var cleanDocNo = (modalNatCardDocNumber ?? "").Trim();
+        if (cleanNatId.Length != 12 || !cleanNatId.All(char.IsDigit))
+        {
+            nationalCardModalError = "الرقم الوطني الموحد يجب أن يتكون من 12 رقماً.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(cleanDocNo))
+        {
+            nationalCardModalError = "يرجى إدخال رقم الوثيقة (Document Number).";
+            return;
+        }
+
+        isSavingNationalCard = true;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            var card = await db.EmployeeNationalCards.FirstOrDefaultAsync(c => c.EmployeeId == employee.Id);
+            if (card == null)
+            {
+                card = new EmployeeNationalCard
+                {
+                    EmployeeId = employee.Id,
+                    CreatedAt = DateTime.UtcNow
+                };
+                db.EmployeeNationalCards.Add(card);
+            }
+
+            card.NationalIdNumber = cleanNatId;
+            card.DocumentNumber = cleanDocNo;
+            card.FullNameAr = string.IsNullOrWhiteSpace(modalNatCardFullNameAr) ? employee.Name : modalNatCardFullNameAr.Trim();
+            card.FullNameEn = string.IsNullOrWhiteSpace(modalNatCardFullNameEn) ? null : modalNatCardFullNameEn.Trim();
+            card.DateOfBirth = modalNatCardBirthDate;
+            card.IssueDate = modalNatCardIssueDate;
+            card.ExpiryDate = modalNatCardExpiryDate;
+            card.Gender = modalNatCardGender;
+            card.Nationality = modalNatCardNationality;
+
+            var emp = await db.Employees.IgnoreQueryFilters().FirstOrDefaultAsync(e => e.Id == employee.Id);
+            if (emp != null)
+            {
+                emp.NationalId = cleanNatId;
+            }
+
+            await db.SaveChangesAsync();
+
+            var scopedNatCardService = scope.ServiceProvider.GetRequiredService<INationalCardService>();
+            nationalCard = await scopedNatCardService.GetByEmployeeIdAsync(employee.Id);
+            employee.NationalId = cleanNatId;
+            showNationalCardModal = false;
+            ShowToast("تم حفظ بيانات البطاقة الوطنية الموحدة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            nationalCardModalError = $"تعذر حفظ بيانات البطاقة الوطنية: {ex.Message}";
+        }
+        finally
+        {
+            isSavingNationalCard = false;
+        }
+    }
+
+    private async Task DeleteNationalCardAsync()
+    {
+        if (employee == null || !canEditNationalCards) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.EmployeeNationalCards.FirstOrDefaultAsync(c => c.EmployeeId == employee.Id);
+            if (existing != null)
+            {
+                db.EmployeeNationalCards.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+            nationalCard = null;
+            ShowToast("تم حذف سجل البطاقة الوطنية الموحدة بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف البطاقة الوطنية: {ex.Message}", false);
+        }
+    }
+
+    // 9. Delete Financial Transaction
+    private async Task DeleteFinancialTransactionAsync(int txId)
+    {
+        if (employee == null || !canEditSalaries) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var tx = await db.EmployeeBalanceTransactions.FirstOrDefaultAsync(t => t.Id == txId && t.EmployeeId == employee.Id);
+            if (tx != null)
+            {
+                var acc = await db.EmployeeFinancialAccounts.FirstOrDefaultAsync(a => a.EmployeeId == employee.Id);
+                if (acc != null)
+                {
+                    if (tx.TransactionType == FinancialTransactionType.Deposit)
+                        acc.Balance -= tx.Amount;
+                    else if (tx.TransactionType == FinancialTransactionType.Withdrawal)
+                        acc.Balance += tx.Amount;
+                    acc.UpdatedAt = DateTime.UtcNow;
+                }
+                db.EmployeeBalanceTransactions.Remove(tx);
+                await db.SaveChangesAsync();
+            }
+
+            await LoadFinancialData(employee.Id);
+            ShowToast("تم حذف الحركة المالية وتحديث الرصيد بنجاح.", true);
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف الحركة المالية: {ex.Message}", false);
+        }
+    }
+
+    // 10. Delete Vehicle in Profile
+    private async Task DeleteVehicleInProfileAsync(int vehicleId)
+    {
+        if (employee == null || !canEditVehicles) return;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await db.EmployeeVehicles.FirstOrDefaultAsync(v => v.Id == vehicleId);
+            if (existing != null)
+            {
+                db.EmployeeVehicles.Remove(existing);
+                await db.SaveChangesAsync();
+            }
+            employeeVehicles.RemoveAll(v => v.Id == vehicleId);
+            ShowToast("تم حذف المركبة من سجل الموظف بنجاح.", true);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"تعذر حذف المركبة: {ex.Message}", false);
         }
     }
 
